@@ -13,7 +13,7 @@ function makeMock() {
     onExit: vi.fn((h: any) => { exitHandlers.push(h) }),
   }
   const runner: IProcessRunner = {
-    run: vi.fn() as any,
+    run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
     spawn: vi.fn().mockReturnValue(proc) as any,
   }
   const triggerExit = (code = 0) => exitHandlers.forEach(h => h(code))
@@ -54,12 +54,26 @@ describe('Scrcpy', () => {
     expect(new Scrcpy(runner).elapsedMs()).toBeNull()
   })
 
-  it('stop kills with SIGINT and resolves on exit', async () => {
+  it('stop on POSIX sends SIGINT and resolves on exit', async () => {
     const { runner, proc, triggerExit } = makeMock()
-    const s = new Scrcpy(runner)
+    const s = new Scrcpy(runner, 'linux')
     s.start({ deviceId: 'A', recordPath: 'a.mp4' })
     const p = s.stop()
     expect(proc.kill).toHaveBeenCalledWith('SIGINT')
+    triggerExit(0)
+    await p
+    expect(s.isRunning()).toBe(false)
+  })
+
+  it('stop on Windows runs taskkill (graceful, no /F) so scrcpy flushes the mp4 moov atom', async () => {
+    const { runner, proc, triggerExit } = makeMock()
+    const s = new Scrcpy(runner, 'win32')
+    s.start({ deviceId: 'A', recordPath: 'a.mp4' })
+    const p = s.stop()
+    // Wait a tick so the async gracefulKill dispatches its runner.run() call.
+    await Promise.resolve()
+    expect(runner.run).toHaveBeenCalledWith('taskkill', ['/PID', '999'])
+    expect(proc.kill).not.toHaveBeenCalled()
     triggerExit(0)
     await p
     expect(s.isRunning()).toBe(false)

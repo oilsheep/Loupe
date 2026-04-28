@@ -9,8 +9,11 @@ export interface ScrcpyOptions {
 export class Scrcpy {
   private process?: SpawnedProcess
   private startTime?: number
+  private platform: NodeJS.Platform
 
-  constructor(private runner: IProcessRunner) {}
+  constructor(private runner: IProcessRunner, platform?: NodeJS.Platform) {
+    this.platform = platform ?? process.platform
+  }
 
   start(opts: ScrcpyOptions): void {
     if (this.process) throw new Error('scrcpy already running')
@@ -37,15 +40,38 @@ export class Scrcpy {
     return !!this.process
   }
 
-  /** Sends SIGINT (clean stop, finalises mp4 moov atom), then resolves on exit. */
+  /** Graceful stop: triggers scrcpy's clean shutdown so it flushes the mp4 moov atom. */
   async stop(): Promise<void> {
     if (!this.process) return
     const proc = this.process
     this.process = undefined
     return new Promise<void>((resolve) => {
-      const hardKill = setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000).unref()
+      const hardKill = setTimeout(() => { this.forceKill(proc).catch(() => {}) }, 5000).unref()
       proc.onExit(() => { clearTimeout(hardKill); resolve() })
-      try { proc.kill('SIGINT') } catch { /* already dead */ }
+      this.gracefulKill(proc).catch(() => { /* already dead */ })
     })
+  }
+
+  private async gracefulKill(proc: SpawnedProcess): Promise<void> {
+    // Why platform-specific:
+    //   On POSIX, proc.kill('SIGINT') triggers scrcpy's signal handler which closes
+    //   the mp4 cleanly (writes moov atom).
+    //   On Windows, Node's proc.kill('SIGINT') maps to TerminateProcess — abrupt kill,
+    //   so scrcpy never gets to finalise the mp4 (results in "moov atom not found").
+    //   `taskkill` without /F sends WM_CLOSE to scrcpy's mirror window; scrcpy handles
+    //   that as a normal shutdown.
+    if (this.platform === 'win32' && proc.pid !== undefined) {
+      await this.runner.run('taskkill', ['/PID', String(proc.pid)])
+    } else {
+      proc.kill('SIGINT')
+    }
+  }
+
+  private async forceKill(proc: SpawnedProcess): Promise<void> {
+    if (this.platform === 'win32' && proc.pid !== undefined) {
+      await this.runner.run('taskkill', ['/PID', String(proc.pid), '/T', '/F'])
+    } else {
+      proc.kill('SIGKILL')
+    }
   }
 }
