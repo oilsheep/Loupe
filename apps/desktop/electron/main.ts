@@ -40,11 +40,13 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(localPath).toString())
   })
 
-  // In dev (running via electron-vite), keep recordings inside the repo so they're
-  // easy to inspect and reference. In a packaged build, fall back to %APPDATA%.
-  // __dirname when running through electron-vite is `<repo>/apps/desktop/out/main`.
+  // Recordings always live next to the app — never in %APPDATA% — so QA can browse
+  // them as plain files without hunting for hidden user-data folders.
+  //   Dev (electron-vite):  <repo>/recordings/        (__dirname = <repo>/apps/desktop/out/main)
+  //   Packaged (.exe):      <install-dir>/recordings/ (next to the exe)
+  // `defaultRoot(userDataDir)` is retained as a fallback helper but no longer used by main.
   const root = app.isPackaged
-    ? defaultRoot(app.getPath('userData'))
+    ? join(dirname(app.getPath('exe')), 'recordings')
     : join(__dirname, '..', '..', '..', '..', 'recordings')
   console.log(`Loupe: session data root = ${root}`)
   const paths = createPaths(root); paths.ensureRoot()

@@ -18,7 +18,26 @@ export interface SessionDeps {
   runner: IProcessRunner
   captureScreenshot?: typeof defaultCapture
   now?: () => number
+  /** Generates IDs for individual bugs (random UUID by default). */
   newId?: () => string
+  /** Generates the session id / on-disk folder name. Default = `<YYYY-MM-DD>_<HH-mm-ss>_<sanitized-build>`. */
+  makeSessionId?: (buildVersion: string, nowMs: number) => string
+}
+
+const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
+
+/**
+ * Default session id generator. Returns e.g. `2026-04-29_14-30-45_1.4.2-RC3`.
+ * Folder name is human-readable (date + build) so QA can find recordings without
+ * looking up UUIDs. Empty build version falls back to `untitled`.
+ */
+export function makeSessionId(buildVersion: string, nowMs: number): string {
+  const d = new Date(nowMs)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const datePart = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const timePart = `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+  const build = (buildVersion.trim() || 'untitled').replace(ILLEGAL_FILENAME_CHARS, '_')
+  return `${datePart}_${timePart}_${build}`
 }
 
 export interface StartArgs {
@@ -38,11 +57,13 @@ export class SessionManager {
   private capture: typeof defaultCapture
   private now: () => number
   private newId: () => string
+  private makeSessionId: (buildVersion: string, nowMs: number) => string
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
     this.now = deps.now ?? Date.now
     this.newId = deps.newId ?? randomUUID
+    this.makeSessionId = deps.makeSessionId ?? makeSessionId
   }
 
   activeSessionId(): string | null { return this.active?.id ?? null }
@@ -51,13 +72,14 @@ export class SessionManager {
     if (this.active) throw new Error('a session is already active')
     const { db, paths, adb, scrcpy, logcat } = this.deps
     const info = await adb.getDeviceInfo(args.deviceId)
-    const id = this.newId()
+    const startedAt = this.now()
+    const id = this.makeSessionId(args.buildVersion, startedAt)
     paths.ensureSessionDirs(id)
     const sess: Session = {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
       connectionMode: args.connectionMode, status: 'recording',
-      durationMs: null, startedAt: this.now(), endedAt: null,
+      durationMs: null, startedAt, endedAt: null,
     }
     db.insertSession(sess)
     scrcpy.start({ deviceId: args.deviceId, recordPath: paths.videoFile(id), windowTitle: `Loupe — ${info.model}` })

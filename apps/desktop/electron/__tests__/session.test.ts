@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SessionManager } from '../session'
+import { SessionManager, makeSessionId } from '../session'
 import { openDb } from '../db'
 import { createPaths } from '../paths'
 import type { Adb } from '../adb'
@@ -52,7 +52,8 @@ describe('SessionManager', () => {
       runner: { run: vi.fn() as any, spawn: vi.fn() as any },
       captureScreenshot: stubs.screenshot,
       now: () => nowMs,
-      newId: ((seq) => () => `id-${seq++}`)(1),
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'sess-1',
     })
   })
 
@@ -62,14 +63,14 @@ describe('SessionManager', () => {
     const s = await mgr.start({
       deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: 'note',
     })
-    expect(s.id).toBe('id-1')
+    expect(s.id).toBe('sess-1')
     expect(s.deviceModel).toBe('Pixel 7')
     expect(s.status).toBe('recording')
     expect(stubs.scrcpy.start).toHaveBeenCalledWith(expect.objectContaining({
-      deviceId: 'ABC', recordPath: paths.videoFile('id-1'),
+      deviceId: 'ABC', recordPath: paths.videoFile('sess-1'),
     }))
     expect(stubs.logcat.start).toHaveBeenCalled()
-    expect(existsSync(paths.screenshotsDir('id-1'))).toBe(true)
+    expect(existsSync(paths.screenshotsDir('sess-1'))).toBe(true)
   })
 
   it('throws when starting while already active', async () => {
@@ -84,10 +85,10 @@ describe('SessionManager', () => {
     const bug = await mgr.markBug({ severity: 'major', note: 'crash' })
     expect(bug.offsetMs).toBe(7000)
     expect(bug.severity).toBe('major')
-    expect(existsSync(paths.screenshotFile('id-1', bug.id))).toBe(true)
-    expect(existsSync(paths.logcatFile('id-1', bug.id))).toBe(true)
-    expect(stubs.logcat.dumpRecentToFile).toHaveBeenCalledWith(paths.logcatFile('id-1', bug.id))
-    expect(db.listBugs('id-1')).toHaveLength(1)
+    expect(existsSync(paths.screenshotFile('sess-1', bug.id))).toBe(true)
+    expect(existsSync(paths.logcatFile('sess-1', bug.id))).toBe(true)
+    expect(stubs.logcat.dumpRecentToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id))
+    expect(db.listBugs('sess-1')).toHaveLength(1)
   })
 
   it('markBug throws when no active session', async () => {
@@ -111,5 +112,23 @@ describe('SessionManager', () => {
     await mgr.discard(s.id)
     expect(db.getSession(s.id)).toBeUndefined()
     expect(existsSync(paths.sessionDir(s.id))).toBe(false)
+  })
+})
+
+describe('makeSessionId (default)', () => {
+  it('builds <YYYY-MM-DD>_<HH-mm-ss>_<build> from local time', () => {
+    const id = makeSessionId('1.4.2-RC3', Date.now())
+    // Date and time portions are local-tz-dependent; assert structure not exact value.
+    expect(id).toMatch(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_1\.4\.2-RC3$/)
+  })
+
+  it('sanitises illegal Windows filename chars in build version', () => {
+    const id = makeSessionId('feat/foo:bar*baz', 0)
+    expect(id).toMatch(/_feat_foo_bar_baz$/)
+  })
+
+  it('falls back to "untitled" when build version is blank', () => {
+    expect(makeSessionId('', 0)).toMatch(/_untitled$/)
+    expect(makeSessionId('   ', 0)).toMatch(/_untitled$/)
   })
 })
