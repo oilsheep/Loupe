@@ -54,6 +54,7 @@ describe('buildClipArgs', () => {
       startMs: 0,
       endMs: 5000,
       markerMs: 12_000,
+      severity: 'major',
       deviceModel: 'Pixel 7 Pro',
       buildVersion: 'Daily Alpha',
       androidVersion: '16',
@@ -63,10 +64,28 @@ describe('buildClipArgs', () => {
       note: 'button failed',
     })
     const filter = args[args.indexOf('-filter:v') + 1]
-    expect(filter).toContain("text='button failed'")
+    expect(filter).toContain('drawbox=')
+    expect(filter).toContain('color=0xff4d4f@1')
+    expect(filter).toContain("text='major'")
+    expect(filter).toContain("text='/ button failed'")
     expect(filter).toContain('Daily Alpha / Android 16 / Pixel 7 Pro')
     expect(filter).not.toContain('Test\\:')
     expect(filter).toContain('Avery / 2026-04-29 14\\:05')
+  })
+
+  it('renders severity without requiring a note', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 0,
+      endMs: 5000,
+      severity: 'improvement',
+      note: '',
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).toContain('drawbox=')
+    expect(filter).toContain('color=0x22c55e@1')
+    expect(filter).toContain("text='improvement'")
   })
 
   it('wraps long caption lines into separate drawtext layers', () => {
@@ -159,6 +178,7 @@ describe('buildContactSheetArgs', () => {
       outputPath: 'out.jpg',
       startMs: 1000,
       endMs: 10_000,
+      severity: 'normal',
       note: 'button failed',
       buildVersion: 'Daily Alpha',
       testedAtMs: new Date(2026, 3, 29, 14, 5, 6).getTime(),
@@ -168,7 +188,8 @@ describe('buildContactSheetArgs', () => {
     expect(filter).toContain('trim=start=1.000:duration=9.000')
     expect(filter).toContain('fps=1.000000')
     expect(filter).toContain('tile=3x3')
-    expect(filter).toContain("text='button failed'")
+    expect(filter).toContain("text='normal'")
+    expect(filter).toContain("text='/ button failed'")
     expect(filter).toContain('Daily Alpha')
     expect(filter).toContain('2026-04-29 14\\:05')
   })

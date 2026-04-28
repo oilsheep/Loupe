@@ -136,3 +136,9 @@ apps/desktop/dist/
 
 - [User Guide](docs/user-guide.md)
 - [Chinese User Guide](docs/Loupe%20%E4%BD%BF%E7%94%A8%E8%AA%AA%E6%98%8E.md)
+
+## License
+
+Loupe QA Recorder source code is licensed under the [MIT License](LICENSE).
+
+Packaged builds include third-party components such as scrcpy, Android Platform Tools, FFmpeg libraries, SDL2, libusb, Electron, and npm dependencies. These components keep their original licenses and are not relicensed under MIT. See [Third-Party Notices](THIRD_PARTY_NOTICES.md).

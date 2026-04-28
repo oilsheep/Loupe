@@ -7,6 +7,7 @@ export interface ClipOptions {
   endMs: number
   narrationPath?: string | null
   narrationDurationMs?: number | null
+  severity?: 'note' | 'major' | 'normal' | 'minor' | 'improvement' | null
   note?: string | null
   markerMs?: number | null
   deviceModel?: string | null
@@ -53,6 +54,24 @@ function escapeDrawtextValue(value: string): string {
 interface CaptionLine {
   text: string
   bold: boolean
+  x?: number
+  color?: string
+  afterText?: string
+  afterX?: number
+  box?: {
+    color: string
+    width: number
+    height: number
+    textColor: string
+  }
+}
+
+const SEVERITY_STYLE: Record<NonNullable<ClipOptions['severity']>, { label: string; color: string }> = {
+  note: { label: 'note', color: '0x8b5cf6' },
+  major: { label: 'major', color: '0xff4d4f' },
+  normal: { label: 'normal', color: '0xffa500' },
+  minor: { label: 'minor', color: '0x22b8f0' },
+  improvement: { label: 'improvement', color: '0x22c55e' },
 }
 
 function formatDateTime(msValue: number): string {
@@ -88,8 +107,23 @@ function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
     return values.length > 0 ? values.join(' / ') : null
   }
 
+  const severity = opts.severity ? SEVERITY_STYLE[opts.severity] : null
   const note = opts.note?.trim()
-  if (note) addWrapped(note, 20, true)
+  if (severity) {
+    const labelWidth = Math.max(76, severity.label.length * 15 + 24)
+    const firstLineMax = note ? Math.max(8, 22 - Math.ceil(labelWidth / 16)) : 0
+    const noteLines = note ? wrapTextLine(note, firstLineMax) : []
+    lines.push({
+      text: severity.label,
+      bold: true,
+      afterText: noteLines[0] ? `/ ${noteLines[0]}` : undefined,
+      afterX: 18 + labelWidth + 12,
+      box: { color: severity.color, width: labelWidth, height: 30, textColor: 'white' },
+    })
+    for (const line of noteLines.slice(1)) lines.push({ text: line, bold: true })
+  } else if (note) {
+    addWrapped(note, 20, true)
+  }
 
   addWrapped(compactLine([
     opts.buildVersion,
@@ -110,17 +144,28 @@ function captionFilter(lines: CaptionLine[]): string {
   const topPad = 18
   const bottomPad = 16
   const lineGap = 8
-  const lineHeights = lines.map(line => line.bold ? 31 : 24)
+  const lineHeights = lines.map(line => line.box ? 34 : line.bold ? 31 : 24)
   const captionHeight = topPad + bottomPad + lineHeights.reduce((sum, h) => sum + h, 0) + Math.max(0, lines.length - 1) * lineGap
   const filters = [`pad=iw:ih+${captionHeight}:0:0:color=#d9d9d9`]
   let y = topPad
   for (const line of lines) {
     const fontSize = line.bold ? 25 : 18
     const fontFile = line.bold ? boldFont : regularFont
+    const x = line.x ?? 18
+    if (line.box) {
+      filters.push(
+        `drawbox=x=${x}:y=h-${captionHeight - y}:w=${line.box.width}:h=${line.box.height}:color=${line.box.color}@1:t=fill`,
+      )
+    }
     filters.push(
-      `drawtext=fontfile='${fontFile}':text='${escapeDrawtextValue(line.text)}':fontcolor=black:fontsize=${fontSize}:x=18:y=h-${captionHeight - y}`,
+      `drawtext=fontfile='${fontFile}':text='${escapeDrawtextValue(line.text)}':fontcolor=${line.box?.textColor ?? line.color ?? 'black'}:fontsize=${fontSize}:x=${x + (line.box ? 11 : 0)}:y=h-${captionHeight - y}`,
     )
-    y += (line.bold ? 31 : 24) + lineGap
+    if (line.afterText) {
+      filters.push(
+        `drawtext=fontfile='${boldFont}':text='${escapeDrawtextValue(line.afterText)}':fontcolor=black:fontsize=25:x=${line.afterX ?? 18}:y=h-${captionHeight - y}`,
+      )
+    }
+    y += (line.box ? 34 : line.bold ? 31 : 24) + lineGap
   }
   return filters.join(',')
 }
