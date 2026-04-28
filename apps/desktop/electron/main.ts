@@ -22,5 +22,5 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindow).catch((err) => { console.error(err); app.quit() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

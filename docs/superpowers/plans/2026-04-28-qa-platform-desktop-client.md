@@ -6,7 +6,7 @@
 
 **Architecture:** Electron monorepo (`apps/desktop`) split into a Node main process (handles `adb`/`scrcpy`/`ffmpeg` subprocesses, SQLite, filesystem under `%APPDATA%/qa-tool/`) and a React renderer (UI). All subprocess interaction goes through an `IProcessRunner` abstraction so unit tests can mock it. Bug-time screenshot uses `adb exec-out screencap`; bug-time logcat uses a rolling 30-second in-memory buffer fed by a long-running `adb logcat` process. Bug clip export uses `ffmpeg -c copy` (no re-encode) for instant cuts.
 
-**Tech Stack:** Node 20+, pnpm 9 workspace, TypeScript 5, Electron 32, electron-vite, React 18, Tailwind CSS 4, shadcn/ui, Zustand (UI state), better-sqlite3, `@ffmpeg-installer/ffmpeg` (bundled), Vitest + Testing Library, Playwright (smoke only). External tools (user installs once): `adb` (Android Platform Tools) and `scrcpy`.
+**Tech Stack:** Node 20+, pnpm 9 workspace, TypeScript 5, Electron 32, electron-vite, React 18, Tailwind CSS 3.4, shadcn/ui, Zustand (UI state), better-sqlite3, `@ffmpeg-installer/ffmpeg` (bundled), Vitest + Testing Library, Playwright (smoke only). External tools (user installs once): `adb` (Android Platform Tools) and `scrcpy`.
 
 **Phase boundary:** This plan does NOT build cloud upload, Google OAuth, or the Web viewer. Spec §3.2 + §3.3 are deferred. The `commit` button does not exist in this phase — Draft is the terminal state.
 
@@ -276,7 +276,7 @@ Create `apps/desktop/tsconfig.node.json`:
     "outDir": "out",
     "noEmit": true
   },
-  "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts"]
+  "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }
 ```
 
@@ -438,7 +438,7 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindow).catch((err) => { console.error(err); app.quit() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 ```
 
