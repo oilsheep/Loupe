@@ -21,13 +21,16 @@ function makeMock() {
 }
 
 describe('Scrcpy', () => {
-  it('start passes -s deviceId and --record path', () => {
+  it('start passes -s deviceId, --record path, and compression flags', () => {
     const { runner, proc } = makeMock()
     const s = new Scrcpy(runner)
     s.start({ deviceId: 'ABC', recordPath: 'C:/tmp/v.mp4' })
     const args = (runner.spawn as any).mock.calls[0][1] as string[]
     expect(args).toContain('-s'); expect(args).toContain('ABC')
     expect(args).toContain('--record'); expect(args).toContain('C:/tmp/v.mp4')
+    expect(args).toContain('--max-fps=30')
+    expect(args).toContain('--video-bit-rate=4M')
+    expect(args).toContain('--max-size=1280')
     expect(s.isRunning()).toBe(true)
     expect(proc.pid).toBe(999)
   })
