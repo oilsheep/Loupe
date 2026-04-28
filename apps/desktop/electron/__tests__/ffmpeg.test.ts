@@ -138,6 +138,23 @@ describe('buildClipArgs', () => {
     expect(filter).toContain('[1:a:0]atrim=start=0:duration=5.000,asetpts=PTS-STARTPTS')
   })
 
+  it('adds PC click overlays inside the exported clip window', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 10_000,
+      endMs: 15_000,
+      clicks: [
+        { t: 9_000, x: 0.1, y: 0.1 },
+        { t: 12_000, x: 0.5, y: 0.25 },
+      ],
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).toContain('drawbox=x=iw*0.500000-15:y=ih*0.250000-15')
+    expect(filter).toContain("enable='between(t\\,2.000\\,2.450)'")
+    expect(filter).not.toContain('0.100000')
+  })
+
   it('throws when end<=start', () => {
     expect(() => buildClipArgs({ inputPath: 'in.mp4', outputPath: 'out.mp4', startMs: 5000, endMs: 5000 })).toThrow()
   })

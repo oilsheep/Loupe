@@ -10,6 +10,7 @@ import type { Session, Bug, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
 import { remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
+import { ClickRecorder } from './click-recorder'
 
 export interface SessionDeps {
   db: Db
@@ -20,6 +21,7 @@ export interface SessionDeps {
   runner: IProcessRunner
   captureScreenshot?: typeof defaultCapture
   prepareVideoForPlayback?: (inputPath: string) => Promise<void>
+  clickRecorder?: Pick<ClickRecorder, 'start' | 'stop'>
   now?: () => number
   /** Generates IDs for individual bugs (random UUID by default). */
   newId?: () => string
@@ -70,6 +72,7 @@ export class SessionManager {
   private now: () => number
   private newId: () => string
   private makeSessionId: (buildVersion: string, nowMs: number) => string
+  private clickRecorder: Pick<ClickRecorder, 'start' | 'stop'>
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
@@ -77,6 +80,7 @@ export class SessionManager {
     this.now = deps.now ?? Date.now
     this.newId = deps.newId ?? randomUUID
     this.makeSessionId = deps.makeSessionId ?? makeSessionId
+    this.clickRecorder = deps.clickRecorder ?? new ClickRecorder(deps.runner)
   }
 
   activeSessionId(): string | null { return this.active?.id ?? null }
@@ -98,11 +102,13 @@ export class SessionManager {
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
+    const windowTitle = `Loupe - ${info.model}`
     scrcpy.start({
       deviceId: args.deviceId,
       recordPath: paths.videoFile(id),
-      windowTitle: `Loupe - ${info.model}`,
+      windowTitle,
     })
+    this.clickRecorder.start({ outputPath: paths.clicksFile(id), windowTitle })
     logcat.start()
     this.active = sess
     return sess
@@ -139,6 +145,7 @@ export class SessionManager {
     const { db, paths, scrcpy, logcat } = this.deps
     const sess = this.active
     await scrcpy.stop()
+    this.clickRecorder.stop()
     logcat.stop()
     const endedAt = this.now()
     const durationMs = endedAt - sess.startedAt
@@ -155,6 +162,7 @@ export class SessionManager {
   async discard(sessionId: string): Promise<void> {
     if (this.active?.id === sessionId) {
       try { await this.deps.scrcpy.stop() } catch {}
+      this.clickRecorder.stop()
       this.deps.logcat.stop()
       this.active = null
     }

@@ -32,7 +32,8 @@ function makeStubs() {
     writeFileSync(out, Buffer.from([0x89, 0x50]))
   })
   const prepareVideo = vi.fn().mockResolvedValue(undefined)
-  return { adb, scrcpy, logcat, screenshot, prepareVideo }
+  const clickRecorder = { start: vi.fn(), stop: vi.fn() }
+  return { adb, scrcpy, logcat, screenshot, prepareVideo, clickRecorder }
 }
 
 describe('SessionManager', () => {
@@ -54,6 +55,7 @@ describe('SessionManager', () => {
       runner: { run: vi.fn() as any, spawn: vi.fn() as any },
       captureScreenshot: stubs.screenshot,
       prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
       now: () => nowMs,
       newId: ((seq) => () => `bug-${seq++}`)(1),
       makeSessionId: () => 'sess-1',
@@ -73,6 +75,10 @@ describe('SessionManager', () => {
       deviceId: 'ABC', recordPath: paths.videoFile('sess-1'),
     }))
     expect(stubs.logcat.start).toHaveBeenCalled()
+    expect(stubs.clickRecorder.start).toHaveBeenCalledWith({
+      outputPath: paths.clicksFile('sess-1'),
+      windowTitle: 'Loupe - Pixel 7',
+    })
     expect(existsSync(paths.screenshotsDir('sess-1'))).toBe(true)
     expect(existsSync(paths.projectFile('sess-1'))).toBe(true)
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.videoPath).toBe(paths.videoFile('sess-1'))
@@ -130,6 +136,7 @@ describe('SessionManager', () => {
     expect(s.status).toBe('draft')
     expect(s.durationMs).toBe(60_000)
     expect(stubs.scrcpy.stop).toHaveBeenCalled()
+    expect(stubs.clickRecorder.stop).toHaveBeenCalled()
     expect(stubs.prepareVideo).toHaveBeenCalledWith(paths.videoFile('sess-1'))
     expect(stubs.logcat.stop).toHaveBeenCalled()
     expect(mgr.activeSessionId()).toBeNull()

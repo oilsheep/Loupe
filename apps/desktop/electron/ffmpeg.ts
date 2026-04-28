@@ -16,6 +16,13 @@ export interface ClipOptions {
   testNote?: string | null
   tester?: string | null
   testedAtMs?: number | null
+  clicks?: ClickPoint[]
+}
+
+export interface ClickPoint {
+  t: number
+  x: number
+  y: number
 }
 
 export interface FaststartOptions {
@@ -174,6 +181,23 @@ function captionFilter(lines: CaptionLine[]): string {
   return filters.join(',')
 }
 
+function clickOverlayFilters(clicks: ClickPoint[] | undefined, startMs: number, endMs: number): string[] {
+  if (!clicks?.length) return []
+  const out: string[] = []
+  for (const click of clicks) {
+    if (!Number.isFinite(click.t) || !Number.isFinite(click.x) || !Number.isFinite(click.y)) continue
+    if (click.t < startMs - 450 || click.t > endMs) continue
+    const x = Math.max(0, Math.min(1, click.x)).toFixed(6)
+    const y = Math.max(0, Math.min(1, click.y)).toFixed(6)
+    const from = Math.max(0, (click.t - startMs) / 1000).toFixed(3)
+    const to = (Math.max(0, click.t - startMs) / 1000 + 0.45).toFixed(3)
+    const enable = `enable='between(t\\,${from}\\,${to})'`
+    out.push(`drawbox=x=iw*${x}-15:y=ih*${y}-15:w=30:h=30:color=red@0.85:t=4:${enable}`)
+    out.push(`drawbox=x=iw*${x}-3:y=ih*${y}-3:w=6:h=6:color=white@0.95:t=fill:${enable}`)
+  }
+  return out
+}
+
 function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = []): string[] {
   const captionLines = buildCaptionLines(opts)
   const filters = [...prefixFilters]
@@ -210,7 +234,7 @@ export function buildClipArgs(opts: ClipOptions): string[] {
   const narrationDurationMs = Math.max(0, opts.narrationDurationMs ?? 0)
   const outputDurationMs = opts.narrationPath ? Math.max(durationMs, narrationDurationMs) : durationMs
   const freezeDurationMs = Math.max(0, outputDurationMs - durationMs)
-  const filters: string[] = []
+  const filters: string[] = [...clickOverlayFilters(opts.clicks, startMs, endMs)]
   if (freezeDurationMs > 0) filters.push(`tpad=stop_mode=clone:stop_duration=${ms(freezeDurationMs)}`)
   const captionedFilters = videoCaptionFilters(opts, filters)
   if (opts.narrationPath) {

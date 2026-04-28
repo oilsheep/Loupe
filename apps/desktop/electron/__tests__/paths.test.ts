@@ -13,6 +13,7 @@ describe('paths', () => {
       expect(p.dbFile()).toBe(join(root, 'meta.sqlite'))
       expect(p.sessionDir('abc')).toBe(join(root, 'sessions', 'abc'))
       expect(p.videoFile('abc')).toBe(join(root, 'sessions', 'abc', 'video.mp4'))
+      expect(p.clicksFile('abc')).toBe(join(root, 'sessions', 'abc', 'clicks.jsonl'))
       expect(p.screenshotFile('abc', 'bug1')).toBe(join(root, 'sessions', 'abc', 'screenshots', 'bug1.png'))
       expect(p.logcatFile('abc', 'bug1')).toBe(join(root, 'sessions', 'abc', 'logcat', 'bug1.txt'))
       expect(p.clipFile('abc', 'bug1')).toBe(join(root, 'sessions', 'abc', 'clips', 'bug1.mp4'))

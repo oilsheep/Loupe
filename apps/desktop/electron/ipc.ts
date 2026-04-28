@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, screen, shell } from 'electron'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { clampClipWindow, extractClip, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
@@ -80,6 +80,24 @@ function exportBaseName(session: Session, bug: { id: string; note: string; creat
   const note = safeFilePart(bug.note || 'marker')
   const build = safeFilePart(session.buildVersion || 'build')
   return `${note}_${build}_${localDatePart(bug.createdAt)}_${bug.id.slice(0, 8)}`
+}
+
+function readClickLog(filePath: string): { t: number; x: number; y: number }[] {
+  if (!existsSync(filePath)) return []
+  const clicks: { t: number; x: number; y: number }[] = []
+  for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const raw = JSON.parse(trimmed) as { t?: unknown; x?: unknown; y?: unknown }
+      if (typeof raw.t === 'number' && typeof raw.x === 'number' && typeof raw.y === 'number') {
+        clicks.push({ t: raw.t, x: raw.x, y: raw.y })
+      }
+    } catch {
+      // Ignore partial lines if the click recorder was stopped while writing.
+    }
+  }
+  return clicks
 }
 
 function dockRecordingPanel(win: BrowserWindow | null): void {
@@ -223,6 +241,7 @@ export function registerIpc(deps: IpcDeps): void {
 
     const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
     const ffmpegPath = resolveBundledFfmpegPath()
+    const clicks = readClickLog(deps.paths.clicksFile(session.id))
     const clipOptions = {
       inputPath: session.videoPath ?? deps.paths.videoFile(session.id),
       outputPath,
@@ -238,6 +257,7 @@ export function registerIpc(deps: IpcDeps): void {
       testNote: session.testNote,
       tester: session.tester,
       testedAtMs: bug.createdAt,
+      clicks,
     }
     await extractClip(deps.runner, ffmpegPath, clipOptions)
     await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, outputPath: imagePath })
@@ -253,6 +273,7 @@ export function registerIpc(deps: IpcDeps): void {
     const outDir = exportDirForSession(deps.settings.get().exportRoot, session)
     mkdirSync(outDir, { recursive: true })
     const outputs: string[] = []
+    const clicks = readClickLog(deps.paths.clicksFile(session.id))
     for (let i = 0; i < bugs.length; i++) {
       const bug = bugs[i]
       const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
@@ -276,6 +297,7 @@ export function registerIpc(deps: IpcDeps): void {
         testNote: session.testNote,
         tester: session.tester,
         testedAtMs: bug.createdAt,
+        clicks,
       }
       await extractClip(deps.runner, ffmpegPath, clipOptions)
       await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, outputPath: imagePath })
