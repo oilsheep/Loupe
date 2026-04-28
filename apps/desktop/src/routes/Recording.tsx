@@ -49,7 +49,7 @@ export function Recording({ session }: { session: Session }) {
         <div className="mt-2 font-mono text-6xl tabular-nums">{fmtElapsed(elapsedMs)}</div>
         <div className="mt-3 text-sm text-zinc-400">{bugs.length} bug{bugs.length === 1 ? '' : 's'} marked · build {session.buildVersion}</div>
         <div className="mt-1 text-xs text-zinc-500">
-          The scrcpy mirror window is separate. Press <kbd className="rounded bg-zinc-800 px-1.5 py-0.5">Space</kbd> from anywhere to mark a bug.
+          The scrcpy mirror window is separate. Press <kbd className="rounded bg-zinc-800 px-1.5 py-0.5">F8</kbd> from anywhere to mark a bug.
         </div>
         <button
           onClick={stop} disabled={stopping} data-testid="stop-session"

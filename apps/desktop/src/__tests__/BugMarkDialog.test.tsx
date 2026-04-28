@@ -44,13 +44,4 @@ describe('BugMarkDialog', () => {
     const { container } = render(<BugMarkDialog open={false} api={fakeApi()} onSubmitted={vi.fn()} onCancel={vi.fn()} />)
     expect(container.firstChild).toBeNull()
   })
-
-  it('disables global hotkey on open and re-enables on unmount/close', async () => {
-    const setEnabled = vi.fn().mockResolvedValue(undefined)
-    const apiObj = { ...fakeApi(), hotkey: { setEnabled } } as any
-    const { unmount } = render(<BugMarkDialog open={true} api={apiObj} onSubmitted={vi.fn()} onCancel={vi.fn()} />)
-    await waitFor(() => expect(setEnabled).toHaveBeenCalledWith(false))
-    unmount()
-    expect(setEnabled).toHaveBeenCalledWith(true)
-  })
 })

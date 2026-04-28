@@ -1,6 +1,9 @@
-import { app, BrowserWindow, globalShortcut, protocol, net } from 'electron'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { app, BrowserWindow, globalShortcut, protocol } from 'electron'
+import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import * as fs from 'node:fs'
+import { createReadStream } from 'node:fs'
+import { Readable } from 'node:stream'
 import { RealProcessRunner } from './process-runner'
 import { Adb } from './adb'
 import { Scrcpy } from './scrcpy'
@@ -34,10 +37,49 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  protocol.handle('loupe-file', (req) => {
+  // Custom file protocol that serves session assets WITH HTTP Range support.
+  // HTML5 <video> issues range requests to fetch metadata + seek; if we just
+  // return the whole file every time (which `net.fetch(file://...)` does),
+  // the player gets confused and the canvas stays gray.
+  protocol.handle('loupe-file', async (req) => {
     const url = new URL(req.url)
     const localPath = decodeURIComponent(url.pathname.replace(/^\//, ''))
-    return net.fetch(pathToFileURL(localPath).toString())
+    let stat
+    try { stat = await fs.promises.stat(localPath) }
+    catch { return new Response('Not found', { status: 404 }) }
+    const total = stat.size
+    const ext = localPath.toLowerCase().split('.').pop() ?? ''
+    const mime: Record<string, string> = {
+      mp4: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska',
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      txt: 'text/plain; charset=utf-8',
+    }
+    const contentType = mime[ext] ?? 'application/octet-stream'
+    const range = req.headers.get('range')
+    const m = range?.match(/^bytes=(\d+)-(\d*)$/)
+    if (m) {
+      const start = Math.min(parseInt(m[1], 10), total - 1)
+      const end = m[2] ? Math.min(parseInt(m[2], 10), total - 1) : total - 1
+      const stream = createReadStream(localPath, { start, end })
+      return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+        status: 206,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Range': `bytes ${start}-${end}/${total}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(end - start + 1),
+        },
+      })
+    }
+    const stream = createReadStream(localPath)
+    return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(total),
+      },
+    })
   })
 
   // Recordings always live next to the app — never in %APPDATA% — so QA can browse
@@ -69,11 +111,11 @@ app.whenReady().then(async () => {
     return origStart(args)
   }
 
-  // Bug-mark hotkey. Space is ergonomic (thumb on the spacebar while testing) but
-  // intercepts every other space-keypress system-wide while registered — so the
-  // BugMarkDialog must temporarily disable it via api.hotkey.setEnabled(false)
-  // when its input is focused, otherwise the user can't type spaces in their note.
-  const ACCELERATOR = 'Space'
+  // Bug-mark hotkey. F8 is a function key with low collision rate. We tried Space
+  // first but it intercepted every space-keypress system-wide (typing in any
+  // text field anywhere broke). The setHotkeyEnabled IPC plumbing below is kept
+  // for future use (e.g. user-configurable rebinding to a printable key).
+  const ACCELERATOR = 'F8'
   let hotkeyEnabled = true
   function applyHotkey() {
     const isReg = globalShortcut.isRegistered(ACCELERATOR)

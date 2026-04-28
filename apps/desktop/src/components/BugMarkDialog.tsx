@@ -17,16 +17,10 @@ export function BugMarkDialog({ open, api, onSubmitted, onCancel }: Props) {
   useEffect(() => {
     if (!open) return
     setNote(''); setSeverity('normal')
-    // Disable global hotkey while typing — otherwise pressing Space inside the
-    // note input would be intercepted by the global shortcut and never reach React.
-    api.hotkey.setEnabled(false)
     // Focus shortly after render so the modal is mounted.
     const t = setTimeout(() => inputRef.current?.focus(), 0)
-    return () => {
-      clearTimeout(t)
-      api.hotkey.setEnabled(true)
-    }
-  }, [open, api])
+    return () => clearTimeout(t)
+  }, [open])
 
   if (!open) return null
 
@@ -42,7 +36,7 @@ export function BugMarkDialog({ open, api, onSubmitted, onCancel }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-32" data-testid="bug-dialog">
       <div className="w-[420px] rounded-lg bg-zinc-900 p-4 shadow-2xl">
-        <div className="mb-2 text-xs text-zinc-400">Space — Mark bug</div>
+        <div className="mb-2 text-xs text-zinc-400">F8 — Mark bug</div>
         <div className="flex gap-2">
           <button
             onClick={() => setSeverity('major')}

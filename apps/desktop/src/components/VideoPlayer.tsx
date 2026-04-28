@@ -1,11 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { Bug } from '@shared/types'
+import type { Bug, DesktopApi } from '@shared/types'
+import { localFileUrl } from '@/lib/api'
 
 export interface VideoPlayerHandle {
   seekToMs(ms: number): void
 }
 
 interface Props {
+  api: DesktopApi
   src: string
   bugs: Bug[]
   durationMs: number
@@ -13,9 +15,9 @@ interface Props {
   onMarkerClick(bug: Bug): void
 }
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ src, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
+export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [, force] = useState(0)
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   useImperativeHandle(ref, () => ({
     seekToMs(ms: number) {
@@ -26,11 +28,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ src, bugs, du
   }), [])
 
   useEffect(() => {
-    const v = videoRef.current; if (!v) return
-    const onLoaded = () => force(x => x + 1)
-    v.addEventListener('loadedmetadata', onLoaded)
-    return () => v.removeEventListener('loadedmetadata', onLoaded)
-  }, [])
+    let cancelled = false
+    Promise.all(
+      bugs
+        .filter(b => b.screenshotRel)
+        .map(async b => {
+          const abs = await api._resolveAssetPath(b.sessionId, b.screenshotRel!)
+          return [b.id, localFileUrl(abs)] as const
+        })
+    ).then(entries => {
+      if (cancelled) return
+      const next: Record<string, string> = {}
+      for (const [id, url] of entries) next[id] = url
+      setThumbs(next)
+    })
+    return () => { cancelled = true }
+  }, [bugs, api])
 
   return (
     <div className="flex flex-col gap-2">
@@ -40,15 +53,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ src, bugs, du
           const left = durationMs ? (b.offsetMs / durationMs) * 100 : 0
           const colour = b.severity === 'major' ? 'bg-red-500' : 'bg-amber-500'
           const ring = b.id === selectedBugId ? 'ring-2 ring-white' : ''
+          const url = thumbs[b.id]
           return (
-            <button
+            <div
               key={b.id}
-              onClick={() => onMarkerClick(b)}
-              title={b.note}
-              data-testid={`marker-${b.id}`}
+              className="group absolute top-1/2 -translate-y-1/2"
               style={{ left: `calc(${left}% - 6px)` }}
-              className={`absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full ${colour} ${ring}`}
-            />
+            >
+              <button
+                onClick={() => onMarkerClick(b)}
+                data-testid={`marker-${b.id}`}
+                className={`block h-3 w-3 rounded-full ${colour} ${ring}`}
+              />
+              <div
+                className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"
+                data-testid={`tooltip-${b.id}`}
+              >
+                {url
+                  ? <img src={url} alt="" className="mb-2 w-full rounded" />
+                  : <div className="mb-2 h-20 w-full rounded bg-zinc-800 text-center text-[10px] leading-[5rem] text-zinc-500">no screenshot</div>
+                }
+                <div className="font-mono text-[10px] text-zinc-400">{Math.floor(b.offsetMs / 1000)}s · {b.severity}</div>
+                <div className="line-clamp-3 text-xs text-zinc-200">{b.note}</div>
+              </div>
+            </div>
           )
         })}
       </div>

@@ -51,6 +51,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
       <main className="overflow-auto p-4">
         <VideoPlayer
           ref={playerRef}
+          api={api}
           src={videoUrl}
           bugs={bugs}
           durationMs={dur}

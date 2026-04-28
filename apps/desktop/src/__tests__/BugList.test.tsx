@@ -24,25 +24,44 @@ function fakeApi(): DesktopApi {
 }
 
 describe('BugList', () => {
-  it('clicking a row triggers onSelect', () => {
+  it('clicking the timestamp triggers onSelect', () => {
     const onSelect = vi.fn()
     render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={onSelect} onMutated={vi.fn()} />)
-    fireEvent.click(screen.getByText('note'))
+    fireEvent.click(screen.getByText(/0:05/))
     expect(onSelect).toHaveBeenCalled()
   })
 
-  it('edit + save calls api.bug.update with note, severity, preSec, postSec', async () => {
+  it('typing in note + blur saves via api.bug.update', async () => {
     const api = fakeApi(); const onMutated = vi.fn()
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={onMutated} />)
-    fireEvent.click(screen.getByTestId('edit-b1'))
-    fireEvent.change(screen.getByTestId('edit-note-b1'), { target: { value: 'updated' } })
-    fireEvent.change(screen.getByTestId('edit-pre-b1'), { target: { value: '10' } })
-    fireEvent.change(screen.getByTestId('edit-post-b1'), { target: { value: '7' } })
-    fireEvent.click(screen.getByTestId('save-b1'))
-    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', {
-      note: 'updated', severity: 'normal', preSec: 10, postSec: 7,
-    }))
+    const input = screen.getByTestId('note-b1')
+    fireEvent.change(input, { target: { value: 'updated' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({
+      note: 'updated', severity: 'normal', preSec: 5, postSec: 5,
+    })))
     expect(onMutated).toHaveBeenCalled()
+  })
+
+  it('changing pre slider saves preSec immediately', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('pre-b1'), { target: { value: '12' } })
+    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ preSec: 12 })))
+  })
+
+  it('changing post slider saves postSec immediately', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('post-b1'), { target: { value: '20' } })
+    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ postSec: 20 })))
+  })
+
+  it('clicking severity dot toggles between major/normal', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug({ severity: 'normal' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('severity-b1'))
+    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ severity: 'major' })))
   })
 
   it('export-clip calls api.bug.exportClip', async () => {
