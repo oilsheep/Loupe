@@ -4,9 +4,12 @@ Phase 1: Electron desktop client (`apps/desktop`). See `qa-platform-mvp-spec.md`
 
 ## Quick start
 
+**Easiest (Windows)**: double-click `start-dev.bat` at the repo root. It cleans up stale Electron processes, rebuilds native deps for Electron's ABI, and launches the dev server.
+
+**Manual**:
 ```bash
 pnpm install
-pnpm rebuild:electron        # build better-sqlite3 native binding for Electron's Node ABI
+pnpm rebuild:electron        # compile better-sqlite3 from source against Electron's Node ABI
 pnpm desktop:dev
 ```
 

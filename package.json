@@ -7,7 +7,7 @@
     "desktop:dev": "pnpm --filter desktop dev",
     "desktop:build": "pnpm --filter desktop build",
     "desktop:test": "pnpm --filter desktop test",
-    "rebuild:electron": "pnpm --filter desktop exec electron-builder install-app-deps",
+    "rebuild:electron": "node scripts/rebuild-electron.mjs",
     "rebuild:node": "pnpm --filter desktop rebuild better-sqlite3"
   }
 }
