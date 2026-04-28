@@ -1,0 +1,46 @@
+import { spawn, type SpawnOptions } from 'node:child_process'
+import type { Readable } from 'node:stream'
+
+export interface RunResult {
+  stdout: string
+  stderr: string
+  code: number
+}
+
+export interface SpawnedProcess {
+  readonly pid: number | undefined
+  readonly stdout: Readable
+  readonly stderr: Readable
+  kill(signal?: NodeJS.Signals | number): boolean
+  onExit(handler: (code: number | null) => void): void
+}
+
+export interface IProcessRunner {
+  run(cmd: string, args: string[], opts?: SpawnOptions): Promise<RunResult>
+  spawn(cmd: string, args: string[], opts?: SpawnOptions): SpawnedProcess
+}
+
+export class RealProcessRunner implements IProcessRunner {
+  run(cmd: string, args: string[], opts: SpawnOptions = {}): Promise<RunResult> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (d) => { stdout += d.toString() })
+      child.stderr?.on('data', (d) => { stderr += d.toString() })
+      child.once('error', reject)
+      child.once('exit', (code) => resolve({ stdout, stderr, code: code ?? -1 }))
+    })
+  }
+
+  spawn(cmd: string, args: string[], opts: SpawnOptions = {}): SpawnedProcess {
+    const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+    return {
+      get pid() { return child.pid },
+      stdout: child.stdout!,
+      stderr: child.stderr!,
+      kill: (sig?) => child.kill(sig),
+      onExit: (h) => { child.once('exit', h) },
+    }
+  }
+}
