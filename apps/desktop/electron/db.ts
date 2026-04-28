@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS bugs (
   note TEXT NOT NULL,
   screenshot_rel TEXT,
   logcat_rel TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  pre_sec INTEGER NOT NULL DEFAULT 5,
+  post_sec INTEGER NOT NULL DEFAULT 5
 );
 
 CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -47,7 +49,19 @@ function rowToBug(r: any): Bug {
     severity: r.severity, note: r.note,
     screenshotRel: r.screenshot_rel, logcatRel: r.logcat_rel,
     createdAt: r.created_at,
+    preSec: r.pre_sec, postSec: r.post_sec,
   }
+}
+
+/**
+ * Additive migration: add columns introduced after the original schema.
+ * Safe to run on a fresh DB (column already exists from CREATE TABLE) — we just
+ * skip via the table_info pragma check.
+ */
+function migrate(db: Database.Database): void {
+  const cols = (db.pragma(`table_info('bugs')`) as { name: string }[]).map(c => c.name)
+  if (!cols.includes('pre_sec'))  db.exec(`ALTER TABLE bugs ADD COLUMN pre_sec  INTEGER NOT NULL DEFAULT 5`)
+  if (!cols.includes('post_sec')) db.exec(`ALTER TABLE bugs ADD COLUMN post_sec INTEGER NOT NULL DEFAULT 5`)
 }
 
 export function openDb(file: string) {
@@ -55,6 +69,7 @@ export function openDb(file: string) {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA)
+  migrate(db)
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, device_id, device_model, android_version,
@@ -70,10 +85,10 @@ export function openDb(file: string) {
   const deleteSessionStmt= db.prepare(`DELETE FROM sessions WHERE id = ?`)
 
   const insertBugStmt = db.prepare(`
-    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, created_at)
-    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @createdAt)
+    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, created_at, pre_sec, post_sec)
+    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @createdAt, @preSec, @postSec)
   `)
-  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity WHERE id=@id`)
+  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, pre_sec=@preSec, post_sec=@postSec WHERE id=@id`)
   const deleteBugStmt = db.prepare(`DELETE FROM bugs WHERE id = ?`)
   const listBugsStmt  = db.prepare(`SELECT * FROM bugs WHERE session_id = ? ORDER BY offset_ms ASC`)
 
@@ -92,7 +107,7 @@ export function openDb(file: string) {
     },
     deleteSession(id: string) { deleteSessionStmt.run(id) },
     insertBug(b: Bug) { insertBugStmt.run(b) },
-    updateBug(id: string, patch: { note: string; severity: BugSeverity }) {
+    updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
       updateBugStmt.run({ id, ...patch })
     },
     deleteBug(id: string) { deleteBugStmt.run(id) },

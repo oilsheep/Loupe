@@ -6,7 +6,10 @@ import type { DesktopApi } from '@shared/types'
 function fakeApi(markBug = vi.fn().mockResolvedValue({ id: 'b1' })): DesktopApi {
   return {
     doctor: vi.fn() as any, device: {} as any,
-    session: { markBug } as any, bug: {} as any, onBugMarkRequested: () => () => {}, _resolveVideoPath: vi.fn() as any,
+    session: { markBug } as any, bug: {} as any,
+    hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
+    onBugMarkRequested: () => () => {},
+    _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }
 
@@ -40,5 +43,14 @@ describe('BugMarkDialog', () => {
   it('open=false renders nothing', () => {
     const { container } = render(<BugMarkDialog open={false} api={fakeApi()} onSubmitted={vi.fn()} onCancel={vi.fn()} />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('disables global hotkey on open and re-enables on unmount/close', async () => {
+    const setEnabled = vi.fn().mockResolvedValue(undefined)
+    const apiObj = { ...fakeApi(), hotkey: { setEnabled } } as any
+    const { unmount } = render(<BugMarkDialog open={true} api={apiObj} onSubmitted={vi.fn()} onCancel={vi.fn()} />)
+    await waitFor(() => expect(setEnabled).toHaveBeenCalledWith(false))
+    unmount()
+    expect(setEnabled).toHaveBeenCalledWith(true)
   })
 })

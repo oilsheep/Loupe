@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Bug, Session } from '@shared/types'
-import { api, localFileUrl } from '@/lib/api'
+import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type VideoPlayerHandle } from '@/components/VideoPlayer'
 import { BugList } from '@/components/BugList'
 
-interface Loaded { session: Session; bugs: Bug[]; videoPath: string }
+interface Loaded { session: Session; bugs: Bug[]; videoUrl: string }
 
 export function Draft({ sessionId }: { sessionId: string }) {
   const goHome = useApp(s => s.goHome)
@@ -16,19 +16,19 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const refresh = useCallback(async () => {
     const r = await api.session.get(sessionId)
     if (!r) { goHome(); return }
-    const videoPath = await api._resolveVideoPath(sessionId)
-    setData({ session: r.session, bugs: r.bugs, videoPath })
+    const videoUrl = await assetUrl(sessionId, 'video.mp4')
+    setData({ session: r.session, bugs: r.bugs, videoUrl })
   }, [sessionId, goHome])
 
   useEffect(() => { refresh() }, [refresh])
 
   if (!data) return <div className="p-8 text-zinc-300">Loading…</div>
-  const { session, bugs, videoPath } = data
+  const { session, bugs, videoUrl } = data
   const dur = session.durationMs ?? 0
 
   function selectBug(b: Bug) {
     setSelectedBugId(b.id)
-    playerRef.current?.seekToMs(Math.max(0, b.offsetMs - 5_000))
+    playerRef.current?.seekToMs(Math.max(0, b.offsetMs - b.preSec * 1000))
   }
 
   async function discard() {
@@ -51,7 +51,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
       <main className="overflow-auto p-4">
         <VideoPlayer
           ref={playerRef}
-          src={localFileUrl(videoPath)}
+          src={videoUrl}
           bugs={bugs}
           durationMs={dur}
           selectedBugId={selectedBugId}

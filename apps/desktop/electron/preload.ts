@@ -23,12 +23,15 @@ const api: DesktopApi = {
     delete:     (id)            => ipcRenderer.invoke(CHANNEL.bugDelete, id),
     exportClip: (args)          => ipcRenderer.invoke(CHANNEL.bugExportClip, args),
   },
+  hotkey: {
+    setEnabled: (enabled)       => ipcRenderer.invoke(CHANNEL.hotkeySetEnabled, enabled),
+  },
   onBugMarkRequested: (cb) => {
     const handler = () => cb()
     ipcRenderer.on(CHANNEL.bugMarkRequested, handler)
     return () => ipcRenderer.removeListener(CHANNEL.bugMarkRequested, handler)
   },
-  _resolveVideoPath: (id) => ipcRenderer.invoke(CHANNEL.sessionResolveVideoPath, id),
+  _resolveAssetPath: (id, relPath) => ipcRenderer.invoke(CHANNEL.sessionResolveAssetPath, id, relPath),
 }
 
 contextBridge.exposeInMainWorld('api', api)

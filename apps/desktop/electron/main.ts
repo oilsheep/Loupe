@@ -69,13 +69,31 @@ app.whenReady().then(async () => {
     return origStart(args)
   }
 
-  registerIpc({ adb, manager, paths, runner, db, getWindow: () => win })
+  // Bug-mark hotkey. Space is ergonomic (thumb on the spacebar while testing) but
+  // intercepts every other space-keypress system-wide while registered — so the
+  // BugMarkDialog must temporarily disable it via api.hotkey.setEnabled(false)
+  // when its input is focused, otherwise the user can't type spaces in their note.
+  const ACCELERATOR = 'Space'
+  let hotkeyEnabled = true
+  function applyHotkey() {
+    const isReg = globalShortcut.isRegistered(ACCELERATOR)
+    if (hotkeyEnabled && !isReg) {
+      if (!globalShortcut.register(ACCELERATOR, () => emitBugMarkRequested(win))) {
+        console.warn(`Loupe: ${ACCELERATOR} hotkey could not be registered (already taken by another app)`)
+      }
+    } else if (!hotkeyEnabled && isReg) {
+      globalShortcut.unregister(ACCELERATOR)
+    }
+  }
+  function setHotkeyEnabled(enabled: boolean) {
+    hotkeyEnabled = enabled
+    applyHotkey()
+  }
+
+  registerIpc({ adb, manager, paths, runner, db, getWindow: () => win, setHotkeyEnabled })
 
   await createWindow()
-
-  if (!globalShortcut.register('F8', () => emitBugMarkRequested(win))) {
-    console.warn('Loupe: F8 hotkey could not be registered (already taken by another app)')
-  }
+  applyHotkey()
 }).catch((err) => { console.error(err); app.quit() })
 
 app.on('window-all-closed', () => {

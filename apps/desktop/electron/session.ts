@@ -107,6 +107,7 @@ export class SessionManager {
       screenshotRel: shotOk ? `screenshots/${bugId}.png` : null,
       logcatRel: `logcat/${bugId}.txt`,
       createdAt: this.now(),
+      preSec: 5, postSec: 5,
     }
     db.insertBug(bug)
     return bug
@@ -140,7 +141,7 @@ export class SessionManager {
   listSessions() { return this.deps.db.listSessions() }
   getSession(id: string) { return this.deps.db.getSession(id) }
   listBugs(sessionId: string) { return this.deps.db.listBugs(sessionId) }
-  updateBug(id: string, patch: { note: string; severity: BugSeverity }) {
+  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
     this.deps.db.updateBug(id, patch)
   }
   deleteBug(id: string) { this.deps.db.deleteBug(id) }

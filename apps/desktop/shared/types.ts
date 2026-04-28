@@ -32,6 +32,10 @@ export interface Bug {
   screenshotRel: string | null  // path relative to session dir, e.g. "screenshots/abc.png"
   logcatRel: string | null
   createdAt: number
+  /** Seconds before offsetMs to include when exporting a clip. */
+  preSec: number
+  /** Seconds after offsetMs to include when exporting a clip. */
+  postSec: number
 }
 
 import type { ToolCheck } from '../electron/doctor'    // type-only import is fine across boundaries
@@ -63,13 +67,17 @@ export interface DesktopApi {
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
   }
   bug: {
-    update(id: string, patch: { note: string; severity: BugSeverity }): Promise<void>
+    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }): Promise<void>
     delete(id: string):                                            Promise<void>
-    /** Extracts a clip [offset-5s, offset+10s] to user-chosen path. Returns saved path or null if cancelled. */
+    /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
     exportClip(args: { sessionId: string; bugId: string }):        Promise<string | null>
   }
-  /** Renderer subscribes to this to know when global F8 fired in main. */
+  hotkey: {
+    /** Globally enable or disable the bug-mark hotkey. Used to suppress capture while typing in the dialog. */
+    setEnabled(enabled: boolean):                                  Promise<void>
+  }
+  /** Renderer subscribes to this to know when the global bug-mark hotkey fired in main. */
   onBugMarkRequested(cb: () => void):                              () => void   // returns unsubscribe
-  /** Returns the absolute filesystem path of <sessionId>/video.mp4. Used by the renderer to construct a loupe-file:// URL. */
-  _resolveVideoPath(sessionId: string): Promise<string>
+  /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
+  _resolveAssetPath(sessionId: string, relPath: string): Promise<string>
 }

@@ -12,7 +12,8 @@ function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
   return {
     id: 'bug-1', sessionId: 'sess-1', offsetMs: 5000, severity: 'normal', note: 'cards stuck',
-    screenshotRel: null, logcatRel: null, createdAt: 1700000005000, ...over,
+    screenshotRel: null, logcatRel: null, createdAt: 1700000005000,
+    preSec: 5, postSec: 5, ...over,
   }
 }
 
@@ -49,12 +50,23 @@ describe('Db', () => {
     expect(db.listBugs('sess-1').map(b => b.id)).toEqual(['b2', 'b3', 'b1'])
   })
 
-  it('updateBug changes note + severity', () => {
+  it('updateBug changes note, severity, and clip window seconds', () => {
     db.insertSession(fixSession())
     db.insertBug(fixBug())
-    db.updateBug('bug-1', { note: 'fixed text', severity: 'major' })
+    db.updateBug('bug-1', { note: 'fixed text', severity: 'major', preSec: 8, postSec: 12 })
     const b = db.listBugs('sess-1')[0]
-    expect(b.note).toBe('fixed text'); expect(b.severity).toBe('major')
+    expect(b.note).toBe('fixed text')
+    expect(b.severity).toBe('major')
+    expect(b.preSec).toBe(8)
+    expect(b.postSec).toBe(12)
+  })
+
+  it('insertBug stores preSec/postSec and rowToBug returns them', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug({ preSec: 3, postSec: 7 }))
+    const b = db.listBugs('sess-1')[0]
+    expect(b.preSec).toBe(3)
+    expect(b.postSec).toBe(7)
   })
 
   it('deleteBug removes one bug', () => {

@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { join } from 'node:path'
 import { extractClip, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
 import type { SessionManager } from './session'
@@ -20,11 +21,12 @@ export const CHANNEL = {
   sessionDiscard:          'session:discard',
   sessionList:             'session:list',
   sessionGet:              'session:get',
-  sessionResolveVideoPath: 'session:resolveVideoPath',
+  sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
   bugDelete:               'bug:delete',
   bugExportClip:           'bug:exportClip',
   bugMarkRequested:        'bug:markRequested',
+  hotkeySetEnabled:        'hotkey:setEnabled',
 } as const
 
 export interface IpcDeps {
@@ -34,6 +36,7 @@ export interface IpcDeps {
   runner: IProcessRunner
   db: Db
   getWindow: () => BrowserWindow | null
+  setHotkeyEnabled: (enabled: boolean) => void
 }
 
 export function registerIpc(deps: IpcDeps): void {
@@ -54,10 +57,14 @@ export function registerIpc(deps: IpcDeps): void {
     if (!session) return null
     return { session, bugs: deps.manager.listBugs(id) }
   })
-  ipcMain.handle(CHANNEL.sessionResolveVideoPath, async (_e, id: string) => deps.paths.videoFile(id))
+  ipcMain.handle(CHANNEL.sessionResolveAssetPath, async (_e, sessionId: string, relPath: string) => {
+    return join(deps.paths.sessionDir(sessionId), relPath)
+  })
 
   ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch) => deps.manager.updateBug(id, patch))
   ipcMain.handle(CHANNEL.bugDelete, async (_e, id: string) => deps.manager.deleteBug(id))
+
+  ipcMain.handle(CHANNEL.hotkeySetEnabled, async (_e, enabled: boolean) => deps.setHotkeyEnabled(enabled))
 
   ipcMain.handle(CHANNEL.bugExportClip, async (_e, args: { sessionId: string; bugId: string }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
@@ -76,8 +83,10 @@ export function registerIpc(deps: IpcDeps): void {
     const saveResult = await (win ? dialog.showSaveDialog(win, dlgOpts) : dialog.showSaveDialog(dlgOpts))
     if (saveResult.canceled || !saveResult.filePath) return null
 
-    const startMs = Math.max(0, bug.offsetMs - 5_000)
-    const endMs   = Math.min(session.durationMs ?? bug.offsetMs + 10_000, bug.offsetMs + 10_000)
+    // Per-bug clip window (editable in BugList; default 5s before / 5s after).
+    const startMs = Math.max(0, bug.offsetMs - bug.preSec * 1_000)
+    const requestedEnd = bug.offsetMs + bug.postSec * 1_000
+    const endMs = Math.min(session.durationMs ?? requestedEnd, requestedEnd)
     await extractClip(deps.runner, resolveBundledFfmpegPath(), {
       inputPath: deps.paths.videoFile(session.id),
       outputPath: saveResult.filePath,

@@ -7,3 +7,9 @@ export function localFileUrl(absolutePath: string): string {
   const normalised = absolutePath.replace(/\\/g, '/')
   return `loupe-file:///${encodeURI(normalised)}`
 }
+
+/** Resolves a session-relative asset (video.mp4, screenshots/<id>.png, etc.) to a `loupe-file://` URL. */
+export async function assetUrl(sessionId: string, relPath: string): Promise<string> {
+  const abs = await api._resolveAssetPath(sessionId, relPath)
+  return localFileUrl(abs)
+}

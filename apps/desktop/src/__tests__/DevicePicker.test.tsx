@@ -12,7 +12,10 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       mdnsScan: mdnsScanImpl ?? vi.fn().mockResolvedValue([]),
       pair: pairImpl ?? vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' }),
     },
-    session: {} as any, bug: {} as any, onBugMarkRequested: () => () => {}, _resolveVideoPath: vi.fn() as any,
+    session: {} as any, bug: {} as any,
+    hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
+    onBugMarkRequested: () => () => {},
+    _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }
 
