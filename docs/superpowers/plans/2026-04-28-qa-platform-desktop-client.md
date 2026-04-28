@@ -126,7 +126,7 @@ These are checked by `doctor` (Task 3) and surfaced in the UI. Document them in 
 
 **Files:**
 - Create: `package.json` (root), `pnpm-workspace.yaml`, `.gitignore`, `README.md`
-- Create: `apps/desktop/package.json`, `apps/desktop/electron.vite.config.ts`, `apps/desktop/tsconfig.json`, `apps/desktop/tsconfig.node.json`, `apps/desktop/tsconfig.web.json`, `apps/desktop/tailwind.config.ts`, `apps/desktop/postcss.config.js`, `apps/desktop/index.html`, `apps/desktop/vitest.config.ts`
+- Create: `apps/desktop/package.json`, `apps/desktop/electron.vite.config.ts`, `apps/desktop/tsconfig.json`, `apps/desktop/tsconfig.node.json`, `apps/desktop/tsconfig.web.json`, `apps/desktop/tailwind.config.ts`, `apps/desktop/postcss.config.cjs`, `apps/desktop/index.html`, `apps/desktop/vitest.config.ts`
 - Create: `apps/desktop/electron/main.ts`, `apps/desktop/electron/preload.ts`
 - Create: `apps/desktop/src/main.tsx`, `apps/desktop/src/App.tsx`, `apps/desktop/src/styles.css`
 
@@ -310,12 +310,24 @@ import { resolve } from 'node:path'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    build: { outDir: 'out/main' },
+    build: {
+      outDir: 'out/main',
+      rollupOptions: {
+        input: resolve(__dirname, 'electron/main.ts'),
+        output: { entryFileNames: 'index.js' },
+      },
+    },
     resolve: { alias: { '@shared': resolve(__dirname, 'shared') } },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    build: { outDir: 'out/preload' },
+    build: {
+      outDir: 'out/preload',
+      rollupOptions: {
+        input: resolve(__dirname, 'electron/preload.ts'),
+        output: { entryFileNames: 'index.js' },
+      },
+    },
     resolve: { alias: { '@shared': resolve(__dirname, 'shared') } },
   },
   renderer: {
@@ -326,6 +338,8 @@ export default defineConfig({
   },
 })
 ```
+
+> **Why explicit `input` + `entryFileNames`:** electron-vite's defaults look for `src/main/index.ts` / `src/preload/index.ts`. We deliberately use `electron/main.ts` and `electron/preload.ts`, so we must wire `rollupOptions.input` ourselves. The `output.entryFileNames: 'index.js'` is required because `apps/desktop/package.json` declares `"main": "out/main/index.js"` and `electron/main.ts` calls `join(__dirname, '../preload/index.js')` — both expect `index.js`, not the source basename (`main.js`/`preload.js`) that Vite would default to.
 
 - [ ] **Step 1.5: Tailwind + PostCSS**
 
@@ -339,12 +353,14 @@ export default {
 } satisfies Config
 ```
 
-Create `apps/desktop/postcss.config.js`:
+Create `apps/desktop/postcss.config.cjs`:
 ```js
-export default {
+module.exports = {
   plugins: { tailwindcss: {}, autoprefixer: {} },
 }
 ```
+
+> **Why `.cjs`:** `apps/desktop/package.json` is CommonJS (no `"type": "module"`). Using `.js` with `export default` triggers Node's `MODULE_TYPELESS_PACKAGE_JSON` warning. `.cjs` + `module.exports` matches the package type and silences the warning without affecting bundling.
 
 - [ ] **Step 1.6: Renderer entry + hello world**
 

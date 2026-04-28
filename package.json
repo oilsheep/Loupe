@@ -1,0 +1,11 @@
+{
+  "name": "loupe",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "desktop:dev": "pnpm --filter desktop dev",
+    "desktop:build": "pnpm --filter desktop build",
+    "desktop:test": "pnpm --filter desktop test"
+  }
+}
