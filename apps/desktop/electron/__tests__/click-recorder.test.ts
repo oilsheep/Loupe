@@ -26,9 +26,15 @@ describe('ClickRecorder', () => {
     expect(script).toContain('ClientToScreen')
   })
 
-  it('starts a hidden PowerShell recorder on Windows', () => {
+  it('does not start by default to avoid antivirus/EDR false positives', () => {
     const { r } = runner()
     new ClickRecorder(r, 'win32').start({ outputPath: 'C:/tmp/clicks.jsonl', windowTitle: 'Loupe - Pixel 7' })
+    expect(r.spawn).not.toHaveBeenCalled()
+  })
+
+  it('starts a PowerShell recorder only when explicitly enabled', () => {
+    const { r } = runner()
+    new ClickRecorder(r, 'win32', true).start({ outputPath: 'C:/tmp/clicks.jsonl', windowTitle: 'Loupe - Pixel 7' })
     expect(r.spawn).toHaveBeenCalledWith('powershell.exe', expect.arrayContaining(['-EncodedCommand', expect.any(String)]))
   })
 
@@ -40,7 +46,7 @@ describe('ClickRecorder', () => {
 
   it('kills the recorder process on stop', () => {
     const { r, proc } = runner()
-    const recorder = new ClickRecorder(r, 'win32')
+    const recorder = new ClickRecorder(r, 'win32', true)
     recorder.start({ outputPath: 'C:/tmp/clicks.jsonl', windowTitle: 'Loupe - Pixel 7' })
     recorder.stop()
     expect(proc.kill).toHaveBeenCalled()

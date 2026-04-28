@@ -67,9 +67,14 @@ while ($true) {
 export class ClickRecorder {
   private process?: SpawnedProcess
 
-  constructor(private runner: IProcessRunner, private platform: NodeJS.Platform = process.platform) {}
+  constructor(
+    private runner: IProcessRunner,
+    private platform: NodeJS.Platform = process.platform,
+    private enabled = process.env.LOUPE_ENABLE_PC_CLICK_RECORDER === '1',
+  ) {}
 
   start(opts: ClickRecorderOptions): void {
+    if (!this.enabled) return
     if (this.platform !== 'win32') return
     this.stop()
     const encoded = Buffer.from(buildClickRecorderScript(opts), 'utf16le').toString('base64')
