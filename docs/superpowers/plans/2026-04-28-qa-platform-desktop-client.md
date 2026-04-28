@@ -1699,6 +1699,7 @@ interface Entry { t: number; line: string }
 
 export class LogcatBuffer {
   private process?: SpawnedProcess
+  private dataListener?: (chunk: Buffer) => void
   private entries: Entry[] = []
   private partial = ''
   private windowMs: number
@@ -1712,12 +1713,18 @@ export class LogcatBuffer {
   start(): void {
     if (this.process) return
     const proc = this.runner.spawn('adb', ['-s', this.deviceId, 'logcat', '-v', 'threadtime'])
-    proc.stdout.on('data', (chunk: Buffer) => this.consume(chunk.toString()))
+    const listener = (chunk: Buffer) => this.consume(chunk.toString())
+    proc.stdout.on('data', listener)
     this.process = proc
+    this.dataListener = listener
   }
 
   stop(): void {
     if (!this.process) return
+    if (this.dataListener) {
+      try { this.process.stdout.off('data', this.dataListener) } catch {}
+      this.dataListener = undefined
+    }
     try { this.process.kill('SIGTERM') } catch {}
     this.process = undefined
   }
