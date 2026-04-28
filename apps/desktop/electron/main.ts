@@ -65,7 +65,9 @@ app.whenReady().then(async () => {
 
   await createWindow()
 
-  globalShortcut.register('F8', () => emitBugMarkRequested(win))
+  if (!globalShortcut.register('F8', () => emitBugMarkRequested(win))) {
+    console.warn('Loupe: F8 hotkey could not be registered (already taken by another app)')
+  }
 }).catch((err) => { console.error(err); app.quit() })
 
 app.on('window-all-closed', () => {

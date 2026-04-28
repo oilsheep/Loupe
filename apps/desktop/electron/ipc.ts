@@ -62,9 +62,11 @@ export function registerIpc(deps: IpcDeps): void {
     if (!session || !bug) throw new Error('session or bug not found')
 
     const win = deps.getWindow()
+    // Build version is QA-entered free text; sanitise to a Windows-safe filename.
+    const safeBuild = (session.buildVersion || 'session').replace(/[\\/:*?"<>|]/g, '_')
     const dlgOpts = {
       title: 'Export bug clip',
-      defaultPath: `bug-${bug.id.slice(0, 8)}-${session.buildVersion || 'session'}.mp4`,
+      defaultPath: `bug-${bug.id.slice(0, 8)}-${safeBuild}.mp4`,
       filters: [{ name: 'MP4 video', extensions: ['mp4'] }],
     }
     const saveResult = await (win ? dialog.showSaveDialog(win, dlgOpts) : dialog.showSaveDialog(dlgOpts))
