@@ -21,7 +21,7 @@ function makeMock() {
 }
 
 describe('Scrcpy', () => {
-  it('start passes -s deviceId, --record path, and compression flags', () => {
+  it('start passes -s deviceId, --record path, and compression + audio flags', () => {
     const { runner, proc } = makeMock()
     const s = new Scrcpy(runner)
     s.start({ deviceId: 'ABC', recordPath: 'C:/tmp/v.mp4' })
@@ -31,6 +31,9 @@ describe('Scrcpy', () => {
     expect(args).toContain('--max-fps=30')
     expect(args).toContain('--video-bit-rate=4M')
     expect(args).toContain('--max-size=1280')
+    expect(args).toContain('--audio-codec=aac')
+    expect(args).toContain('--audio-bit-rate=64K')
+    expect(args).not.toContain('--no-audio')
     expect(s.isRunning()).toBe(true)
     expect(proc.pid).toBe(999)
   })

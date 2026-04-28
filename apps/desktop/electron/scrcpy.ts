@@ -22,12 +22,14 @@ export class Scrcpy {
       '--record', opts.recordPath,
       '--window-title', opts.windowTitle ?? 'Loupe Mirror',
       '--stay-awake',
-      '--no-audio',
       // Compression tuned for QA review — file size matters more than cinematic quality.
-      // Estimated 30-min session: ~400 MB (vs ~1.8 GB at scrcpy defaults).
-      '--max-fps=30',          // QA bug repro doesn't need 60fps
-      '--video-bit-rate=4M',   // half of scrcpy's 8M default; still very legible
-      '--max-size=1280',       // cap longest dimension at 720p-class
+      '--max-fps=30',           // QA bug repro doesn't need 60fps
+      '--video-bit-rate=4M',    // half of scrcpy's 8M default; still very legible
+      '--max-size=1280',        // cap longest dimension at 720p-class
+      // Audio: forward + record so QA can hear sound bugs (music, voice, SFX).
+      // Requires Android 11+; on older devices scrcpy auto-falls back to video-only.
+      '--audio-codec=aac',      // AAC plays in any MP4 player + HTML5 <video>
+      '--audio-bit-rate=64K',   // half of scrcpy's 128K default; speech-quality
     ]
     this.process = this.runner.spawn('scrcpy', args)
     // performance.now() is monotonic; immune to NTP slew / clock changes during a session.
