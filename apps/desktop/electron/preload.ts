@@ -7,6 +7,8 @@ const api: DesktopApi = {
   device: {
     list:    ()                 => ipcRenderer.invoke(CHANNEL.deviceList),
     connect: (ip, port)         => ipcRenderer.invoke(CHANNEL.deviceConnect, ip, port),
+    mdnsScan: ()                => ipcRenderer.invoke(CHANNEL.deviceMdnsScan),
+    pair:     (a)               => ipcRenderer.invoke(CHANNEL.devicePair, a),
   },
   session: {
     start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),

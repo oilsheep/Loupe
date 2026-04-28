@@ -37,11 +37,19 @@ export interface Bug {
 import type { ToolCheck } from '../electron/doctor'    // type-only import is fine across boundaries
 export type { ToolCheck }
 
+export interface MdnsEntry {
+  name: string                  // service name token
+  type: 'pair' | 'connect'      // pair → needs `adb pair` first; connect → ready for `adb connect`
+  ipPort: string                // e.g. '192.168.1.42:43615'
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   device: {
     list():                                                        Promise<Device[]>
     connect(ip: string, port?: number):                            Promise<{ ok: boolean; message: string }>
+    mdnsScan():                                                    Promise<MdnsEntry[]>
+    pair(args: { ipPort: string; code: string }):                  Promise<{ ok: boolean; message: string }>
   }
   session: {
     start(args: {

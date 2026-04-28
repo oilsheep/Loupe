@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Adb, parseDevicesOutput } from '../adb'
+import { Adb, parseDevicesOutput, parseMdnsOutput } from '../adb'
 import type { IProcessRunner } from '../process-runner'
 
 describe('parseDevicesOutput', () => {
@@ -75,5 +75,73 @@ describe('Adb', () => {
     }))
     const info = await adb.getDeviceInfo('ABC')
     expect(info).toEqual({ model: 'Pixel 7', androidVersion: '14' })
+  })
+
+  it('mdnsServices calls adb mdns services and returns parsed list', async () => {
+    const adb = new Adb(fake({
+      'mdns services': [
+        'List of discovered mdns services',
+        'adb-ABC123-zxcvbn  _adb-tls-pairing._tcp.  192.168.1.42:39247',
+      ].join('\n'),
+    }))
+    const entries = await adb.mdnsServices()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toEqual({ name: 'adb-ABC123-zxcvbn', type: 'pair', ipPort: '192.168.1.42:39247' })
+  })
+
+  it('pair returns ok=true on successfully paired output', async () => {
+    const adb = new Adb({
+      async run() { return { stdout: 'Successfully paired to 192.168.1.42:39247', stderr: '', code: 0 } },
+      spawn: vi.fn() as any,
+    })
+    const r = await adb.pair('192.168.1.42:39247', '123456')
+    expect(r.ok).toBe(true)
+  })
+
+  it('pair returns ok=false on failure output', async () => {
+    const adb = new Adb({
+      async run() { return { stdout: '', stderr: 'Failed to pair: incorrect code', code: 1 } },
+      spawn: vi.fn() as any,
+    })
+    const r = await adb.pair('192.168.1.42:39247', '000000')
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('incorrect code')
+  })
+})
+
+describe('parseMdnsOutput', () => {
+  it('parses pairing and connect entries', () => {
+    const out = [
+      'List of discovered mdns services',
+      'adb-ABC123-zxcvbn  _adb-tls-pairing._tcp.  192.168.1.42:39247',
+      'adb-ABC123-zxcvbn  _adb-tls-connect._tcp.  192.168.1.42:43615',
+    ].join('\n')
+    const entries = parseMdnsOutput(out)
+    expect(entries).toHaveLength(2)
+    expect(entries[0]).toEqual({ name: 'adb-ABC123-zxcvbn', type: 'pair', ipPort: '192.168.1.42:39247' })
+    expect(entries[1]).toEqual({ name: 'adb-ABC123-zxcvbn', type: 'connect', ipPort: '192.168.1.42:43615' })
+  })
+
+  it('skips the header line', () => {
+    const out = 'List of discovered mdns services\nadb-XYZ  _adb-tls-connect._tcp.  10.0.0.1:5555'
+    const entries = parseMdnsOutput(out)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].ipPort).toBe('10.0.0.1:5555')
+  })
+
+  it('skips malformed lines (2-column and invalid ip:port)', () => {
+    const out = [
+      'List of discovered mdns services',
+      'adb-ABC123  _adb-tls-pairing._tcp.',          // only 2 columns
+      'adb-ABC123  _adb-tls-pairing._tcp.  notanip',  // invalid ip:port
+      'adb-ABC123  _adb-tls-connect._tcp.  192.168.1.1:5555',  // valid
+    ].join('\n')
+    const entries = parseMdnsOutput(out)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].type).toBe('connect')
+  })
+
+  it('returns empty for header-only output', () => {
+    expect(parseMdnsOutput('List of discovered mdns services\n')).toEqual([])
   })
 })

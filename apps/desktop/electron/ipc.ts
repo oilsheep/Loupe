@@ -12,6 +12,8 @@ export const CHANNEL = {
   doctor:                  'app:doctor',
   deviceList:              'device:list',
   deviceConnect:           'device:connect',
+  deviceMdnsScan:          'device:mdnsScan',
+  devicePair:              'device:pair',
   sessionStart:            'session:start',
   sessionMarkBug:          'session:markBug',
   sessionStop:             'session:stop',
@@ -39,6 +41,8 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(CHANNEL.deviceList, async () => deps.adb.listDevices())
   ipcMain.handle(CHANNEL.deviceConnect, async (_e, ip: string, port?: number) => deps.adb.connect(ip, port))
+  ipcMain.handle(CHANNEL.deviceMdnsScan, async () => deps.adb.mdnsServices())
+  ipcMain.handle(CHANNEL.devicePair, async (_e, args: { ipPort: string; code: string }) => deps.adb.pair(args.ipPort, args.code))
 
   ipcMain.handle(CHANNEL.sessionStart, async (_e, args) => deps.manager.start(args))
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
