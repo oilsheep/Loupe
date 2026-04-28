@@ -7,11 +7,27 @@ interface Props {
   onSelect(id: string, mode: 'usb' | 'wifi'): void
 }
 
+const LABEL_KEY = 'loupe.deviceLabels'
+function readLabels(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LABEL_KEY) ?? '{}') } catch { return {} }
+}
+function writeLabels(map: Record<string, string>) {
+  localStorage.setItem(LABEL_KEY, JSON.stringify(map))
+}
+
 export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [devices, setDevices] = useState<Device[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null)
   const [wifiIp, setWifiIp] = useState('')
   const [wifiBusy, setWifiBusy] = useState(false)
+
+  // Per-device user-set name from Android Settings (fetched once per id)
+  const [userNames, setUserNames] = useState<Record<string, string>>({})
+  // Custom user-typed labels, persisted in localStorage
+  const [labels, setLabels] = useState<Record<string, string>>(readLabels)
+  const [editingLabel, setEditingLabel] = useState<string | null>(null)
+  const [labelDraft, setLabelDraft] = useState('')
 
   // mDNS scan state
   const [mdnsEntries, setMdnsEntries] = useState<MdnsEntry[] | null>(null)
@@ -31,6 +47,57 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     return () => clearInterval(t)
   }, [])
 
+  // Fetch the Android-side user name once per new device id (Android 12+).
+  useEffect(() => {
+    for (const d of devices) {
+      if (d.state !== 'device' || d.id in userNames) continue
+      api.device.getUserName(d.id).then(name => {
+        if (name) setUserNames(prev => ({ ...prev, [d.id]: name }))
+      }).catch(() => {})
+    }
+  }, [devices, api, userNames])
+
+  function displayName(d: Device): string {
+    return labels[d.id] || userNames[d.id] || d.model || d.id
+  }
+
+  function upsertConnectedDevice(id: string, mode: 'usb' | 'wifi', label?: string) {
+    setDevices(prev => {
+      const next = prev.some(d => d.id === id)
+        ? prev.map(d => d.id === id ? { ...d, type: mode, state: 'device' as const, model: d.model ?? label } : d)
+        : [{ id, type: mode, state: 'device' as const, model: label }, ...prev]
+      return next
+    })
+  }
+
+  async function markConnected(id: string, mode: 'usb' | 'wifi') {
+    upsertConnectedDevice(id, mode)
+    setError(null)
+    setConnectionStatus(`已連接：${userNames[id] || labels[id] || id}`)
+    onSelect(id, mode)
+    api.device.getUserName(id).then(name => {
+      if (!name) return
+      setUserNames(prev => ({ ...prev, [id]: name }))
+      setConnectionStatus(`已連接：${name}`)
+    }).catch(() => {})
+  }
+
+  function startEditLabel(id: string) {
+    setEditingLabel(id)
+    setLabelDraft(labels[id] ?? '')
+  }
+  function commitLabel(id: string) {
+    const v = labelDraft.trim()
+    setLabels(prev => {
+      const next = { ...prev }
+      if (v) next[id] = v
+      else delete next[id]
+      writeLabels(next)
+      return next
+    })
+    setEditingLabel(null)
+  }
+
   async function addWifi() {
     if (!wifiIp.trim()) return
     setWifiBusy(true)
@@ -38,8 +105,15 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
       const [ip, rawPort] = wifiIp.trim().split(':')
       const port = rawPort ? Number(rawPort) : undefined
       const r = await api.device.connect(ip, port)
-      if (!r.ok) setError(r.message)
-      await refresh()
+      const id = `${ip}:${port ?? 5555}`
+      if (r.ok) {
+        await refresh()
+        await markConnected(id, 'wifi')
+        setWifiIp('')
+      } else {
+        setError(r.message)
+        setConnectionStatus(null)
+      }
     } finally { setWifiBusy(false) }
   }
 
@@ -57,8 +131,13 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     const [ip, portStr] = entry.ipPort.split(':')
     const port = portStr ? Number(portStr) : undefined
     const r = await api.device.connect(ip, port)
-    if (!r.ok) setError(r.message)
-    await refresh()
+    if (r.ok) {
+      await refresh()
+      await markConnected(entry.ipPort, 'wifi')
+    } else {
+      setError(r.message)
+      setConnectionStatus(null)
+    }
   }
 
   async function submitPair(entry: MdnsEntry) {
@@ -102,25 +181,82 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
       </div>
 
       {error && <div className="rounded bg-red-950 px-3 py-2 text-xs text-red-200">{error}</div>}
+      {connectionStatus && (
+        <div className="rounded border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
+          {connectionStatus}
+        </div>
+      )}
 
       <div className="space-y-1">
         {devices.length === 0 && <div className="text-xs text-zinc-500">no devices — connect via USB or add a Wi-Fi device below</div>}
-        {devices.map(d => (
-          <button
-            key={d.id}
-            onClick={() => onSelect(d.id, d.type)}
-            disabled={d.state !== 'device'}
-            className={`w-full text-left rounded px-3 py-2 text-sm
-              ${selectedId === d.id ? 'bg-blue-700 text-white' : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200'}
-              ${d.state !== 'device' ? 'opacity-50' : ''}`}
-            data-testid={`device-${d.id}`}
-          >
-            <div className="font-mono text-xs">{d.id}</div>
-            <div className="text-xs text-zinc-400">
-              {d.type.toUpperCase()} · {d.state}{d.model ? ` · ${d.model}` : ''}
+        {devices.map(d => {
+          const isSel = selectedId === d.id
+          const isEditing = editingLabel === d.id
+          const subtitle = [
+            d.type.toUpperCase(),
+            d.state,
+            userNames[d.id],
+            d.model,
+            d.id,
+          ].filter(Boolean).join(' · ')
+          return (
+            <div
+              key={d.id}
+              data-testid={`device-${d.id}`}
+              onClick={() => d.state === 'device' && markConnected(d.id, d.type)}
+              className={`rounded px-3 py-2 text-sm
+                ${isSel ? 'bg-blue-700 text-white' : 'bg-zinc-900 text-zinc-200'}
+                ${d.state !== 'device' ? 'opacity-50' : 'cursor-pointer hover:bg-zinc-800'}`}
+            >
+              <div className="flex items-center gap-2">
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    value={labelDraft}
+                    onChange={e => setLabelDraft(e.target.value)}
+                    onBlur={() => commitLabel(d.id)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                      if (e.key === 'Escape') { setEditingLabel(null) }
+                    }}
+                    placeholder="custom label (e.g. Pixel-7-A)"
+                    data-testid={`label-input-${d.id}`}
+                    className="flex-1 rounded bg-zinc-800 px-2 py-0.5 text-zinc-100 outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      d.state === 'device' && markConnected(d.id, d.type)
+                    }}
+                    disabled={d.state !== 'device'}
+                    className="flex-1 truncate text-left font-medium"
+                    data-testid={`device-select-${d.id}`}
+                  >
+                    {displayName(d)}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    isEditing ? commitLabel(d.id) : startEditLabel(d.id)
+                  }}
+                  data-testid={`label-edit-${d.id}`}
+                  title="Edit custom label"
+                  className="text-xs text-zinc-400 hover:text-zinc-200"
+                >
+                  {isEditing ? 'save' : labels[d.id] ? 'rename' : 'label'}
+                </button>
+              </div>
+              <div className="mt-0.5 flex items-center gap-2 truncate text-xs text-zinc-400">
+                {isSel && <span className="rounded bg-emerald-900 px-1.5 py-0.5 text-emerald-200">已連接</span>}
+                <span className="truncate">{subtitle}</span>
+              </div>
             </div>
-          </button>
-        ))}
+          )
+        })}
       </div>
 
       {/* mDNS Wi-Fi auto-discovery */}

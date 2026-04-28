@@ -7,7 +7,7 @@ describe('parseDevicesOutput', () => {
     const out = `List of devices attached\nABC123  device usb:1-2 product:foo model:Pixel_7 device:panther transport_id:1\n\n`
     const devs = parseDevicesOutput(out)
     expect(devs).toEqual([
-      { id: 'ABC123', type: 'usb', state: 'device' }
+      { id: 'ABC123', type: 'usb', state: 'device', model: 'Pixel 7' }
     ])
   })
 

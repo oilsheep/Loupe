@@ -1,9 +1,11 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from 'react'
 import type { Bug, DesktopApi } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 
 export interface VideoPlayerHandle {
   seekToMs(ms: number): void
+  playWindow(startMs: number, endMs: number): void
+  currentTimeMs(): number
 }
 
 interface Props {
@@ -17,13 +19,39 @@ interface Props {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const clipEndMsRef = useRef<number | null>(null)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [videoSrc, setVideoSrc] = useState(src)
+  const [cursorMs, setCursorMs] = useState(0)
+  const selectedBug = bugs.find(b => b.id === selectedBugId) ?? null
+  const cursorPct = durationMs ? Math.max(0, Math.min(100, (cursorMs / durationMs) * 100)) : 0
+  const selectionStartPct = selectedBug && durationMs
+    ? Math.max(0, Math.min(100, ((selectedBug.offsetMs - selectedBug.preSec * 1000) / durationMs) * 100))
+    : 0
+  const selectionEndPct = selectedBug && durationMs
+    ? Math.max(0, Math.min(100, ((selectedBug.offsetMs + selectedBug.postSec * 1000) / durationMs) * 100))
+    : 0
 
   useImperativeHandle(ref, () => ({
     seekToMs(ms: number) {
       const v = videoRef.current; if (!v) return
-      v.currentTime = Math.max(0, ms / 1000)
+      const nextMs = Math.max(0, ms)
+      clipEndMsRef.current = null
+      v.currentTime = nextMs / 1000
+      setCursorMs(nextMs)
+    },
+    playWindow(startMs: number, endMs: number) {
+      const v = videoRef.current; if (!v) return
+      const start = Math.max(0, startMs)
+      const end = Math.max(start, endMs)
+      clipEndMsRef.current = end
+      v.currentTime = start / 1000
+      setCursorMs(start)
       v.play().catch(() => {})
+    },
+    currentTimeMs() {
+      const v = videoRef.current
+      return v ? v.currentTime * 1000 : 0
     },
   }), [])
 
@@ -45,25 +73,123 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bug
     return () => { cancelled = true }
   }, [bugs, api])
 
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+    const timer = window.setTimeout(async () => {
+      const video = videoRef.current
+      if (!video || video.readyState > 0 || video.duration > 0) return
+      try {
+        const response = await fetch(src, { cache: 'no-store' })
+        if (!response.ok) throw new Error(`video fetch failed: ${response.status}`)
+        const blob = await response.blob()
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setVideoSrc(objectUrl)
+      } catch (err) {
+        console.warn('Loupe: video fallback load failed', err)
+      }
+    }, 2000)
+
+    setVideoSrc(src)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [src])
+
+  function stopAtClipEnd() {
+    const video = videoRef.current
+    const clipEndMs = clipEndMsRef.current
+    if (!video || clipEndMs === null) return
+    setCursorMs(video.currentTime * 1000)
+    if (video.currentTime * 1000 >= clipEndMs) {
+      video.pause()
+      video.currentTime = clipEndMs / 1000
+      setCursorMs(clipEndMs)
+      clipEndMsRef.current = null
+    }
+  }
+
+  function updateCursorFromVideo() {
+    const video = videoRef.current
+    if (!video) return
+    setCursorMs(video.currentTime * 1000)
+  }
+
+  function seekFromTimeline(e: MouseEvent<HTMLDivElement>) {
+    const video = videoRef.current
+    if (!video || durationMs <= 0) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    clipEndMsRef.current = null
+    video.pause()
+    video.currentTime = (durationMs * pct) / 1000
+    setCursorMs(durationMs * pct)
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      <video ref={videoRef} src={src} controls className="w-full rounded-lg bg-black" data-testid="video-el" />
-      <div className="relative h-3 rounded bg-zinc-800" data-testid="timeline">
+    <div className="flex w-full flex-col gap-2">
+      <video
+        ref={videoRef}
+        src={videoSrc}
+        controls
+        preload="metadata"
+        onTimeUpdate={stopAtClipEnd}
+        onSeeked={updateCursorFromVideo}
+        onLoadedMetadata={updateCursorFromVideo}
+        onError={(e) => {
+          const mediaError = e.currentTarget.error
+          console.warn('Loupe: video element failed', {
+            code: mediaError?.code,
+            message: mediaError?.message,
+            src: e.currentTarget.currentSrc,
+          })
+        }}
+        className="mx-auto block max-h-[calc(100vh-190px)] max-w-full rounded-lg bg-black object-contain"
+        data-testid="video-el"
+      />
+      <div className="relative h-4 cursor-pointer rounded bg-zinc-800" data-testid="timeline" onClick={seekFromTimeline}>
+        {selectedBug && durationMs > 0 && selectionEndPct > selectionStartPct && (
+          <div
+            className="absolute top-1/2 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
+            data-testid="selected-clip-window"
+            style={{ left: `${selectionStartPct}%`, width: `${selectionEndPct - selectionStartPct}%` }}
+            title={`Export range: -${selectedBug.preSec}s / +${selectedBug.postSec}s`}
+          />
+        )}
+        {durationMs > 0 && (
+          <div
+            className="pointer-events-none absolute top-1/2 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+            data-testid="playhead"
+            style={{ left: `${cursorPct}%` }}
+          />
+        )}
         {bugs.map(b => {
-          const left = durationMs ? (b.offsetMs / durationMs) * 100 : 0
-          const colour = b.severity === 'major' ? 'bg-red-500' : 'bg-amber-500'
-          const ring = b.id === selectedBugId ? 'ring-2 ring-white' : ''
+          const left = durationMs ? Math.max(0, Math.min(100, (b.offsetMs / durationMs) * 100)) : 0
+          const colour = b.severity === 'major'
+            ? 'bg-red-500'
+            : b.severity === 'minor'
+              ? 'bg-sky-500'
+              : b.severity === 'improvement'
+                ? 'bg-emerald-500'
+                : b.severity === 'note'
+                  ? 'bg-zinc-300'
+                  : 'bg-amber-500'
+          const ring = b.id === selectedBugId ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.75)]' : ''
           const url = thumbs[b.id]
           return (
             <div
               key={b.id}
               className="group absolute top-1/2 -translate-y-1/2"
-              style={{ left: `calc(${left}% - 6px)` }}
+              style={{ left: `calc(${left}% - 2px)` }}
             >
               <button
-                onClick={() => onMarkerClick(b)}
+                onClick={(e) => { e.stopPropagation(); onMarkerClick(b) }}
                 data-testid={`marker-${b.id}`}
-                className={`block h-3 w-3 rounded-full ${colour} ${ring}`}
+                className={`block h-3.5 w-1 rounded-sm ${colour} ${ring}`}
               />
               <div
                 className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"

@@ -5,9 +5,10 @@ import type { DesktopApi } from '@shared/types'
 
 function fakeApi(markBug = vi.fn().mockResolvedValue({ id: 'b1' })): DesktopApi {
   return {
-    doctor: vi.fn() as any, device: {} as any,
-    session: { markBug } as any, bug: {} as any,
+    doctor: vi.fn() as any, app: { showItemInFolder: vi.fn() as any, openPath: vi.fn() as any }, device: {} as any,
+    session: { markBug, updateMetadata: vi.fn() } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }

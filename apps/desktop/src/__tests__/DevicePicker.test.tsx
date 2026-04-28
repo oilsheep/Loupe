@@ -3,17 +3,20 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { DevicePicker } from '@/components/DevicePicker'
 import type { Device, DesktopApi, MdnsEntry } from '@shared/types'
 
-function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairImpl?: any): DesktopApi {
+function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairImpl?: any, getUserNameImpl?: any): DesktopApi {
   return {
     doctor: vi.fn() as any,
+    app: { showItemInFolder: vi.fn() as any, openPath: vi.fn() as any },
     device: {
       list: vi.fn().mockResolvedValue(devices),
       connect: connectImpl ?? vi.fn().mockResolvedValue({ ok: true, message: 'connected' }),
       mdnsScan: mdnsScanImpl ?? vi.fn().mockResolvedValue([]),
       pair: pairImpl ?? vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' }),
+      getUserName: getUserNameImpl ?? vi.fn().mockResolvedValue(null),
     },
-    session: {} as any, bug: {} as any,
+    session: { updateMetadata: vi.fn() as any } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
@@ -34,6 +37,17 @@ describe('DevicePicker', () => {
     fireEvent.change(screen.getByTestId('wifi-ip'), { target: { value: '10.0.0.7' } })
     fireEvent.click(screen.getByTestId('wifi-connect'))
     await waitFor(() => expect(connect).toHaveBeenCalledWith('10.0.0.7', undefined))
+  })
+
+  it('successful manual Wi-Fi connect selects the device and shows connected feedback', async () => {
+    const connect = vi.fn().mockResolvedValue({ ok: true, message: 'connected' })
+    const getUserName = vi.fn().mockResolvedValue('QA Pixel')
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([], connect, undefined, undefined, getUserName)} selectedId={null} onSelect={onSelect} />)
+    fireEvent.change(screen.getByTestId('wifi-ip'), { target: { value: '10.0.0.7' } })
+    fireEvent.click(screen.getByTestId('wifi-connect'))
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('10.0.0.7:5555', 'wifi'))
+    await waitFor(() => expect(screen.getByText('已連接：QA Pixel')).toBeTruthy())
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {
@@ -58,12 +72,14 @@ describe('DevicePicker', () => {
     ]
     const mdnsScan = vi.fn().mockResolvedValue(entries)
     const connect = vi.fn().mockResolvedValue({ ok: true, message: 'connected' })
-    render(<DevicePicker api={fakeApi([], connect, mdnsScan)} selectedId={null} onSelect={vi.fn()} />)
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([], connect, mdnsScan)} selectedId={null} onSelect={onSelect} />)
 
     fireEvent.click(screen.getByTestId('mdns-scan-button'))
     await waitFor(() => expect(screen.getByTestId('mdns-connect-button-192.168.1.42:43615')).toBeTruthy())
     fireEvent.click(screen.getByTestId('mdns-connect-button-192.168.1.42:43615'))
     await waitFor(() => expect(connect).toHaveBeenCalledWith('192.168.1.42', 43615))
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('192.168.1.42:43615', 'wifi'))
   })
 
   it('Pair flow: pair button reveals code input, submit calls api.device.pair, then mdnsScan re-runs', async () => {

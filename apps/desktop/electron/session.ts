@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs'
+import { renameSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
@@ -8,6 +8,8 @@ import type { Db } from './db'
 import type { Paths } from './paths'
 import type { Session, Bug, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
+import { remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
+import { writeProjectFile } from './project-file'
 
 export interface SessionDeps {
   db: Db
@@ -17,6 +19,7 @@ export interface SessionDeps {
   logcat: LogcatBuffer
   runner: IProcessRunner
   captureScreenshot?: typeof defaultCapture
+  prepareVideoForPlayback?: (inputPath: string) => Promise<void>
   now?: () => number
   /** Generates IDs for individual bugs (random UUID by default). */
   newId?: () => string
@@ -45,22 +48,32 @@ export interface StartArgs {
   connectionMode: 'usb' | 'wifi'
   buildVersion: string
   testNote: string
+  tester?: string
 }
 
 export interface MarkBugArgs {
-  severity: BugSeverity
-  note: string
+  severity?: BugSeverity
+  note?: string
+}
+
+export interface AddMarkerArgs {
+  sessionId: string
+  offsetMs: number
+  severity?: BugSeverity
+  note?: string
 }
 
 export class SessionManager {
   private active: Session | null = null
   private capture: typeof defaultCapture
+  private prepareVideo: (inputPath: string) => Promise<void>
   private now: () => number
   private newId: () => string
   private makeSessionId: (buildVersion: string, nowMs: number) => string
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
+    this.prepareVideo = deps.prepareVideoForPlayback ?? this.defaultPrepareVideoForPlayback.bind(this)
     this.now = deps.now ?? Date.now
     this.newId = deps.newId ?? randomUUID
     this.makeSessionId = deps.makeSessionId ?? makeSessionId
@@ -77,53 +90,65 @@ export class SessionManager {
     paths.ensureSessionDirs(id)
     const sess: Session = {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
+      tester: args.tester?.trim() ?? '',
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
       connectionMode: args.connectionMode, status: 'recording',
       durationMs: null, startedAt, endedAt: null,
+      videoPath: paths.videoFile(id),
     }
     db.insertSession(sess)
-    scrcpy.start({ deviceId: args.deviceId, recordPath: paths.videoFile(id), windowTitle: `Loupe — ${info.model}` })
+    this.persistProject(sess.id)
+    scrcpy.start({
+      deviceId: args.deviceId,
+      recordPath: paths.videoFile(id),
+      windowTitle: `Loupe - ${info.model}`,
+    })
     logcat.start()
     this.active = sess
     return sess
   }
 
-  async markBug(args: MarkBugArgs): Promise<Bug> {
+  async markBug(args: MarkBugArgs = {}): Promise<Bug> {
     if (!this.active) throw new Error('no active session')
-    const { db, paths, scrcpy, logcat, runner } = this.deps
+    const { db, paths, scrcpy } = this.deps
     const sess = this.active
     const offsetMs = scrcpy.elapsedMs() ?? 0
     const bugId = this.newId()
-    const screenshotPath = paths.screenshotFile(sess.id, bugId)
-    const logcatPath = paths.logcatFile(sess.id, bugId)
-
-    // Run side effects in parallel; tolerate screenshot failure (don't block bug record).
-    const shotP = this.capture(runner, sess.deviceId, screenshotPath).then(() => true).catch(() => false)
-    logcat.dumpRecentToFile(logcatPath)
-    const shotOk = await shotP
 
     const bug: Bug = {
-      id: bugId, sessionId: sess.id, offsetMs, severity: args.severity, note: args.note,
-      screenshotRel: shotOk ? `screenshots/${bugId}.png` : null,
-      logcatRel: `logcat/${bugId}.txt`,
+      id: bugId, sessionId: sess.id, offsetMs,
+      severity: args.severity ?? 'normal',
+      note: args.note ?? '',
+      screenshotRel: null,
+      logcatRel: null,
+      audioRel: null,
+      audioDurationMs: null,
       createdAt: this.now(),
       preSec: 5, postSec: 5,
     }
     db.insertBug(bug)
+    this.persistProject(sess.id)
+    this.captureMarkerAssets(sess, bugId).catch((err) => {
+      console.warn(`Loupe: failed to capture marker assets for ${bugId}`, err)
+    })
     return bug
   }
 
   async stop(): Promise<Session> {
     if (!this.active) throw new Error('no active session')
-    const { db, scrcpy, logcat } = this.deps
+    const { db, paths, scrcpy, logcat } = this.deps
     const sess = this.active
     await scrcpy.stop()
     logcat.stop()
     const endedAt = this.now()
     const durationMs = endedAt - sess.startedAt
+    await this.prepareVideo(paths.videoFile(sess.id)).catch((err) => {
+      console.warn(`Loupe: video remux failed for session ${sess.id}; keeping original recording`, err)
+    })
     db.finalizeSession(sess.id, { durationMs, endedAt })
     this.active = null
     const updated = db.getSession(sess.id)!
+    this.persistProject(sess.id)
     return updated
   }
 
@@ -141,8 +166,110 @@ export class SessionManager {
   listSessions() { return this.deps.db.listSessions() }
   getSession(id: string) { return this.deps.db.getSession(id) }
   listBugs(sessionId: string) { return this.deps.db.listBugs(sessionId) }
+  addMarker(args: AddMarkerArgs): Bug {
+    const session = this.deps.db.getSession(args.sessionId)
+    if (!session) throw new Error('session not found')
+    const durationMs = session.durationMs ?? Math.max(0, args.offsetMs)
+    const bug: Bug = {
+      id: this.newId(),
+      sessionId: session.id,
+      offsetMs: Math.max(0, Math.min(durationMs, args.offsetMs)),
+      severity: args.severity ?? 'normal',
+      note: args.note ?? '',
+      screenshotRel: null,
+      logcatRel: null,
+      audioRel: null,
+      audioDurationMs: null,
+      createdAt: this.now(),
+      preSec: 5,
+      postSec: 5,
+    }
+    this.deps.db.insertBug(bug)
+    this.persistProject(session.id)
+    return bug
+  }
+  updateSessionMetadata(id: string, patch: { testNote: string; tester: string }) {
+    const session = this.deps.db.getSession(id)
+    if (!session) throw new Error('session not found')
+    this.deps.db.updateSessionMetadata(id, {
+      testNote: patch.testNote.trim(),
+      tester: patch.tester.trim(),
+    })
+    this.persistProject(id)
+  }
   updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
     this.deps.db.updateBug(id, patch)
+    const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
+    if (session?.session_id) this.persistProject(session.session_id)
   }
-  deleteBug(id: string) { this.deps.db.deleteBug(id) }
+  saveBugAudio(sessionId: string, bugId: string, bytes: Buffer, durationMs: number): void {
+    const bug = this.deps.db.listBugs(sessionId).find(b => b.id === bugId)
+    if (!bug) throw new Error('bug not found')
+    this.deps.paths.ensureSessionDirs(sessionId)
+    writeFileSync(this.deps.paths.audioFile(sessionId, bugId), bytes)
+    this.deps.db.updateBugAudio(bugId, {
+      audioRel: `audio/${bugId}.webm`,
+      audioDurationMs: Math.max(0, Math.round(durationMs)),
+    })
+    this.persistProject(sessionId)
+  }
+  deleteBug(id: string) {
+    const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
+    this.deps.db.deleteBug(id)
+    if (session?.session_id) this.persistProject(session.session_id)
+  }
+
+  importProject(session: Session, bugs: Bug[]): void {
+    this.deps.paths.ensureSessionDirs(session.id)
+    this.deps.db.insertSession(session)
+    this.deps.db.deleteBugsForSession(session.id)
+    for (const bug of bugs) this.deps.db.insertBug(bug)
+    this.persistProject(session.id)
+  }
+
+  persistProject(sessionId: string): void {
+    const session = this.deps.db.getSession(sessionId)
+    if (!session) return
+    writeProjectFile(this.deps.paths.projectFile(sessionId), session, this.deps.db.listBugs(sessionId), this.now())
+  }
+
+  private async captureMarkerAssets(session: Session, bugId: string): Promise<void> {
+    const { db, paths, logcat, runner } = this.deps
+    const screenshotPath = paths.screenshotFile(session.id, bugId)
+    const logcatPath = paths.logcatFile(session.id, bugId)
+    let logcatRel: string | null = null
+    let screenshotRel: string | null = null
+
+    try {
+      logcat.dumpRecentToFile(logcatPath)
+      logcatRel = `logcat/${bugId}.txt`
+    } catch (err) {
+      console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)
+    }
+
+    try {
+      await this.capture(runner, session.deviceId, screenshotPath)
+      screenshotRel = `screenshots/${bugId}.png`
+    } catch (err) {
+      console.warn(`Loupe: failed to capture screenshot for marker ${bugId}`, err)
+    }
+
+    db.updateBugAssets(bugId, { screenshotRel, logcatRel })
+    this.persistProject(session.id)
+  }
+
+  private async defaultPrepareVideoForPlayback(inputPath: string): Promise<void> {
+    const outputPath = `${inputPath}.faststart.mp4`
+    const backupPath = `${inputPath}.raw.mp4`
+    await remuxForHtml5Playback(this.deps.runner, resolveBundledFfmpegPath(), { inputPath, outputPath })
+    rmSync(backupPath, { force: true })
+    renameSync(inputPath, backupPath)
+    try {
+      renameSync(outputPath, inputPath)
+      rmSync(backupPath, { force: true })
+    } catch (err) {
+      renameSync(backupPath, inputPath)
+      throw err
+    }
+  }
 }

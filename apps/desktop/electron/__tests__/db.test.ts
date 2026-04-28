@@ -4,15 +4,16 @@ import type { Session, Bug } from '@shared/types'
 
 function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
   return {
-    id: 'sess-1', buildVersion: '1.0.0', testNote: '', deviceId: 'ABC', deviceModel: 'Pixel 7',
+    id: 'sess-1', buildVersion: '1.0.0', testNote: '', tester: '', deviceId: 'ABC', deviceModel: 'Pixel 7',
     androidVersion: '14', connectionMode: 'usb', status: 'recording', durationMs: null,
-    startedAt: 1700000000000, endedAt: null, ...over,
+    startedAt: 1700000000000, endedAt: null, videoPath: null, ...over,
   }
 }
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
   return {
     id: 'bug-1', sessionId: 'sess-1', offsetMs: 5000, severity: 'normal', note: 'cards stuck',
     screenshotRel: null, logcatRel: null, createdAt: 1700000005000,
+    audioRel: null, audioDurationMs: null,
     preSec: 5, postSec: 5, ...over,
   }
 }
@@ -22,9 +23,10 @@ describe('Db', () => {
   beforeEach(() => { db = openDb(':memory:') })
 
   it('creates and retrieves a session', () => {
-    db.insertSession(fixSession())
+    db.insertSession(fixSession({ videoPath: 'C:/tmp/video.mp4' }))
     const s = db.getSession('sess-1')
     expect(s?.deviceModel).toBe('Pixel 7')
+    expect(s?.videoPath).toBe('C:/tmp/video.mp4')
   })
 
   it('listSessions returns rows newest-first', () => {
@@ -67,6 +69,24 @@ describe('Db', () => {
     const b = db.listBugs('sess-1')[0]
     expect(b.preSec).toBe(3)
     expect(b.postSec).toBe(7)
+  })
+
+  it('updates bug audio metadata', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.updateBugAudio('bug-1', { audioRel: 'audio/bug-1.webm', audioDurationMs: 1234 })
+    const b = db.listBugs('sess-1')[0]
+    expect(b.audioRel).toBe('audio/bug-1.webm')
+    expect(b.audioDurationMs).toBe(1234)
+  })
+
+  it('updates bug screenshot and logcat metadata', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.updateBugAssets('bug-1', { screenshotRel: 'screenshots/bug-1.png', logcatRel: 'logcat/bug-1.txt' })
+    const b = db.listBugs('sess-1')[0]
+    expect(b.screenshotRel).toBe('screenshots/bug-1.png')
+    expect(b.logcatRel).toBe('logcat/bug-1.txt')
   })
 
   it('deleteBug removes one bug', () => {

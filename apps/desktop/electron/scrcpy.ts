@@ -30,6 +30,9 @@ export class Scrcpy {
       // Requires Android 11+; on older devices scrcpy auto-falls back to video-only.
       '--audio-codec=aac',      // AAC plays in any MP4 player + HTML5 <video>
       '--audio-bit-rate=64K',   // half of scrcpy's 128K default; speech-quality
+      // Show finger-tap circles on the device (and therefore in the recording).
+      // Sets Android's "Show taps" developer option for the duration of the session.
+      '--show-touches',
     ]
     this.process = this.runner.spawn('scrcpy', args)
     // performance.now() is monotonic; immune to NTP slew / clock changes during a session.

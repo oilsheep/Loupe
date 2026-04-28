@@ -15,6 +15,7 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
 
   const [build, setBuild] = useState(recent[0] ?? '')
   const [note, setNote] = useState('')
+  const [tester, setTester] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,7 +23,13 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
     if (!build.trim()) return setError('build version is required')
     setBusy(true); setError(null)
     try {
-      const session = await api.session.start({ deviceId, connectionMode, buildVersion: build.trim(), testNote: note.trim() })
+      const session = await api.session.start({
+        deviceId,
+        connectionMode,
+        buildVersion: build.trim(),
+        testNote: note.trim(),
+        tester: tester.trim(),
+      })
       pushRecent(build.trim())
       goRecording(session)
     } catch (e) {
@@ -47,6 +54,15 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
         <input
           value={note} onChange={e => setNote(e.target.value)}
           placeholder="e.g. verify BUG-1234 fix" data-testid="test-note"
+          className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs text-zinc-400">Tester (optional)</label>
+        <input
+          value={tester} onChange={e => setTester(e.target.value)}
+          placeholder="e.g. QA name" data-testid="tester"
           className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
         />
       </div>

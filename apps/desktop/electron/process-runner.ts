@@ -1,5 +1,6 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
 import type { Readable } from 'node:stream'
+import { resolveBundledTool, withToolPath } from './tool-paths'
 
 export interface RunResult {
   stdout: string
@@ -23,7 +24,8 @@ export interface IProcessRunner {
 export class RealProcessRunner implements IProcessRunner {
   run(cmd: string, args: string[], opts: SpawnOptions = {}): Promise<RunResult> {
     return new Promise((resolve, reject) => {
-      const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+      const resolvedCmd = resolveBundledTool(cmd)
+      const child = spawn(resolvedCmd, args, { ...withToolPath(cmd, opts), stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       let settled = false
@@ -36,7 +38,8 @@ export class RealProcessRunner implements IProcessRunner {
   }
 
   spawn(cmd: string, args: string[], opts: SpawnOptions = {}): SpawnedProcess {
-    const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+    const resolvedCmd = resolveBundledTool(cmd)
+    const child = spawn(resolvedCmd, args, { ...withToolPath(cmd, opts), stdio: ['ignore', 'pipe', 'pipe'] })
     return {
       get pid() { return child.pid },
       stdout: child.stdout!,

@@ -12,10 +12,13 @@ export function parseDevicesOutput(stdout: string): Device[] {
     if (parts.length < 2) continue
     const [id, state] = parts
     if (state !== 'device' && state !== 'offline' && state !== 'unauthorized') continue
+    const modelToken = parts.find(p => p.startsWith('model:'))
+    const model = modelToken?.slice('model:'.length).replace(/_/g, ' ')
     devs.push({
       id,
       type: IP_PORT.test(id) ? 'wifi' : 'usb',
       state: state as Device['state'],
+      model,
     })
   }
   return devs
@@ -69,6 +72,20 @@ export class Adb {
       this.getProp(deviceId, 'ro.build.version.release'),
     ])
     return { model, androidVersion }
+  }
+
+  async getUserDeviceName(deviceId: string): Promise<string | null> {
+    const candidates = [
+      ['settings', 'get', 'global', 'device_name'],
+      ['settings', 'get', 'system', 'device_name'],
+      ['settings', 'get', 'secure', 'bluetooth_name'],
+    ]
+    for (const args of candidates) {
+      const r = await this.runner.run('adb', ['-s', deviceId, 'shell', ...args])
+      const value = r.stdout.trim()
+      if (r.code === 0 && value && value !== 'null') return value
+    }
+    return null
   }
 
   async mdnsServices(): Promise<MdnsEntry[]> {

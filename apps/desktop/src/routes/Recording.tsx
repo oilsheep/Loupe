@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Bug, Session } from '@shared/types'
+import type { Bug, BugSeverity, HotkeySettings, Session } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { BugMarkDialog } from '@/components/BugMarkDialog'
 import { BugList } from '@/components/BugList'
 
 function fmtElapsed(ms: number): string {
@@ -11,12 +10,21 @@ function fmtElapsed(ms: number): string {
   return `${m.toString().padStart(2, '0')}:${r.toString().padStart(2, '0')}`
 }
 
+const DEFAULT_HOTKEYS: HotkeySettings = { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }
+const HOTKEY_SEVERITIES: Array<{ key: keyof HotkeySettings; label: string }> = [
+  { key: 'improvement', label: 'improvement' },
+  { key: 'minor', label: 'minor' },
+  { key: 'normal', label: 'normal' },
+  { key: 'major', label: 'major' },
+]
+
 export function Recording({ session }: { session: Session }) {
   const goDraft = useApp(s => s.goDraft)
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [bugs, setBugs] = useState<Bug[]>([])
   const [elapsedMs, setElapsedMs] = useState(0)
   const [stopping, setStopping] = useState(false)
+  const [selectedBugId, setSelectedBugId] = useState<string | null>(null)
+  const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
 
   const refreshBugs = useCallback(async () => {
     const r = await api.session.get(session.id)
@@ -28,11 +36,27 @@ export function Recording({ session }: { session: Session }) {
     return () => clearInterval(t)
   }, [session.startedAt])
 
+  const markNow = useCallback(async (severity: BugSeverity) => {
+    const bug = await api.session.markBug({ severity })
+    setSelectedBugId(bug.id)
+    await refreshBugs()
+    for (const delay of [300, 1000, 2500]) {
+      window.setTimeout(() => { void refreshBugs() }, delay)
+    }
+  }, [refreshBugs])
+
+  useEffect(() => api.onBugMarkRequested(markNow), [markNow])
+  useEffect(() => { refreshBugs() }, [refreshBugs])
   useEffect(() => {
-    return api.onBugMarkRequested(() => setDialogOpen(true))
+    api.settings.get().then(s => {
+      setHotkeys(s.hotkeys)
+    })
   }, [])
 
-  useEffect(() => { refreshBugs() }, [refreshBugs])
+  async function saveHotkeys(next: HotkeySettings) {
+    const settings = await api.settings.setHotkeys(next)
+    setHotkeys(settings.hotkeys)
+  }
 
   async function stop() {
     setStopping(true)
@@ -43,44 +67,80 @@ export function Recording({ session }: { session: Session }) {
   }
 
   return (
-    <div className="grid h-screen grid-cols-[1fr_420px] bg-zinc-950 text-zinc-100">
-      <main className="flex flex-col items-center justify-center p-8">
-        <div className="text-xs uppercase tracking-wider text-zinc-500">Recording</div>
-        <div className="mt-2 font-mono text-6xl tabular-nums">{fmtElapsed(elapsedMs)}</div>
-        <div className="mt-3 text-sm text-zinc-400">{bugs.length} bug{bugs.length === 1 ? '' : 's'} marked · build {session.buildVersion}</div>
-        <div className="mt-1 text-xs text-zinc-500">
-          The scrcpy mirror window is separate. Press <kbd className="rounded bg-zinc-800 px-1.5 py-0.5">F8</kbd> from anywhere to mark a bug.
+    <div className="flex h-screen flex-col bg-zinc-950 text-zinc-100">
+      <header className="border-b border-zinc-800 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+              </span>
+              Recording
+            </div>
+            <div className="mt-1 truncate text-sm font-medium text-zinc-200">{session.deviceModel}</div>
+            <div className="mt-0.5 truncate text-xs text-zinc-500">build {session.buildVersion}</div>
+          </div>
+          <div className="text-right">
+            <div className="font-mono text-2xl tabular-nums text-zinc-100">{fmtElapsed(elapsedMs)}</div>
+            <div className="mt-0.5 text-xs text-zinc-500">{bugs.length} marker{bugs.length === 1 ? '' : 's'}</div>
+          </div>
         </div>
-        <button
-          onClick={stop} disabled={stopping} data-testid="stop-session"
-          className="mt-10 rounded bg-zinc-800 px-6 py-2 text-sm hover:bg-zinc-700 disabled:opacity-50"
-        >{stopping ? 'stopping…' : 'Stop session'}</button>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-500">{hotkeys.improvement} improvement · {hotkeys.minor} minor · {hotkeys.normal} normal · {hotkeys.major} major</div>
+          <button
+            onClick={stop}
+            disabled={stopping}
+            data-testid="stop-session"
+            className="rounded bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {stopping ? 'Stopping...' : 'Stop'}
+          </button>
+        </div>
+      </header>
+
+      <section className="border-b border-zinc-800 px-3 py-2">
+        <div className="mb-2 text-[11px] font-medium text-zinc-400">Marker hotkeys</div>
+        <div className="grid grid-cols-2 gap-2">
+          {HOTKEY_SEVERITIES.map(({ key, label }) => (
+            <label key={key} className="text-[11px] text-zinc-500">
+              {label}
+              <input
+                value={hotkeys[key]}
+                onChange={(e) => setHotkeys({ ...hotkeys, [key]: e.target.value })}
+                onBlur={() => saveHotkeys({
+                  ...hotkeys,
+                  [key]: hotkeys[key].trim() || DEFAULT_HOTKEYS[key],
+                })}
+                className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 font-mono text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </label>
+          ))}
+        </div>
+        <div className="mt-2 text-[11px] leading-4 text-zinc-600">
+          Current: {hotkeys.improvement} improvement · {hotkeys.minor} minor · {hotkeys.normal} normal · {hotkeys.major} major.
+          Use function keys or modifier chords like Ctrl+Alt+N; plain letters can steal typing system-wide.
+        </div>
+      </section>
+
+      <section className="border-b border-zinc-800 px-3 py-2 text-xs text-zinc-400">
+        <div>Android {session.androidVersion} · {session.connectionMode.toUpperCase()}</div>
+        {session.testNote && <div className="mt-2 italic text-zinc-500">{session.testNote}</div>}
+      </section>
+
+      <main className="min-h-0 flex-1 overflow-auto">
+        <BugList
+          api={api}
+          sessionId={session.id}
+          bugs={bugs}
+          selectedBugId={selectedBugId}
+          onSelect={(bug) => setSelectedBugId(bug.id)}
+          onMutated={refreshBugs}
+          allowExport={false}
+          autoFocusLatest
+        />
       </main>
-
-      <aside className="flex flex-col overflow-hidden border-l border-zinc-800">
-        <div className="border-b border-zinc-800 p-3 text-xs text-zinc-400">
-          <div className="font-medium text-zinc-300">{session.deviceModel}</div>
-          <div>Android {session.androidVersion} · {session.connectionMode.toUpperCase()}</div>
-          {session.testNote && <div className="mt-2 italic text-zinc-500">{session.testNote}</div>}
-        </div>
-        <div className="overflow-auto">
-          <BugList
-            api={api}
-            sessionId={session.id}
-            bugs={bugs}
-            selectedBugId={null}
-            onSelect={() => {/* no video to seek during recording */}}
-            onMutated={refreshBugs}
-            allowExport={false}
-          />
-        </div>
-      </aside>
-
-      <BugMarkDialog
-        open={dialogOpen} api={api}
-        onSubmitted={() => { setDialogOpen(false); refreshBugs() }}
-        onCancel={() => setDialogOpen(false)}
-      />
     </div>
   )
 }

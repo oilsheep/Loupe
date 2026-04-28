@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionManager, makeSessionId } from '../session'
@@ -11,6 +11,7 @@ import type { LogcatBuffer } from '../logcat'
 
 let nowMs = 1_700_000_000_000
 const advance = (ms: number) => { nowMs += ms }
+const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0))
 
 function makeStubs() {
   const adb = {
@@ -30,7 +31,8 @@ function makeStubs() {
   const screenshot = vi.fn().mockImplementation(async (_runner, _id, out: string) => {
     writeFileSync(out, Buffer.from([0x89, 0x50]))
   })
-  return { adb, scrcpy, logcat, screenshot }
+  const prepareVideo = vi.fn().mockResolvedValue(undefined)
+  return { adb, scrcpy, logcat, screenshot, prepareVideo }
 }
 
 describe('SessionManager', () => {
@@ -51,6 +53,7 @@ describe('SessionManager', () => {
       db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
       runner: { run: vi.fn() as any, spawn: vi.fn() as any },
       captureScreenshot: stubs.screenshot,
+      prepareVideoForPlayback: stubs.prepareVideo,
       now: () => nowMs,
       newId: ((seq) => () => `bug-${seq++}`)(1),
       makeSessionId: () => 'sess-1',
@@ -71,6 +74,8 @@ describe('SessionManager', () => {
     }))
     expect(stubs.logcat.start).toHaveBeenCalled()
     expect(existsSync(paths.screenshotsDir('sess-1'))).toBe(true)
+    expect(existsSync(paths.projectFile('sess-1'))).toBe(true)
+    expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.videoPath).toBe(paths.videoFile('sess-1'))
   })
 
   it('throws when starting while already active', async () => {
@@ -85,10 +90,33 @@ describe('SessionManager', () => {
     const bug = await mgr.markBug({ severity: 'major', note: 'crash' })
     expect(bug.offsetMs).toBe(7000)
     expect(bug.severity).toBe('major')
+    expect(bug.screenshotRel).toBeNull()
+    expect(db.listBugs('sess-1')).toHaveLength(1)
+    expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).bugs).toHaveLength(1)
+
+    await flushPromises()
     expect(existsSync(paths.screenshotFile('sess-1', bug.id))).toBe(true)
     expect(existsSync(paths.logcatFile('sess-1', bug.id))).toBe(true)
     expect(stubs.logcat.dumpRecentToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id))
-    expect(db.listBugs('sess-1')).toHaveLength(1)
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
+    expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).bugs[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
+  })
+
+  it('markBug returns before a slow screenshot finishes', async () => {
+    let finishScreenshot!: () => void
+    stubs.screenshot.mockImplementationOnce(async (_runner, _id, out: string) => {
+      await new Promise<void>(resolve => { finishScreenshot = resolve })
+      writeFileSync(out, Buffer.from([0x89, 0x50]))
+    })
+    await mgr.start({ deviceId: 'ABC', connectionMode: 'usb', buildVersion: '', testNote: '' })
+
+    const bug = await mgr.markBug()
+    expect(bug.id).toBe('bug-1')
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
+
+    finishScreenshot()
+    await flushPromises()
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBe('screenshots/bug-1.png')
   })
 
   it('markBug throws when no active session', async () => {
@@ -102,8 +130,29 @@ describe('SessionManager', () => {
     expect(s.status).toBe('draft')
     expect(s.durationMs).toBe(60_000)
     expect(stubs.scrcpy.stop).toHaveBeenCalled()
+    expect(stubs.prepareVideo).toHaveBeenCalledWith(paths.videoFile('sess-1'))
     expect(stubs.logcat.stop).toHaveBeenCalled()
     expect(mgr.activeSessionId()).toBeNull()
+    expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.status).toBe('draft')
+  })
+
+  it('importProject restores session and bugs into the db and writes a project file', () => {
+    const session = {
+      id: 'imported', buildVersion: '2.0', testNote: 'regression', tester: 'Avery', deviceId: 'D',
+      deviceModel: 'Pixel 8', androidVersion: '15', connectionMode: 'usb' as const,
+      status: 'draft' as const, durationMs: 10_000, startedAt: 1, endedAt: 2,
+      videoPath: join(root, 'external.mp4'),
+    }
+    const bug = {
+      id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, severity: 'normal' as const,
+      note: 'restored', screenshotRel: null, logcatRel: null, createdAt: 3,
+      audioRel: null, audioDurationMs: null,
+      preSec: 5, postSec: 5,
+    }
+    mgr.importProject(session, [bug])
+    expect(db.getSession('imported')?.videoPath).toBe(session.videoPath)
+    expect(db.listBugs('imported')[0].note).toBe('restored')
+    expect(existsSync(paths.projectFile('imported'))).toBe(true)
   })
 
   it('discard deletes session row + files', async () => {
