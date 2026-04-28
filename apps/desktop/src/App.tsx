@@ -1,7 +1,12 @@
+import { useApp } from '@/lib/store'
+import { Home } from '@/routes/Home'
+import { Recording } from '@/routes/Recording'
+import { Draft } from '@/routes/Draft'
+
 export default function App() {
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
-      <h1 className="text-2xl font-semibold">Loupe — QA Recorder</h1>
-    </div>
-  )
+  const view = useApp(s => s.view)
+  if (view.name === 'home') return <Home />
+  if (view.name === 'recording') return <Recording session={view.session} />
+  if (view.name === 'draft') return <Draft sessionId={view.sessionId} />
+  return null
 }
