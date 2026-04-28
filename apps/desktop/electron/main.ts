@@ -40,7 +40,13 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(localPath).toString())
   })
 
-  const root = defaultRoot(app.getPath('userData'))
+  // In dev (running via electron-vite), keep recordings inside the repo so they're
+  // easy to inspect and reference. In a packaged build, fall back to %APPDATA%.
+  // __dirname when running through electron-vite is `<repo>/apps/desktop/out/main`.
+  const root = app.isPackaged
+    ? defaultRoot(app.getPath('userData'))
+    : join(__dirname, '..', '..', '..', '..', 'recordings')
+  console.log(`Loupe: session data root = ${root}`)
   const paths = createPaths(root); paths.ensureRoot()
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()

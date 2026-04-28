@@ -8,3 +8,6 @@ out/
 %APPDATA%/
 *.tsbuildinfo
 coverage/
+
+# Local QA recordings (kept under repo root in dev for easy inspection)
+recordings/

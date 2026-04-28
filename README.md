@@ -20,6 +20,22 @@ Add both to your system `PATH`. Verify with `adb --version` and `scrcpy --versio
 
 For Wi-Fi auto-discovery, enable **Wireless debugging** on the phone (Settings → System → Developer options → Wireless debugging). The app's "Scan Wi-Fi devices" button uses `adb mdns services` to find devices broadcasting that mode.
 
+## Where session data lives
+
+In **dev** mode (`pnpm desktop:dev`), all recordings, screenshots, logcat slices, and the SQLite session index live under `recordings/` at the repo root — easy to browse, ignored by git. Layout:
+
+```
+recordings/
+├── meta.sqlite                 # session + bug index
+└── sessions/<session-id>/
+    ├── video.mp4               # scrcpy recording (H.264, 30fps, 4Mbps, 720p cap)
+    ├── screenshots/<bug>.png   # frame captured at F8 press
+    ├── logcat/<bug>.txt        # last 30s of adb logcat at F8 press
+    └── clips/                  # exported bug clips (only created on demand)
+```
+
+In a **packaged** build (future), the same layout lives under `%APPDATA%/Loupe/qa-tool/` instead.
+
 ## Native rebuild dance
 
 `better-sqlite3` is a native dep with different ABIs for system Node vs Electron's bundled Node. Switch as needed:
