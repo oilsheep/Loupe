@@ -1,4 +1,36 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import { CHANNEL } from './ipc'
+import type { DesktopApi } from '@shared/types'
 
-// Phase-1 placeholder; populated in Task 11.
-contextBridge.exposeInMainWorld('api', {})
+const api: DesktopApi = {
+  doctor: () => ipcRenderer.invoke(CHANNEL.doctor),
+  device: {
+    list:    ()                 => ipcRenderer.invoke(CHANNEL.deviceList),
+    connect: (ip, port)         => ipcRenderer.invoke(CHANNEL.deviceConnect, ip, port),
+  },
+  session: {
+    start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),
+    markBug: (args)             => ipcRenderer.invoke(CHANNEL.sessionMarkBug, args),
+    stop:    ()                 => ipcRenderer.invoke(CHANNEL.sessionStop),
+    discard: (id)               => ipcRenderer.invoke(CHANNEL.sessionDiscard, id),
+    list:    ()                 => ipcRenderer.invoke(CHANNEL.sessionList),
+    get:     (id)               => ipcRenderer.invoke(CHANNEL.sessionGet, id),
+  },
+  bug: {
+    update:     (id, patch)     => ipcRenderer.invoke(CHANNEL.bugUpdate, id, patch),
+    delete:     (id)            => ipcRenderer.invoke(CHANNEL.bugDelete, id),
+    exportClip: (args)          => ipcRenderer.invoke(CHANNEL.bugExportClip, args),
+  },
+  onBugMarkRequested: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on(CHANNEL.bugMarkRequested, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.bugMarkRequested, handler)
+  },
+  _resolveVideoPath: (id) => ipcRenderer.invoke(CHANNEL.sessionResolveVideoPath, id),
+}
+
+contextBridge.exposeInMainWorld('api', api)
+
+declare global {
+  interface Window { api: DesktopApi }
+}
