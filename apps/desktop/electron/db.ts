@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   duration_ms INTEGER,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
-  video_path TEXT
+  video_path TEXT,
+  pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
+  pc_video_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS bugs (
@@ -47,6 +49,8 @@ function rowToSession(r: any): Session {
     connectionMode: r.connection_mode, status: r.status,
     durationMs: r.duration_ms, startedAt: r.started_at, endedAt: r.ended_at,
     videoPath: r.video_path ?? null,
+    pcRecordingEnabled: Boolean(r.pc_recording_enabled ?? 0),
+    pcVideoPath: r.pc_video_path ?? null,
   }
 }
 function rowToBug(r: any): Bug {
@@ -69,6 +73,8 @@ function migrate(db: Database.Database): void {
   const sessionCols = (db.pragma(`table_info('sessions')`) as { name: string }[]).map(c => c.name)
   if (!sessionCols.includes('video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN video_path TEXT`)
   if (!sessionCols.includes('tester')) db.exec(`ALTER TABLE sessions ADD COLUMN tester TEXT NOT NULL DEFAULT ''`)
+  if (!sessionCols.includes('pc_recording_enabled')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_recording_enabled INTEGER NOT NULL DEFAULT 0`)
+  if (!sessionCols.includes('pc_video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_video_path TEXT`)
 
   const cols = (db.pragma(`table_info('bugs')`) as { name: string }[]).map(c => c.name)
   if (!cols.includes('pre_sec'))  db.exec(`ALTER TABLE bugs ADD COLUMN pre_sec  INTEGER NOT NULL DEFAULT 5`)
@@ -111,9 +117,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
-                          connection_mode, status, duration_ms, started_at, ended_at, video_path)
+                          connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path)
     VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath)
+            @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       test_note=excluded.test_note,
@@ -126,13 +132,18 @@ export function openDb(file: string) {
       duration_ms=excluded.duration_ms,
       started_at=excluded.started_at,
       ended_at=excluded.ended_at,
-      video_path=excluded.video_path
+      video_path=excluded.video_path,
+      pc_recording_enabled=excluded.pc_recording_enabled,
+      pc_video_path=excluded.pc_video_path
   `)
   const finalizeSessionStmt = db.prepare(`
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
   `)
   const updateSessionMetadataStmt = db.prepare(`
     UPDATE sessions SET test_note=@testNote, tester=@tester WHERE id=@id
+  `)
+  const updateSessionPcRecordingStmt = db.prepare(`
+    UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
   `)
   const getSessionStmt   = db.prepare(`SELECT * FROM sessions WHERE id = ?`)
   const listSessionsStmt = db.prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
@@ -163,12 +174,21 @@ export function openDb(file: string) {
 
   return {
     raw: db,
-    insertSession(s: Session) { insertSessionStmt.run({ ...s, tester: s.tester ?? '' }) },
+    insertSession(s: Session) {
+      insertSessionStmt.run({
+        ...s,
+        tester: s.tester ?? '',
+        pcRecordingEnabled: s.pcRecordingEnabled ? 1 : 0,
+      })
+    },
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
       finalizeSessionStmt.run({ id, ...args })
     },
     updateSessionMetadata(id: string, patch: { testNote: string; tester: string }) {
       updateSessionMetadataStmt.run({ id, ...patch })
+    },
+    updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
+      updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })
     },
     getSession(id: string): Session | undefined {
       const r = getSessionStmt.get(id) as any

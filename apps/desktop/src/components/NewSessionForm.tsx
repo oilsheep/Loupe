@@ -16,6 +16,7 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
   const [build, setBuild] = useState(recent[0] ?? '')
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
+  const [recordPcScreen, setRecordPcScreen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,6 +30,7 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
         buildVersion: build.trim(),
         testNote: note.trim(),
         tester: tester.trim(),
+        recordPcScreen,
       })
       pushRecent(build.trim())
       goRecording(session)
@@ -66,6 +68,20 @@ export function NewSessionForm({ api, deviceId, connectionMode }: Props) {
           className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
         />
       </div>
+
+      <label className="flex items-start gap-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-300">
+        <input
+          type="checkbox"
+          checked={recordPcScreen}
+          onChange={e => setRecordPcScreen(e.target.checked)}
+          className="mt-1"
+          data-testid="record-pc-screen"
+        />
+        <span>
+          <span className="block font-medium text-zinc-200">Record PC screen</span>
+          <span className="mt-0.5 block text-xs leading-5 text-zinc-500">Saves a separate PC screen recording into the session folder.</span>
+        </span>
+      </label>
 
       {error && <div className="rounded bg-red-950 px-3 py-2 text-xs text-red-200">{error}</div>}
 

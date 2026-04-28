@@ -51,6 +51,7 @@ export interface StartArgs {
   buildVersion: string
   testNote: string
   tester?: string
+  recordPcScreen?: boolean
 }
 
 export interface MarkBugArgs {
@@ -99,6 +100,8 @@ export class SessionManager {
       connectionMode: args.connectionMode, status: 'recording',
       durationMs: null, startedAt, endedAt: null,
       videoPath: paths.videoFile(id),
+      pcRecordingEnabled: Boolean(args.recordPcScreen),
+      pcVideoPath: null,
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
@@ -204,6 +207,16 @@ export class SessionManager {
       tester: patch.tester.trim(),
     })
     this.persistProject(id)
+  }
+  savePcRecording(sessionId: string, bytes: Buffer): string {
+    const session = this.deps.db.getSession(sessionId)
+    if (!session) throw new Error('session not found')
+    this.deps.paths.ensureSessionDirs(sessionId)
+    const out = this.deps.paths.pcVideoFile(sessionId)
+    writeFileSync(out, bytes)
+    this.deps.db.updateSessionPcRecording(sessionId, { pcRecordingEnabled: true, pcVideoPath: out })
+    this.persistProject(sessionId)
+    return out
   }
   updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
     this.deps.db.updateBug(id, patch)

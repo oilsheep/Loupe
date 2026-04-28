@@ -20,6 +20,8 @@ function session(over: Partial<Session> = {}): Session {
     startedAt: 1,
     endedAt: 2,
     videoPath: 'C:/video.mp4',
+    pcRecordingEnabled: false,
+    pcVideoPath: null,
     ...over,
   }
 }

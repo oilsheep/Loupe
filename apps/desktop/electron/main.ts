@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, protocol } from 'electron'
+import { app, BrowserWindow, desktopCapturer, globalShortcut, protocol, session as electronSession } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import * as fs from 'node:fs'
@@ -63,6 +63,11 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  electronSession.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] })
+    callback({ video: sources[0], audio: 'loopback' } as any)
+  }, { useSystemPicker: true })
+
   // Custom file protocol that serves session assets WITH HTTP Range support.
   // HTML5 <video> issues range requests to fetch metadata + seek; without proper
   // 206 Partial Content responses the canvas stays gray. We use buffer-based

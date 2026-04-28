@@ -6,7 +6,7 @@ function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
   return {
     id: 'sess-1', buildVersion: '1.0.0', testNote: '', tester: '', deviceId: 'ABC', deviceModel: 'Pixel 7',
     androidVersion: '14', connectionMode: 'usb', status: 'recording', durationMs: null,
-    startedAt: 1700000000000, endedAt: null, videoPath: null, ...over,
+    startedAt: 1700000000000, endedAt: null, videoPath: null, pcRecordingEnabled: false, pcVideoPath: null, ...over,
   }
 }
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
@@ -23,10 +23,20 @@ describe('Db', () => {
   beforeEach(() => { db = openDb(':memory:') })
 
   it('creates and retrieves a session', () => {
-    db.insertSession(fixSession({ videoPath: 'C:/tmp/video.mp4' }))
+    db.insertSession(fixSession({ videoPath: 'C:/tmp/video.mp4', pcRecordingEnabled: true, pcVideoPath: 'C:/tmp/pc.webm' }))
     const s = db.getSession('sess-1')
     expect(s?.deviceModel).toBe('Pixel 7')
     expect(s?.videoPath).toBe('C:/tmp/video.mp4')
+    expect(s?.pcRecordingEnabled).toBe(true)
+    expect(s?.pcVideoPath).toBe('C:/tmp/pc.webm')
+  })
+
+  it('updates PC recording metadata', () => {
+    db.insertSession(fixSession())
+    db.updateSessionPcRecording('sess-1', { pcRecordingEnabled: true, pcVideoPath: 'C:/tmp/pc.webm' })
+    const s = db.getSession('sess-1')
+    expect(s?.pcRecordingEnabled).toBe(true)
+    expect(s?.pcVideoPath).toBe('C:/tmp/pc.webm')
   })
 
   it('listSessions returns rows newest-first', () => {

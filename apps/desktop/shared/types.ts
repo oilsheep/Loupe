@@ -33,6 +33,8 @@ export interface Session {
   startedAt: number             // epoch ms
   endedAt: number | null
   videoPath: string | null
+  pcRecordingEnabled: boolean
+  pcVideoPath: string | null
 }
 
 export interface Bug {
@@ -78,7 +80,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi';
-      buildVersion: string; testNote: string; tester?: string;
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
@@ -87,6 +89,7 @@ export interface DesktopApi {
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
     openProject():                                                 Promise<Session | null>
     updateMetadata(id: string, patch: { testNote: string; tester: string }): Promise<void>
+    savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
   }
   bug: {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string }): Promise<Bug>

@@ -30,6 +30,7 @@ export const CHANNEL = {
   sessionGet:              'session:get',
   sessionOpenProject:      'session:openProject',
   sessionUpdateMetadata:   'session:updateMetadata',
+  sessionSavePcRecording:  'session:savePcRecording',
   sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
   bugAddMarker:            'bug:addMarker',
@@ -160,6 +161,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { testNote: string; tester: string }) => {
     deps.manager.updateSessionMetadata(id, patch)
   })
+  ipcMain.handle(CHANNEL.sessionSavePcRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string> => {
+    const bytes = Buffer.from(args.base64, 'base64')
+    return deps.manager.savePcRecording(args.sessionId, bytes)
+  })
   ipcMain.handle(CHANNEL.sessionOpenProject, async (): Promise<Session | null> => {
     const win = deps.getWindow()
     const pick = await (win
@@ -168,7 +173,13 @@ export function registerIpc(deps: IpcDeps): void {
     if (pick.canceled || pick.filePaths.length === 0) return null
 
     const project = readProjectFile(pick.filePaths[0])
-    let session: Session = { ...project.session, tester: project.session.tester ?? '', videoPath: project.session.videoPath ?? null }
+    let session: Session = {
+      ...project.session,
+      tester: project.session.tester ?? '',
+      videoPath: project.session.videoPath ?? null,
+      pcRecordingEnabled: project.session.pcRecordingEnabled ?? false,
+      pcVideoPath: project.session.pcVideoPath ?? null,
+    }
     if (!session.videoPath || !existsSync(session.videoPath)) {
       const message = session.videoPath
         ? `The recorded video could not be found:\n${session.videoPath}\n\nChoose the video file to relink this session.`

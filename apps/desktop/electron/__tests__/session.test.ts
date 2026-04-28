@@ -149,6 +149,8 @@ describe('SessionManager', () => {
       deviceModel: 'Pixel 8', androidVersion: '15', connectionMode: 'usb' as const,
       status: 'draft' as const, durationMs: 10_000, startedAt: 1, endedAt: 2,
       videoPath: join(root, 'external.mp4'),
+      pcRecordingEnabled: false,
+      pcVideoPath: null,
     }
     const bug = {
       id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, severity: 'normal' as const,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Bug, BugSeverity, HotkeySettings, Session } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -25,6 +25,35 @@ export function Recording({ session }: { session: Session }) {
   const [stopping, setStopping] = useState(false)
   const [selectedBugId, setSelectedBugId] = useState<string | null>(null)
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
+  const [pcRecordingState, setPcRecordingState] = useState<'off' | 'starting' | 'recording' | 'saving' | 'failed'>(
+    session.pcRecordingEnabled ? 'starting' : 'off',
+  )
+  const [pcRecordingError, setPcRecordingError] = useState<string | null>(null)
+  const pcRecorderRef = useRef<MediaRecorder | null>(null)
+  const pcStreamRef = useRef<MediaStream | null>(null)
+  const pcChunksRef = useRef<Blob[]>([])
+  const pcStartedAtRef = useRef(0)
+
+  function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(reader.error)
+      reader.onload = () => {
+        const result = String(reader.result ?? '')
+        resolve(result.includes(',') ? result.slice(result.indexOf(',') + 1) : result)
+      }
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  function preferredPcMimeType(): string | undefined {
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ]
+    return candidates.find(type => MediaRecorder.isTypeSupported(type))
+  }
 
   const refreshBugs = useCallback(async () => {
     const r = await api.session.get(session.id)
@@ -53,6 +82,48 @@ export function Recording({ session }: { session: Session }) {
     })
   }, [])
 
+  useEffect(() => {
+    if (!session.pcRecordingEnabled) return
+    let cancelled = false
+
+    async function startPcRecording() {
+      try {
+        setPcRecordingState('starting')
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 30 },
+          audio: true,
+        })
+        if (cancelled) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+        const mimeType = preferredPcMimeType()
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+        pcChunksRef.current = []
+        pcStreamRef.current = stream
+        pcRecorderRef.current = recorder
+        pcStartedAtRef.current = Date.now()
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) pcChunksRef.current.push(event.data)
+        }
+        recorder.onstop = () => {
+          stream.getTracks().forEach(track => track.stop())
+        }
+        recorder.start(1000)
+        setPcRecordingState('recording')
+      } catch (err) {
+        setPcRecordingState('failed')
+        setPcRecordingError(err instanceof Error ? err.message : String(err))
+      }
+    }
+
+    void startPcRecording()
+    return () => {
+      cancelled = true
+      pcStreamRef.current?.getTracks().forEach(track => track.stop())
+    }
+  }, [session.pcRecordingEnabled])
+
   async function saveHotkeys(next: HotkeySettings) {
     const settings = await api.settings.setHotkeys(next)
     setHotkeys(settings.hotkeys)
@@ -61,6 +132,24 @@ export function Recording({ session }: { session: Session }) {
   async function stop() {
     setStopping(true)
     try {
+      if (pcRecorderRef.current && pcRecorderRef.current.state !== 'inactive') {
+        setPcRecordingState('saving')
+        const recorder = pcRecorderRef.current
+        await new Promise<void>((resolve) => {
+          recorder.addEventListener('stop', () => resolve(), { once: true })
+          recorder.stop()
+        })
+        const blob = new Blob(pcChunksRef.current, { type: recorder.mimeType || 'video/webm' })
+        if (blob.size > 0) {
+          const base64 = await blobToBase64(blob)
+          await api.session.savePcRecording({
+            sessionId: session.id,
+            base64,
+            mimeType: blob.type || 'video/webm',
+            durationMs: Math.max(0, Date.now() - pcStartedAtRef.current),
+          })
+        }
+      }
       const updated = await api.session.stop()
       goDraft(updated.id)
     } finally { setStopping(false) }
@@ -80,6 +169,12 @@ export function Recording({ session }: { session: Session }) {
             </div>
             <div className="mt-1 truncate text-sm font-medium text-zinc-200">{session.deviceModel}</div>
             <div className="mt-0.5 truncate text-xs text-zinc-500">build {session.buildVersion}</div>
+            {session.pcRecordingEnabled && (
+              <div className={`mt-2 text-xs ${pcRecordingState === 'failed' ? 'text-red-300' : 'text-sky-300'}`}>
+                PC recording: {pcRecordingState}
+                {pcRecordingError ? ` (${pcRecordingError})` : ''}
+              </div>
+            )}
           </div>
           <div className="text-right">
             <div className="font-mono text-2xl tabular-nums text-zinc-100">{fmtElapsed(elapsedMs)}</div>
