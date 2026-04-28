@@ -9,5 +9,9 @@ out/
 *.tsbuildinfo
 coverage/
 
+# Internal planning/spec files
+qa-platform-mvp-spec.md
+docs/superpowers/
+
 # Local QA recordings (kept under repo root in dev for easy inspection)
 recordings/
