@@ -9,7 +9,11 @@
     "skipLibCheck": true,
     "types": ["node"],
     "outDir": "out",
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["shared/*"]
+    }
   },
   "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }

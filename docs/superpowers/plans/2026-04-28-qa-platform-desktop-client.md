@@ -274,7 +274,11 @@ Create `apps/desktop/tsconfig.node.json`:
     "skipLibCheck": true,
     "types": ["node"],
     "outDir": "out",
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["shared/*"]
+    }
   },
   "include": ["electron/**/*", "shared/**/*", "electron.vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }
@@ -293,7 +297,12 @@ Create `apps/desktop/tsconfig.web.json`:
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@shared/*": ["shared/*"]
+    }
   },
   "include": ["src/**/*", "shared/**/*"]
 }
@@ -1058,12 +1067,13 @@ export class Scrcpy {
       '--max-fps=60',
     ]
     this.process = this.runner.spawn('scrcpy', args)
-    this.startTime = Date.now()
+    // performance.now() is monotonic; immune to NTP slew / clock changes during a session.
+    this.startTime = performance.now()
   }
 
   /** ms since start(), or null if not running. */
   elapsedMs(): number | null {
-    return this.startTime !== undefined ? Date.now() - this.startTime : null
+    return this.startTime !== undefined ? performance.now() - this.startTime : null
   }
 
   isRunning(): boolean {
@@ -1076,10 +1086,10 @@ export class Scrcpy {
     const proc = this.process
     this.process = undefined
     return new Promise<void>((resolve) => {
-      proc.onExit(() => resolve())
+      // Safety: hard-kill after 5s in case scrcpy is hung. Cleared on graceful exit.
+      const hardKill = setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000).unref()
+      proc.onExit(() => { clearTimeout(hardKill); resolve() })
       try { proc.kill('SIGINT') } catch { /* already dead */ }
-      // Safety: hard-kill after 5s in case scrcpy is hung.
-      setTimeout(() => { try { proc.kill('SIGKILL') } catch {} }, 5000).unref()
     })
   }
 }
