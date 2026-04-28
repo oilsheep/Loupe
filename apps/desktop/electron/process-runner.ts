@@ -26,10 +26,12 @@ export class RealProcessRunner implements IProcessRunner {
       const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
+      let settled = false
       child.stdout?.on('data', (d) => { stdout += d.toString() })
       child.stderr?.on('data', (d) => { stderr += d.toString() })
-      child.once('error', reject)
-      child.once('exit', (code) => resolve({ stdout, stderr, code: code ?? -1 }))
+      child.once('error', (e) => { if (!settled) { settled = true; reject(e) } })
+      // 'close' (not 'exit') so stdio buffers are fully flushed before we resolve.
+      child.once('close', (code) => { if (!settled) { settled = true; resolve({ stdout, stderr, code: code ?? -1 }) } })
     })
   }
 
