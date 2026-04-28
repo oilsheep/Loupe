@@ -1304,22 +1304,26 @@ export interface Paths {
 }
 
 export function createPaths(root: string): Paths {
+  // Capture in closure so methods are safe to destructure (`const { ensureSessionDirs } = paths`).
+  const screenshotsDir = (id: string) => join(root, 'sessions', id, 'screenshots')
+  const logcatDir      = (id: string) => join(root, 'sessions', id, 'logcat')
+  const clipsDir       = (id: string) => join(root, 'sessions', id, 'clips')
   return {
     root: () => root,
     dbFile: () => join(root, 'meta.sqlite'),
     sessionDir: (id) => join(root, 'sessions', id),
     videoFile: (id) => join(root, 'sessions', id, 'video.mp4'),
-    screenshotsDir: (id) => join(root, 'sessions', id, 'screenshots'),
-    screenshotFile: (id, bugId) => join(root, 'sessions', id, 'screenshots', `${bugId}.png`),
-    logcatDir: (id) => join(root, 'sessions', id, 'logcat'),
-    logcatFile: (id, bugId) => join(root, 'sessions', id, 'logcat', `${bugId}.txt`),
-    clipsDir: (id) => join(root, 'sessions', id, 'clips'),
-    clipFile: (id, bugId) => join(root, 'sessions', id, 'clips', `${bugId}.mp4`),
-    ensureRoot() { mkdirSync(root, { recursive: true }) },
-    ensureSessionDirs(id) {
-      mkdirSync(this.screenshotsDir(id), { recursive: true })
-      mkdirSync(this.logcatDir(id),      { recursive: true })
-      mkdirSync(this.clipsDir(id),       { recursive: true })
+    screenshotsDir,
+    screenshotFile: (id, bugId) => join(screenshotsDir(id), `${bugId}.png`),
+    logcatDir,
+    logcatFile: (id, bugId) => join(logcatDir(id), `${bugId}.txt`),
+    clipsDir,
+    clipFile: (id, bugId) => join(clipsDir(id), `${bugId}.mp4`),
+    ensureRoot: () => { mkdirSync(root, { recursive: true }) },
+    ensureSessionDirs: (id) => {
+      mkdirSync(screenshotsDir(id), { recursive: true })
+      mkdirSync(logcatDir(id),      { recursive: true })
+      mkdirSync(clipsDir(id),       { recursive: true })
     },
   }
 }
