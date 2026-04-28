@@ -107,7 +107,7 @@ function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
     return values.length > 0 ? values.join(' / ') : null
   }
 
-  const severity = opts.severity ? SEVERITY_STYLE[opts.severity] : null
+  const severity = opts.severity === 'major' ? SEVERITY_STYLE.major : null
   const note = opts.note?.trim()
   if (severity) {
     const labelWidth = Math.max(76, severity.label.length * 15 + 24)
@@ -154,7 +154,7 @@ function captionFilter(lines: CaptionLine[]): string {
     const x = line.x ?? 18
     if (line.box) {
       filters.push(
-        `drawbox=x=${x}:y=h-${captionHeight - y}:w=${line.box.width}:h=${line.box.height}:color=${line.box.color}@1:t=fill`,
+        `drawbox=x=${x}:y=ih-${captionHeight - y}:w=${line.box.width}:h=${line.box.height}:color=${line.box.color}@1:t=fill`,
       )
     }
     filters.push(
