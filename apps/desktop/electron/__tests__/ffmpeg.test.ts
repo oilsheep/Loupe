@@ -74,7 +74,7 @@ describe('buildClipArgs', () => {
     expect(filter).toContain('Avery / 2026-04-29 14\\:05')
   })
 
-  it('does not render non-major severity labels', () => {
+  it('renders non-major severity labels as bracketed text without color', () => {
     const args = buildClipArgs({
       inputPath: 'in.mp4',
       outputPath: 'out.mp4',
@@ -85,8 +85,22 @@ describe('buildClipArgs', () => {
     })
     const filter = args[args.indexOf('-filter:v') + 1]
     expect(filter).not.toContain('drawbox=')
-    expect(filter).not.toContain("text='improvement'")
-    expect(filter).toContain("text='nice to have'")
+    expect(filter).toContain("text='\\[improvement\\] nice'")
+    expect(filter).toContain("text='to have'")
+  })
+
+  it('renders bracketed non-major severity even without a note', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 0,
+      endMs: 5000,
+      severity: 'minor',
+      note: '',
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).not.toContain('drawbox=')
+    expect(filter).toContain("text='\\[minor\\]'")
   })
 
   it('wraps long caption lines into separate drawtext layers', () => {

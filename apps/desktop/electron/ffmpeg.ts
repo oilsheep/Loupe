@@ -107,20 +107,24 @@ function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
     return values.length > 0 ? values.join(' / ') : null
   }
 
-  const severity = opts.severity === 'major' ? SEVERITY_STYLE.major : null
+  const majorSeverity = opts.severity === 'major' ? SEVERITY_STYLE.major : null
+  const severityPrefix = opts.severity && opts.severity !== 'major' ? `[${opts.severity}]` : null
   const note = opts.note?.trim()
-  if (severity) {
-    const labelWidth = Math.max(76, severity.label.length * 15 + 24)
+  if (majorSeverity) {
+    const labelWidth = Math.max(76, majorSeverity.label.length * 15 + 24)
     const firstLineMax = note ? Math.max(8, 22 - Math.ceil(labelWidth / 16)) : 0
     const noteLines = note ? wrapTextLine(note, firstLineMax) : []
     lines.push({
-      text: severity.label,
+      text: majorSeverity.label,
       bold: true,
       afterText: noteLines[0] ? `/ ${noteLines[0]}` : undefined,
       afterX: 18 + labelWidth + 12,
-      box: { color: severity.color, width: labelWidth, height: 30, textColor: 'white' },
+      box: { color: majorSeverity.color, width: labelWidth, height: 30, textColor: 'white' },
     })
     for (const line of noteLines.slice(1)) lines.push({ text: line, bold: true })
+  } else if (severityPrefix) {
+    const text = note ? `${severityPrefix} ${note}` : severityPrefix
+    addWrapped(text, 20, true)
   } else if (note) {
     addWrapped(note, 20, true)
   }
