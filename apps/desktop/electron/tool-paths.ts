@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 
 const TOOL_NAMES = new Set(['adb', 'scrcpy'])
@@ -38,7 +38,7 @@ export function withToolPath(cmd: string, opts: SpawnOptions = {}): SpawnOptions
     env: {
       ...process.env,
       ...opts.env,
-      PATH: `${dir};${opts.env?.PATH ?? process.env.PATH ?? ''}`,
+      PATH: `${dir}${delimiter}${opts.env?.PATH ?? process.env.PATH ?? ''}`,
     },
   }
 }

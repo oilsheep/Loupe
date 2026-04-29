@@ -1,4 +1,5 @@
 import type { IProcessRunner } from './process-runner'
+import { existsSync } from 'node:fs'
 
 export interface ClipOptions {
   inputPath: string
@@ -86,12 +87,69 @@ interface CaptionLayout {
   metaChars: number
 }
 
+interface CaptionFonts {
+  regular: string
+  bold: string
+}
+
 const SEVERITY_STYLE: Record<NonNullable<ClipOptions['severity']>, { label: string; color: string }> = {
   note: { label: 'note', color: '0x8b5cf6' },
   major: { label: 'major', color: '0xff4d4f' },
   normal: { label: 'normal', color: '0xffa500' },
   minor: { label: 'minor', color: '0x22b8f0' },
   improvement: { label: 'improvement', color: '0x22c55e' },
+}
+
+function escapeFontFile(path: string): string {
+  return path.replace(/\\/g, '/').replace(/:/g, '\\:')
+}
+
+function resolveCaptionFonts(): CaptionFonts {
+  const windows = {
+    regular: 'C:/Windows/Fonts/msjh.ttc',
+    bold: 'C:/Windows/Fonts/msjhbd.ttc',
+  }
+  const macCandidates: CaptionFonts[] = [
+    {
+      regular: '/System/Library/Fonts/PingFang.ttc',
+      bold: '/System/Library/Fonts/PingFang.ttc',
+    },
+    {
+      regular: '/System/Library/Fonts/Hiragino Sans GB.ttc',
+      bold: '/System/Library/Fonts/Hiragino Sans GB.ttc',
+    },
+    {
+      regular: '/System/Library/Fonts/STHeiti Light.ttc',
+      bold: '/System/Library/Fonts/STHeiti Medium.ttc',
+    },
+  ]
+  const linuxCandidates: CaptionFonts[] = [
+    {
+      regular: '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+      bold: '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
+    },
+    {
+      regular: '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      bold: '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
+    },
+    {
+      regular: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      bold: '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    },
+  ]
+
+  const candidates = process.platform === 'win32'
+    ? [windows]
+    : process.platform === 'darwin'
+      ? macCandidates
+      : linuxCandidates
+
+  const match = candidates.find(fonts => existsSync(fonts.regular) && existsSync(fonts.bold))
+  const fallback = match ?? candidates[0] ?? windows
+  return {
+    regular: escapeFontFile(fallback.regular),
+    bold: escapeFontFile(fallback.bold),
+  }
 }
 
 function formatDateTime(msValue: number): string {
@@ -163,8 +221,7 @@ function buildCaptionLines(opts: ClipOptions, layout: CaptionLayout = { noteChar
 
 function captionFilter(lines: CaptionLine[], layout: { x?: number } = {}): string {
   if (lines.length === 0) return ''
-  const regularFont = 'C\\:/Windows/Fonts/msjh.ttc'
-  const boldFont = 'C\\:/Windows/Fonts/msjhbd.ttc'
+  const { regular: regularFont, bold: boldFont } = resolveCaptionFonts()
   const topPad = 18
   const bottomPad = 16
   const lineGap = 8

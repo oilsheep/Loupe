@@ -161,6 +161,23 @@ If the original recording is missing, Loupe prompts the user to locate the video
 
 ## Developer Setup
 
+### macOS prerequisites for Android recording
+
+The bundled tool binaries are only shipped in packaged Windows builds. When you run the app in development mode on macOS, install the Android tools with Homebrew first:
+
+```bash
+brew install android-platform-tools scrcpy
+```
+
+Verify both tools are on your shell PATH before launching Loupe:
+
+```bash
+command -v adb
+command -v scrcpy
+```
+
+If you keep custom binaries outside your PATH, point Loupe at them with `LOUPE_TOOLS_DIR`.
+
 Install dependencies:
 
 ```bash

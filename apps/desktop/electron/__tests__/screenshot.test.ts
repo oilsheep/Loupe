@@ -38,4 +38,31 @@ describe('captureScreenshot', () => {
       expect(readFileSync(out).equals(png)).toBe(true)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
+
+  it('strips warning text before the PNG payload', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shot-'))
+    const out = join(dir, 'a.png')
+    try {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02])
+      const warning = Buffer.from('[Warning] Multiple displays were found, using the default display.\n')
+      const m = mockProc(Buffer.concat([warning, png]))
+      const runner: IProcessRunner = { run: vi.fn() as any, spawn: vi.fn().mockReturnValue(m.proc) as any }
+      const p = captureScreenshot(runner, 'ABC', out)
+      m.complete()
+      await p
+      expect(readFileSync(out).equals(png)).toBe(true)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('throws when adb stdout does not contain a PNG', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shot-'))
+    const out = join(dir, 'a.png')
+    try {
+      const m = mockProc(Buffer.from('not a png'))
+      const runner: IProcessRunner = { run: vi.fn() as any, spawn: vi.fn().mockReturnValue(m.proc) as any }
+      const p = captureScreenshot(runner, 'ABC', out)
+      m.complete()
+      await expect(p).rejects.toThrow(/did not return a PNG/)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
 })

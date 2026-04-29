@@ -1,4 +1,4 @@
-import { renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
@@ -31,6 +31,17 @@ export interface SessionDeps {
 }
 
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+function isValidPngFile(filePath: string): boolean {
+  if (!existsSync(filePath)) return false
+  try {
+    const header = readFileSync(filePath).subarray(0, PNG_SIGNATURE.length)
+    return header.equals(PNG_SIGNATURE)
+  } catch {
+    return false
+  }
+}
 
 /**
  * Default session id generator. Returns e.g. `2026-04-29_14-30-45_1.4.2-RC3`.
@@ -195,6 +206,36 @@ export class SessionManager {
   listSessions() { return this.deps.db.listSessions() }
   getSession(id: string) { return this.deps.db.getSession(id) }
   listBugs(sessionId: string) { return this.deps.db.listBugs(sessionId) }
+  async repairBrokenThumbnails(sessionId: string): Promise<void> {
+    const { db, paths, runner } = this.deps
+    const session = db.getSession(sessionId)
+    if (!session || session.status === 'recording') return
+    const inputPath = session.connectionMode === 'pc'
+      ? session.pcVideoPath
+      : session.videoPath ?? paths.videoFile(session.id)
+    if (!inputPath) return
+
+    for (const bug of db.listBugs(session.id)) {
+      const screenshotPath = paths.screenshotFile(session.id, bug.id)
+      const needsRepair = !bug.screenshotRel || !isValidPngFile(screenshotPath)
+      if (!needsRepair) continue
+      try {
+        await extractThumbnail(runner, resolveBundledFfmpegPath(), {
+          inputPath,
+          outputPath: screenshotPath,
+          offsetMs: bug.offsetMs,
+        })
+        db.updateBugAssets(bug.id, {
+          screenshotRel: `screenshots/${bug.id}.png`,
+          logcatRel: bug.logcatRel,
+        })
+      } catch (err) {
+        console.warn(`Loupe: failed to repair thumbnail for marker ${bug.id}`, err)
+      }
+    }
+    this.persistProject(session.id)
+  }
+
   addMarker(args: AddMarkerArgs): Bug {
     const session = this.deps.db.getSession(args.sessionId)
     if (!session) throw new Error('session not found')

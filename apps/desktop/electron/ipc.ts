@@ -462,6 +462,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.sessionGet, async (_e, id: string) => {
     const session = deps.manager.getSession(id)
     if (!session) return null
+    await deps.manager.repairBrokenThumbnails(id)
     return { session, bugs: deps.manager.listBugs(id) }
   })
   ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { testNote: string; tester: string }) => {

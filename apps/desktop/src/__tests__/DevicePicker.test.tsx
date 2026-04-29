@@ -46,6 +46,12 @@ describe('DevicePicker', () => {
     await waitFor(() => expect(connect).toHaveBeenCalledWith('10.0.0.7', undefined))
   })
 
+  it('manual Wi-Fi section warns to use the connect port', async () => {
+    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={vi.fn()} />)
+    expect(screen.getByText(/use the connect port, not the pairing port/i)).toBeTruthy()
+    expect(screen.getByPlaceholderText('ip[:connect-port]')).toBeTruthy()
+  })
+
   it('successful manual Wi-Fi connect selects the device and shows connected feedback', async () => {
     const connect = vi.fn().mockResolvedValue({ ok: true, message: 'connected' })
     const getUserName = vi.fn().mockResolvedValue('QA Pixel')

@@ -3,6 +3,11 @@ import type { Device, MdnsEntry } from '@shared/types'
 
 const IP_PORT = /^\d{1,3}(\.\d{1,3}){3}:\d+$/
 
+function connectFailureHint(port: number): string | null {
+  if (port === 5555) return 'Make sure the phone and this Mac are on the same network and that Wireless debugging is enabled on the device.'
+  return 'This port may be the pairing port shown by Android Wireless debugging. Pair first, then connect to the ready/connect port from the Scan Wi-Fi devices list.'
+}
+
 export function parseDevicesOutput(stdout: string): Device[] {
   const lines = stdout.split('\n').map(l => l.trim()).filter(Boolean)
   const devs: Device[] = []
@@ -58,7 +63,10 @@ export class Adb {
   async connect(ip: string, port = 5555): Promise<{ ok: boolean; message: string }> {
     const r = await this.runner.run('adb', ['connect', `${ip}:${port}`])
     const out = (r.stdout + r.stderr).trim()
-    return { ok: out.toLowerCase().includes('connected') && r.code === 0, message: out }
+    const ok = out.toLowerCase().includes('connected') && r.code === 0
+    if (ok) return { ok, message: out }
+    const hint = connectFailureHint(port)
+    return { ok, message: hint ? `${out}. ${hint}` : out }
   }
 
   async disconnect(idOrIp: string): Promise<void> {

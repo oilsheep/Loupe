@@ -66,6 +66,18 @@ describe('Adb', () => {
     const r = await adb.connect('1.2.3.4')
     expect(r.ok).toBe(false)
     expect(r.message).toContain('unable')
+    expect(r.message).toContain('same network')
+  })
+
+  it('connect adds pairing-port guidance for non-default ports', async () => {
+    const adb = new Adb({
+      async run() { return { stdout: '', stderr: 'failed to connect to 10.0.4.50:42213', code: 1 } },
+      spawn: vi.fn() as any,
+    })
+    const r = await adb.connect('10.0.4.50', 42213)
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('failed to connect to 10.0.4.50:42213')
+    expect(r.message).toContain('pairing port')
   })
 
   it('getDeviceInfo combines model + version', async () => {

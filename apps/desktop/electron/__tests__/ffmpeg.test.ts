@@ -89,6 +89,23 @@ describe('buildClipArgs', () => {
     expect(filter).toContain("text='to have'")
   })
 
+  it('uses a platform font path instead of hardcoded Windows fonts on non-Windows hosts', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 0,
+      endMs: 5000,
+      severity: 'improvement',
+      note: 'nice to have',
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).toContain("drawtext=fontfile='")
+    if (process.platform === 'darwin') {
+      expect(filter).toContain('/System/Library/Fonts/')
+      expect(filter).not.toContain('C\\:/Windows/Fonts/msjhbd.ttc')
+    }
+  })
+
   it('renders bracketed non-major severity even without a note', () => {
     const args = buildClipArgs({
       inputPath: 'in.mp4',

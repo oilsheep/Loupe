@@ -35,6 +35,9 @@ describe('doctor', () => {
     const checks = await doctor(r)
     expect(checks[0].ok).toBe(false)
     expect(checks[0].error).toContain('ENOENT')
+    if (process.platform === 'darwin') {
+      expect(checks[0].error).toContain('brew install android-platform-tools')
+    }
     expect(checks[1].ok).toBe(true)
   })
 

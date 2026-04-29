@@ -415,12 +415,12 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
       </div>
 
       <div className="border-t border-zinc-800 pt-3">
-        <label className="text-xs text-zinc-400">Add Wi-Fi device (e.g. 192.168.1.42)</label>
+        <label className="text-xs text-zinc-400">Add Wi-Fi device manually (use the connect port, not the pairing port)</label>
         <div className="mt-1 flex gap-2">
           <input
             value={wifiIp}
             onChange={e => setWifiIp(e.target.value)}
-            placeholder="ip[:port]"
+            placeholder="ip[:connect-port]"
             data-testid="wifi-ip"
             className="flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
           />
@@ -432,6 +432,9 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
           >
             {wifiBusy ? 'connecting...' : 'connect'}
           </button>
+        </div>
+        <div className="mt-1 text-[11px] text-zinc-500">
+          Example: use the Ready or Connect address from Android Wireless debugging, or run Scan Wi-Fi devices above after pairing.
         </div>
       </div>
     </div>
