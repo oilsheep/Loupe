@@ -414,20 +414,20 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                   )}
                 </div>
                 {entry.type === 'pair' && entry.ipPort in pairCodes && (
-                  <div className="mt-1 flex gap-2">
+                  <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <input
                       value={pairCodes[entry.ipPort] ?? ''}
                       onChange={e => setPairCode(entry.ipPort, e.target.value)}
                       placeholder="6-digit code"
                       maxLength={6}
                       data-testid={`mdns-pair-code-${entry.ipPort}`}
-                      className="flex-1 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-amber-500"
+                      className="min-w-0 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-amber-500"
                     />
                     <button
                       onClick={() => submitPair(entry)}
                       disabled={pairingInFlight.has(entry.ipPort)}
                       data-testid={`mdns-pair-submit-${entry.ipPort}`}
-                      className="rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50"
+                      className="whitespace-nowrap rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50"
                     >
                       {pairingInFlight.has(entry.ipPort) ? 'pairing...' : 'Submit'}
                     </button>
@@ -441,13 +441,13 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
 
       <div className="border-t border-zinc-800 pt-3">
         <label className="text-xs text-zinc-400">Pair Android manually (use the pairing address and six-digit code)</label>
-        <div className="mt-1 flex gap-2">
+        <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)_auto] gap-2">
           <input
             value={manualPairIpPort}
             onChange={e => setManualPairIpPort(e.target.value)}
             placeholder="ip:pairing-port"
             data-testid="manual-pair-ip-port"
-            className="flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
           />
           <input
             value={manualPairCode}
@@ -455,13 +455,13 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             placeholder="6-digit code"
             maxLength={6}
             data-testid="manual-pair-code"
-            className="w-32 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
           />
           <button
             onClick={submitManualPair}
             disabled={manualPairBusy}
             data-testid="manual-pair-submit"
-            className="rounded bg-amber-700 px-3 py-1 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
+            className="whitespace-nowrap rounded bg-amber-700 px-3 py-1 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
           >
             {manualPairBusy ? 'pairing...' : 'pair'}
           </button>
