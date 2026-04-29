@@ -25,8 +25,11 @@ function fakeApi(): DesktopApi {
     session: { updateMetadata: vi.fn() as any } as any,
     bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
-    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, chooseExportRoot: vi.fn() as any },
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setLocale: vi.fn() as any, setSeverities: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
+    onSessionInterrupted: () => () => {},
+    onBugExportProgress: () => () => {},
+    onSessionLoadProgress: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }

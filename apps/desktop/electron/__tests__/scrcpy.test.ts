@@ -90,4 +90,24 @@ describe('Scrcpy', () => {
     const { runner } = makeMock()
     await new Scrcpy(runner).stop()  // does not throw
   })
+
+  it('clears running state and notifies when scrcpy exits unexpectedly', () => {
+    const { runner, triggerExit } = makeMock()
+    const onUnexpectedExit = vi.fn()
+    const s = new Scrcpy(runner)
+    s.start({ deviceId: 'A', recordPath: 'a.mp4', onUnexpectedExit })
+    triggerExit(1)
+    expect(s.isRunning()).toBe(false)
+    expect(s.elapsedMs()).toBeNull()
+    expect(onUnexpectedExit).toHaveBeenCalledWith(1)
+  })
+
+  it('stop after an unexpected exit is a no-op instead of waiting forever', async () => {
+    const { runner, triggerExit } = makeMock()
+    const s = new Scrcpy(runner)
+    s.start({ deviceId: 'A', recordPath: 'a.mp4' })
+    triggerExit(1)
+    await s.stop()
+    expect(s.isRunning()).toBe(false)
+  })
 })

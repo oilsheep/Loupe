@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_HOTKEYS, SettingsStore } from '../settings'
+import { DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
 
 describe('SettingsStore', () => {
   it('normalizes missing Slack settings', () => {
@@ -13,6 +13,8 @@ describe('SettingsStore', () => {
       const store = new SettingsStore(file, {
         exportRoot: '/default',
         hotkeys: DEFAULT_HOTKEYS,
+        locale: 'system',
+        severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '' },
       })
 
@@ -29,6 +31,8 @@ describe('SettingsStore', () => {
       const store = new SettingsStore(file, {
         exportRoot: '/default',
         hotkeys: DEFAULT_HOTKEYS,
+        locale: 'system',
+        severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '' },
       })
 

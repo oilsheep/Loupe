@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   extractClip,
   buildClipArgs,
+  buildIntroClipArgs,
   buildContactSheetArgs,
   buildFaststartArgs,
   clampClipWindow,
@@ -63,19 +64,27 @@ describe('buildClipArgs', () => {
       tester: 'Avery',
       testedAtMs: new Date(2026, 3, 29, 14, 5, 6).getTime(),
       note: 'button failed',
+      clipStartMs: 1000,
+      clipEndMs: 6500,
+      telemetryLine: 'RAM 4.2/8.0G, 73% charging / 38.2°C',
     })
     const filter = args[args.indexOf('-filter:v') + 1]
     expect(filter).toContain('drawbox=')
     expect(filter).toContain('drawbox=x=18:y=ih-')
     expect(filter).toContain('color=0xff4d4f@1')
-    expect(filter).toContain("text='major'")
-    expect(filter).toContain("text='/ button failed'")
+    expect(filter).toContain("text='Critical'")
+    expect(filter).toContain("text='/ button'")
+    expect(filter).toContain("text='failed'")
     expect(filter).toContain('Daily Alpha / Android 16 / Pixel 7 Pro')
     expect(filter).not.toContain('Test\\:')
-    expect(filter).toContain('Avery / 2026-04-29 14\\:05')
+    expect(filter).toContain('Tester\\: Avery / 2026-04-29 14\\:05')
+    expect(filter).toContain('Clip')
+    expect(filter).toContain('0\\:01.0 - 0\\:06.5')
+    expect(filter).toContain('RAM 4.2/8.0G')
+    expect(filter).toContain('fontsize=14')
   })
 
-  it('renders non-major severity labels as bracketed text without color', () => {
+  it('renders non-major severity labels with the same colored label treatment as major', () => {
     const args = buildClipArgs({
       inputPath: 'in.mp4',
       outputPath: 'out.mp4',
@@ -85,9 +94,10 @@ describe('buildClipArgs', () => {
       note: 'nice to have',
     })
     const filter = args[args.indexOf('-filter:v') + 1]
-    expect(filter).not.toContain('drawbox=')
-    expect(filter).toContain("text='\\[improvement\\] nice'")
-    expect(filter).toContain("text='to have'")
+    expect(filter).toContain('drawbox=')
+    expect(filter).toContain('color=0x22c55e@1')
+    expect(filter).toContain("text='Note'")
+    expect(filter).toContain("text='/ nice to have'")
   })
 
   it('uses a platform font path instead of hardcoded Windows fonts on non-Windows hosts', () => {
@@ -107,7 +117,7 @@ describe('buildClipArgs', () => {
     }
   })
 
-  it('renders bracketed non-major severity even without a note', () => {
+  it('renders colored non-major severity label even without a note', () => {
     const args = buildClipArgs({
       inputPath: 'in.mp4',
       outputPath: 'out.mp4',
@@ -117,8 +127,9 @@ describe('buildClipArgs', () => {
       note: '',
     })
     const filter = args[args.indexOf('-filter:v') + 1]
-    expect(filter).not.toContain('drawbox=')
-    expect(filter).toContain("text='\\[minor\\]'")
+    expect(filter).toContain('drawbox=')
+    expect(filter).toContain('color=0x22b8f0@1')
+    expect(filter).toContain("text='Polish'")
   })
 
   it('wraps long caption lines into separate drawtext layers', () => {
@@ -221,8 +232,51 @@ describe('extractClip', () => {
   })
 })
 
+describe('buildIntroClipArgs', () => {
+  it('prepends a 3 second review card and pads the clip to the card width without per-frame captions', () => {
+    const args = buildIntroClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1450,
+    })
+    expect(args).toEqual(expect.arrayContaining(['-loop', '1', '-t', '3.000', '-i', 'card.jpg', '-i', 'in.mp4']))
+    const filter = args[args.indexOf('-filter_complex') + 1]
+    expect(filter).toContain('fade=t=out:st=2.500:d=0.500')
+    expect(filter).toContain('[1:v:0]trim=start=5.000:duration=7.000,setpts=PTS-STARTPTS')
+    expect(filter).toContain('[1:a:0]atrim=start=5.000:duration=7.000,asetpts=PTS-STARTPTS,adelay=3000|3000[a]')
+    expect(filter).toContain('scale=720:1450:force_original_aspect_ratio=decrease')
+    expect(filter).toContain('pad=720:1450:(ow-iw)/2:0:color=black')
+    expect(filter).toContain('concat=n=2:v=1:a=0')
+    expect(filter).not.toContain('drawtext=')
+    expect(args).toEqual(expect.arrayContaining(['-map', '[a]']))
+    expect(args).not.toContain('-af')
+    expect(args).toEqual(expect.arrayContaining(['-max_muxing_queue_size', '4096']))
+  })
+
+  it('can build a no-audio intro clip for PC recordings without audio streams', () => {
+    const args = buildIntroClipArgs({
+      inputPath: 'in.webm',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      sourceHasAudio: false,
+    })
+    const filter = args[args.indexOf('-filter_complex') + 1]
+    expect(filter).not.toContain('[1:a:0]')
+    expect(args).not.toContain('[a]')
+    expect(args).not.toContain('-c:a')
+  })
+})
+
 describe('buildContactSheetArgs', () => {
-  it('captures nine evenly-spaced frames into a 3x3 sheet with the same caption block', () => {
+  it('captures six evenly-spaced frames into a 3x2 intro card with a fixed bottom caption panel', () => {
     const args = buildContactSheetArgs({
       inputPath: 'in.mp4',
       outputPath: 'out.jpg',
@@ -232,14 +286,20 @@ describe('buildContactSheetArgs', () => {
       note: 'button failed',
       buildVersion: 'Daily Alpha',
       testedAtMs: new Date(2026, 3, 29, 14, 5, 6).getTime(),
+      tileWidth: 240,
+      tileHeight: 426,
+      outputWidth: 720,
+      outputHeight: 1280,
     })
     expect(args).toEqual(expect.arrayContaining(['-i', 'in.mp4', '-frames:v', '1', '-q:v', '2', 'out.jpg']))
     const filter = args[args.indexOf('-filter:v') + 1]
     expect(filter).toContain('trim=start=1.000:duration=9.000')
-    expect(filter).toContain('fps=1.000000')
-    expect(filter).toContain('tile=3x3')
+    expect(filter).toContain('fps=0.666667')
+    expect(filter).toContain('tile=3x2')
+    expect(filter).toContain('pad=720:1280:(ow-iw)/2:0:color=black')
+    expect(filter).toContain('drawbox=x=0:y=852:w=iw:h=428:color=#d9d9d9@1:t=fill')
     expect(filter).toContain('color=0xff4d4f@1')
-    expect(filter).toContain("text='major'")
+    expect(filter).toContain("text='Critical'")
     expect(filter).toContain("text='/ button failed'")
     expect(filter).toContain('Daily Alpha')
     expect(filter).toContain('2026-04-29 14\\:05')

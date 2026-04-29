@@ -10,6 +10,7 @@ export interface Paths {
   videoFile(sessionId: string): string
   pcVideoFile(sessionId: string): string
   clicksFile(sessionId: string): string
+  telemetryFile(sessionId: string): string
   screenshotsDir(sessionId: string): string
   screenshotFile(sessionId: string, bugId: string): string
   logcatDir(sessionId: string): string
@@ -37,6 +38,7 @@ export function createPaths(root: string): Paths {
     videoFile: (id) => join(root, 'sessions', id, 'video.mp4'),
     pcVideoFile: (id) => join(root, 'sessions', id, 'pc-recording.webm'),
     clicksFile: (id) => join(root, 'sessions', id, 'clicks.jsonl'),
+    telemetryFile: (id) => join(root, 'sessions', id, 'telemetry.jsonl'),
     screenshotsDir,
     screenshotFile: (id, bugId) => join(screenshotsDir(id), `${bugId}.png`),
     logcatDir,

@@ -73,6 +73,12 @@ describe('Db', () => {
     expect(b.postSec).toBe(12)
   })
 
+  it('stores custom marker severities', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug({ severity: 'custom1' }))
+    expect(db.listBugs('sess-1')[0].severity).toBe('custom1')
+  })
+
   it('insertBug stores preSec/postSec and rowToBug returns them', () => {
     db.insertSession(fixSession())
     db.insertBug(fixBug({ preSec: 3, postSec: 7 }))

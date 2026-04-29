@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi, PublishTarget, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, PublishTarget, SeveritySettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
+import { useI18n } from '@/lib/i18n'
 
 interface Props {
   api: DesktopApi
@@ -12,6 +13,7 @@ interface Props {
   onMutated(): void
   allowExport?: boolean
   autoFocusLatest?: boolean
+  buildVersion?: string
   tester?: string
   testNote?: string
 }
@@ -21,29 +23,37 @@ function fmt(ms: number): string {
   return `${m}:${r.toString().padStart(2, '0')}`
 }
 
-const SEVERITIES: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
+const BASE_SEVERITIES: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
+const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
 const CLIP_MIN_SEC = 2
 const CLIP_MAX_SEC = 60
 const THUMB_PENDING_MS = 45_000
 
-function severityClass(severity: BugSeverity): string {
-  switch (severity) {
-    case 'note': return 'bg-zinc-200 text-zinc-950'
-    case 'major': return 'bg-red-500 text-white'
-    case 'normal': return 'bg-amber-500 text-zinc-950'
-    case 'minor': return 'bg-sky-500 text-white'
-    case 'improvement': return 'bg-emerald-500 text-zinc-950'
-  }
+const DEFAULT_SEVERITIES: SeveritySettings = {
+  note: { label: 'note', color: '#a1a1aa' },
+  major: { label: 'Critical', color: '#ff4d4f' },
+  normal: { label: 'Bug', color: '#f59e0b' },
+  minor: { label: 'Polish', color: '#22b8f0' },
+  improvement: { label: 'Note', color: '#22c55e' },
+  custom1: { label: '', color: '#8b5cf6' },
+  custom2: { label: '', color: '#ec4899' },
+  custom3: { label: '', color: '#14b8a6' },
+  custom4: { label: '', color: '#eab308' },
 }
 
-function markerClass(severity: BugSeverity): string {
-  switch (severity) {
-    case 'note': return 'bg-zinc-300'
-    case 'major': return 'bg-red-500'
-    case 'normal': return 'bg-amber-500'
-    case 'minor': return 'bg-sky-500'
-    case 'improvement': return 'bg-emerald-500'
-  }
+function visibleSeverities(severities: SeveritySettings): BugSeverity[] {
+  return [
+    ...BASE_SEVERITIES,
+    ...CUSTOM_SEVERITIES.filter(severity => severities[severity]?.label?.trim()),
+  ]
+}
+
+function severityLabel(severities: SeveritySettings, severity: BugSeverity): string {
+  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity]?.label || severity
+}
+
+function severityColor(severities: SeveritySettings, severity: BugSeverity): string {
+  return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
 }
 
 function DownloadIcon() {
@@ -75,13 +85,13 @@ function MicIcon() {
   )
 }
 
-function ThumbnailWaiting() {
+function ThumbnailWaiting({ label }: { label: string }) {
   return (
     <div className="flex h-24 w-28 items-center justify-center rounded border border-zinc-800 bg-zinc-950">
       <div
         className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-blue-400"
-        aria-label="Waiting for screenshot"
-        title="Waiting for screenshot"
+        aria-label={label}
+        title={label}
       />
     </div>
   )
@@ -96,17 +106,26 @@ function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
-function notifyExported(api: DesktopApi, firstPath: string, count: number): void {
+function notifyExported(api: DesktopApi, firstPath: string, count: number, t: (key: string, params?: Record<string, string | number>) => string): void {
   const message = count === 1
-    ? `Export complete:\n${firstPath}\n\nOpen the output folder?`
-    : `Export complete: ${count} clips exported.\n\nOpen the output folder?`
+    ? t('export.done.one', { path: firstPath })
+    : t('export.done.many', { count })
   if (askConfirm(message)) {
-    void api.app.showItemInFolder(firstPath)
+    void api.app.openPath(exportRootFromOutputPath(firstPath))
   }
 }
 
 function askConfirm(message: string): boolean {
   return typeof window.confirm === 'function' ? window.confirm(message) : true
+}
+
+function exportRootFromOutputPath(filePath: string): string {
+  const parts = filePath.split(/[\\/]/)
+  const parent = parts.at(-2)?.toLowerCase()
+  if ((parent === 'records' || parent === 'report') && parts.length > 2) {
+    return parts.slice(0, -2).join(filePath.includes('\\') ? '\\' : '/')
+  }
+  return parts.slice(0, -1).join(filePath.includes('\\') ? '\\' : '/') || filePath
 }
 
 interface ExportRequest {
@@ -117,6 +136,8 @@ interface ExportRequest {
 interface ExportConfirmDialogProps {
   count: number
   outputRoot: string
+  reportTitle: string
+  buildVersion: string
   tester: string
   testNote: string
   includeLogcat: boolean
@@ -124,8 +145,12 @@ interface ExportConfirmDialogProps {
   slackThreadMode: SlackThreadMode
   busy: boolean
   error: string
+  canceling: boolean
+  progress: ExportProgress | null
   hasMissingNotes: boolean
   onOutputRootChange(value: string): void
+  onReportTitleChange(value: string): void
+  onBuildVersionChange(value: string): void
   onTesterChange(value: string): void
   onTestNoteChange(value: string): void
   onIncludeLogcatChange(value: boolean): void
@@ -139,6 +164,8 @@ interface ExportConfirmDialogProps {
 function ExportConfirmDialog({
   count,
   outputRoot,
+  reportTitle,
+  buildVersion,
   tester,
   testNote,
   includeLogcat,
@@ -146,8 +173,12 @@ function ExportConfirmDialog({
   slackThreadMode,
   busy,
   error,
+  canceling,
+  progress,
   hasMissingNotes,
   onOutputRootChange,
+  onReportTitleChange,
+  onBuildVersionChange,
   onTesterChange,
   onTestNoteChange,
   onIncludeLogcatChange,
@@ -158,14 +189,18 @@ function ExportConfirmDialog({
   onConfirm,
 }: ExportConfirmDialogProps) {
   const isSlack = publishTarget === 'slack'
+  const { t } = useI18n()
+  const progressPct = progress && progress.total > 0
+    ? Math.round((progress.current / progress.total) * 100)
+    : 0
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-24" data-testid="export-dialog">
       <div className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
-        <div className="text-sm font-medium text-zinc-100">Publish {count === 1 ? 'clip' : `${count} clips`}</div>
-        <div className="mt-1 text-xs text-zinc-500">Export evidence files, manifest JSON, and manifest CSV for downstream tools.</div>
+        <div className="text-sm font-medium text-zinc-100">{count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
+        <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
 
         <label className="mt-4 block text-xs text-zinc-500">
-          Output folder
+          {t('export.outputFolder')}
           <div className="mt-1 flex gap-2">
             <input
               value={outputRoot}
@@ -179,27 +214,47 @@ function ExportConfirmDialog({
               disabled={busy}
               className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
             >
-              Browse
+              {t('common.browse')}
             </button>
           </div>
         </label>
 
+        <label className="mt-3 block text-xs font-semibold text-zinc-300">
+          Report title
+          <input
+            value={reportTitle}
+            onChange={(e) => onReportTitleChange(e.target.value)}
+            placeholder="Loupe QA Report"
+            className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm font-normal text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+          />
+        </label>
+
+        <label className="mt-3 block text-xs font-semibold text-zinc-300">
+          {t('new.buildVersion')}
+          <input
+            value={buildVersion}
+            onChange={(e) => onBuildVersionChange(e.target.value)}
+            placeholder="1.4.2-RC3"
+            className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm font-normal text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+          />
+        </label>
+
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label className="text-xs text-zinc-500">
-            Tester
+            {t('export.tester')}
             <input
               value={tester}
               onChange={(e) => onTesterChange(e.target.value)}
-              placeholder="QA name"
+              placeholder={t('export.qaName')}
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
           <label className="text-xs text-zinc-500">
-            Test note
+            {t('export.testNote')}
             <input
               value={testNote}
               onChange={(e) => onTestNoteChange(e.target.value)}
-              placeholder="Scope"
+              placeholder={t('export.scope')}
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
@@ -262,7 +317,36 @@ function ExportConfirmDialog({
 
         {hasMissingNotes && (
           <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-            Some selected markers do not have notes. They will still export if you continue.
+            {t('export.missingNotes')}
+          </div>
+        )}
+
+        {busy && (
+          <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/70 p-3">
+            <div className="flex items-center justify-between gap-3 text-xs text-zinc-400">
+              <span>{progress?.message ?? t('export.progressStarting')}</span>
+              <span className="font-mono tabular-nums">{progressPct}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500">
+              <div>
+                {t('export.progressStep', {
+                  current: progress?.current ?? 0,
+                  total: progress?.total ?? 0,
+                })}
+              </div>
+              <div className="text-right">
+                {t('export.progressRemaining', { count: progress?.remaining ?? count })}
+              </div>
+            </div>
+            {progress?.detail && (
+              <div className="mt-2 break-words text-[11px] leading-4 text-zinc-500">{progress.detail}</div>
+            )}
           </div>
         )}
 
@@ -275,17 +359,17 @@ function ExportConfirmDialog({
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            disabled={busy}
+            disabled={canceling}
             className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
           >
-            Cancel
+            {canceling ? t('export.canceling') : t('common.cancel')}
           </button>
           <button
             onClick={onConfirm}
             disabled={busy || !outputRoot.trim()}
             className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
           >
-            {busy ? 'Publishing...' : 'Publish'}
+            {busy ? t('common.exporting') : t('common.export')}
           </button>
         </div>
       </div>
@@ -302,6 +386,7 @@ interface ClipWindowControlProps {
 }
 
 function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWindowControlProps) {
+  const { t } = useI18n()
   const prePct = 50 - (pre / CLIP_MAX_SEC) * 50
   const postPct = 50 + (post / CLIP_MAX_SEC) * 50
 
@@ -314,7 +399,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
           className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-blue-600/80"
           style={{ left: `${prePct}%`, width: `${postPct - prePct}%` }}
         />
-        <div className="absolute left-1/2 top-1/2 h-5 w-px -translate-y-1/2 bg-zinc-400" title="marker time" />
+        <div className="absolute left-1/2 top-1/2 h-5 w-px -translate-y-1/2 bg-zinc-400" title={t('bug.markerTime')} />
         <div
           className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-200 bg-blue-500 shadow"
           style={{ left: `${prePct}%` }}
@@ -331,7 +416,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
           value={pre}
           onChange={(e) => onPreChange(Number(e.target.value))}
           data-testid={`pre-${id}`}
-          aria-label="Seconds before marker"
+          aria-label={t('bug.preAria')}
           className="absolute left-0 top-0 h-8 w-1/2 cursor-ew-resize opacity-0"
         />
         <input
@@ -341,7 +426,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
           value={post}
           onChange={(e) => onPostChange(Number(e.target.value))}
           data-testid={`post-${id}`}
-          aria-label="Seconds after marker"
+          aria-label={t('bug.postAria')}
           className="absolute left-1/2 top-0 h-8 w-1/2 cursor-ew-resize opacity-0"
         />
       </div>
@@ -350,23 +435,42 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
   )
 }
 
-export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, tester = '', testNote = '' }: Props) {
+export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '' }: Props) {
+  const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [logcatPreview, setLogcatPreview] = useState<Record<string, string>>({})
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
+  const [cancelingExport, setCancelingExport] = useState(false)
   const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
   const [exportRoot, setExportRoot] = useState('')
+  const [exportReportTitle, setExportReportTitle] = useState('Loupe QA Report')
+  const [exportBuildVersion, setExportBuildVersion] = useState(buildVersion)
   const [exportTester, setExportTester] = useState(tester)
   const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
   const [publishTarget, setPublishTarget] = useState<PublishTarget>('local')
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('single-thread')
   const [exportError, setExportError] = useState('')
+  const [exportId, setExportId] = useState<string | null>(null)
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
+  const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const visibleSeverityList = useMemo(() => visibleSeverities(severities), [severities])
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   const allChecked = bugs.length > 0 && bugs.every(b => checked.has(b.id))
   const checkedIds = useMemo(() => bugs.filter(b => checked.has(b.id)).map(b => b.id), [bugs, checked])
+
+  useEffect(() => {
+    api.settings.get().then(settings => setSeverities(settings.severities)).catch(() => {})
+  }, [api])
+
+  useEffect(() => api.onBugExportProgress((progress) => {
+    setExportProgress(prev => {
+      if (progress.exportId !== exportId) return prev
+      return progress
+    })
+  }), [api, exportId])
 
   useEffect(() => {
     setChecked(prev => {
@@ -434,12 +538,17 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   async function beginExport(request: ExportRequest) {
     const settings = await api.settings.get()
     setExportRoot(settings.exportRoot)
+    setExportReportTitle('Loupe QA Report')
+    setExportBuildVersion(buildVersion)
     setExportTester(tester)
     setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
     setPublishTarget('local')
     setSlackThreadMode('single-thread')
     setExportError('')
+    setExportProgress(null)
+    setExportId(null)
+    setCancelingExport(false)
     setExportRequest(request)
   }
 
@@ -453,26 +562,63 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     if (!exportRequest) return
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
+    const nextExportId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    setExportId(nextExportId)
+    setExportProgress({
+      exportId: nextExportId,
+      phase: 'prepare',
+      message: t('export.progressStarting'),
+      detail: t('export.progressUpdatingMetadata'),
+      current: 0,
+      total: Math.max(1, 1 + exportRequest.bugIds.length * 3),
+      clipIndex: 0,
+      clipCount: exportRequest.bugIds.length,
+      remaining: exportRequest.bugIds.length,
+    })
     setExporting(true)
     setExportError('')
+    setCancelingExport(false)
     try {
       await api.settings.setExportRoot(trimmedRoot)
       await api.session.updateMetadata(sessionId, {
+        buildVersion: exportBuildVersion.trim(),
         tester: exportTester.trim(),
         testNote: exportTestNote.trim(),
       })
       onMutated()
       const publish = { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], includeLogcat: exportIncludeLogcat, publish })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, includeLogcat: exportIncludeLogcat, publish })
-      if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length)
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, publish })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, publish })
+      if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length, t)
       setExportRequest(null)
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Publish failed')
+      const message = err instanceof Error ? err.message : String(err)
+      if (/cancel/i.test(message)) {
+        setExportRequest(null)
+        return
+      }
+      setExportError(message || 'Export failed')
+      setExportProgress(prev => prev
+        ? { ...prev, phase: 'error', message: t('export.progressFailed'), detail: message }
+        : null)
+      if (typeof window.alert === 'function') window.alert(message)
     } finally {
       setExporting(false)
+      setCancelingExport(false)
     }
+  }
+
+  async function cancelExport() {
+    if (!exporting || !exportId) {
+      setExportRequest(null)
+      return
+    }
+    setCancelingExport(true)
+    setExportProgress(prev => prev
+      ? { ...prev, message: t('export.canceling'), detail: t('export.cancelingDetail') }
+      : prev)
+    await api.bug.cancelExport(exportId)
   }
 
   async function browseExportRoot() {
@@ -486,19 +632,19 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2 backdrop-blur">
           <label className="flex items-center gap-2 text-xs text-zinc-400">
             <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 accent-blue-600" />
-            Select all
+            {t('bug.selectAll')}
           </label>
           <button
             onClick={exportSelected}
             disabled={checkedIds.length === 0 || exporting}
             className="ml-auto rounded bg-blue-700 px-2.5 py-1 text-xs text-white hover:bg-blue-600 disabled:opacity-50"
           >
-            {exporting ? 'Exporting...' : `Export ${checkedIds.length || ''}`}
+            {exporting ? t('common.exporting') : t('bug.exportCount', { count: checkedIds.length || '' })}
           </button>
         </div>
       )}
       <ul className="space-y-1.5 p-2" data-testid="bug-list">
-        {bugs.length === 0 && <li className="p-4 text-sm text-zinc-500">No markers yet.</li>}
+        {bugs.length === 0 && <li className="p-4 text-sm text-zinc-500">{t('bug.noMarkers')}</li>}
         {bugs.map(b => (
           <BugRow
             key={b.id}
@@ -515,6 +661,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             allowExport={allowExport}
             shouldScrollIntoView={autoFocusLatest && b.id === selectedBugId}
             tester={tester}
+            severities={severities}
+            visibleSeverities={visibleSeverityList}
             onExportRequest={(bug) => beginExport({ bugs: [bug], bugIds: [bug.id] })}
           />
         ))}
@@ -523,6 +671,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         <ExportConfirmDialog
           count={exportRequest.bugIds.length}
           outputRoot={exportRoot}
+          reportTitle={exportReportTitle}
+          buildVersion={exportBuildVersion}
           tester={exportTester}
           testNote={exportTestNote}
           includeLogcat={exportIncludeLogcat}
@@ -530,15 +680,19 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           slackThreadMode={slackThreadMode}
           busy={exporting}
           error={exportError}
+          canceling={cancelingExport}
+          progress={exportProgress}
           hasMissingNotes={exportRequest.bugs.some(b => !b.note.trim())}
           onOutputRootChange={setExportRoot}
+          onReportTitleChange={setExportReportTitle}
+          onBuildVersionChange={setExportBuildVersion}
           onTesterChange={setExportTester}
           onTestNoteChange={setExportTestNote}
           onIncludeLogcatChange={setExportIncludeLogcat}
           onPublishTargetChange={setPublishTarget}
           onSlackThreadModeChange={setSlackThreadMode}
           onBrowseOutputRoot={browseExportRoot}
-          onCancel={() => { if (!exporting) setExportRequest(null) }}
+          onCancel={cancelExport}
           onConfirm={confirmExport}
         />
       )}
@@ -560,10 +714,13 @@ interface RowProps {
   allowExport: boolean
   shouldScrollIntoView: boolean
   tester: string
+  severities: SeveritySettings
+  visibleSeverities: BugSeverity[]
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onExportRequest }: RowProps) {
+  const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
   const [post, setPost] = useState(bug.postSec)
@@ -617,7 +774,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
   }
 
   async function del() {
-    if (!confirm('Delete this marker?')) return
+    if (!confirm(t('bug.deleteConfirm'))) return
     await api.bug.delete(bug.id)
     onMutated()
   }
@@ -679,15 +836,15 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
             checked={isChecked}
             onChange={() => onCheckedChange(bug.id)}
             className="mt-1 h-4 w-4 shrink-0 accent-blue-600"
-            aria-label={`Select marker ${fmt(bug.offsetMs)}`}
+            aria-label={t('bug.selectMarker', { time: fmt(bug.offsetMs) })}
           />
         )}
 
-        <div title={`Type: ${bug.severity}`} data-testid={`severity-${bug.id}`} className="mt-1 shrink-0">
-          <div className={`h-3 w-3 rounded-full ${markerClass(bug.severity)}`} />
+        <div title={t('bug.type', { type: severityLabel(severities, bug.severity) })} data-testid={`severity-${bug.id}`} className="mt-1 shrink-0">
+          <div className="h-3 w-3 rounded-full" style={{ backgroundColor: severityColor(severities, bug.severity) }} />
         </div>
 
-        <button onClick={() => onSelect(bug)} className="shrink-0" title="Screenshot at marker time">
+        <button onClick={() => onSelect(bug)} className="shrink-0" title={t('bug.screenshotTitle')}>
           {thumbnailUrl
             ? (
               <img
@@ -698,7 +855,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
               />
             )
             : Date.now() - bug.createdAt < THUMB_PENDING_MS
-              ? <ThumbnailWaiting />
+              ? <ThumbnailWaiting label={t('bug.waitingScreenshot')} />
               : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
           }
         </button>
@@ -706,14 +863,14 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
             <button onClick={() => onSelect(bug)} className="text-left">
-              <div className="text-xs font-mono text-zinc-400">{fmt(bug.offsetMs)} - {bug.severity}</div>
+              <div className="text-xs font-mono text-zinc-400">{fmt(bug.offsetMs)} - {severityLabel(severities, bug.severity)}</div>
             </button>
             <div className="ml-auto flex gap-1">
               {allowExport && (
                 <button
                   onClick={exportClip}
                   data-testid={`export-${bug.id}`}
-                  title="Export clip"
+                  title={t('bug.exportClip')}
                   className="inline-flex h-8 w-8 items-center justify-center rounded bg-zinc-800 text-zinc-200 hover:bg-blue-700 hover:text-white"
                 >
                   <DownloadIcon />
@@ -722,7 +879,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
               <button
                 onClick={toggleRecording}
                 data-testid={`record-audio-${bug.id}`}
-                title={recording ? 'Stop recording note audio' : bug.audioRel ? 'Replace audio note' : 'Record audio note'}
+                title={recording ? t('bug.stopAudio') : bug.audioRel ? t('bug.replaceAudio') : t('bug.recordAudio')}
                 className={`inline-flex h-8 w-8 items-center justify-center rounded text-zinc-200 hover:text-white ${
                   recording ? 'bg-red-700 hover:bg-red-600' : bug.audioRel ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-zinc-800 hover:bg-zinc-700'
                 }`}
@@ -732,7 +889,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
               <button
                 onClick={del}
                 data-testid={`delete-${bug.id}`}
-                title="Delete marker"
+                title={t('bug.deleteConfirm')}
                 className="inline-flex h-8 w-8 items-center justify-center rounded bg-zinc-800 text-zinc-200 hover:bg-red-700 hover:text-white"
               >
                 <DeleteIcon />
@@ -741,7 +898,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
           </div>
 
           <div className="flex flex-wrap gap-1">
-            {SEVERITIES.map(severity => {
+            {visibleSeverities.map(severity => {
               const active = severity === bug.severity
               return (
                 <button
@@ -750,10 +907,21 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
                   onClick={() => { if (!active) save({ severity }) }}
                   data-testid={`severity-${severity}-${bug.id}`}
                   className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                    active ? severityClass(severity) : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-100'
+                    active ? 'text-black' : 'bg-zinc-800 text-zinc-400 hover:text-black'
                   }`}
+                  style={active ? { backgroundColor: severityColor(severities, severity) } : undefined}
+                  onMouseEnter={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.backgroundColor = severityColor(severities, severity)
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.backgroundColor = ''
+                    }
+                  }}
                 >
-                  {severity}
+                  {severityLabel(severities, severity)}
                 </button>
               )
             })}
@@ -767,12 +935,15 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
             onBlur={commitNote}
             onKeyDown={(e) => {
               if (e.key === 'Escape') { setNote(bug.note); (e.target as HTMLTextAreaElement).blur() }
-              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') (e.target as HTMLTextAreaElement).blur()
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                ;(e.target as HTMLTextAreaElement).blur()
+              }
             }}
             maxLength={200}
-            placeholder="Add note"
+            placeholder={t('bug.addNote')}
             data-testid={`note-${bug.id}`}
-            className="max-h-32 min-h-8 w-full resize-none overflow-hidden rounded bg-zinc-950/40 px-2 py-1 text-sm text-zinc-200 outline-none hover:bg-zinc-950 focus:bg-zinc-800 focus:ring-1 focus:ring-blue-600"
+            className="min-h-8 w-full resize-none overflow-hidden break-words rounded bg-zinc-950/40 px-2 py-1 text-sm text-zinc-200 outline-none hover:bg-zinc-950 focus:bg-zinc-800 focus:ring-1 focus:ring-blue-600"
           />
 
           {logcatPreview && (

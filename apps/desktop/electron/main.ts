@@ -10,11 +10,29 @@ import { SessionManager } from './session'
 import { openDb } from './db'
 import { createPaths, defaultRoot } from './paths'
 import { registerIpc, emitBugMarkRequested } from './ipc'
-import { DEFAULT_HOTKEYS, SettingsStore } from './settings'
+import { DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import type { HotkeySettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let win: BrowserWindow | null = null
+let thumbnailCaptureQueue = Promise.resolve()
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    timer.unref?.()
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'loupe-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
@@ -148,6 +166,8 @@ app.whenReady().then(async () => {
   const settings = new SettingsStore(paths.settingsFile(), {
     exportRoot: join(app.getPath('videos'), 'Loupe'),
     hotkeys: DEFAULT_HOTKEYS,
+    locale: 'system',
+    severities: DEFAULT_SEVERITIES,
     slack: { botToken: '', channelId: '' },
   })
   const db = openDb(paths.dbFile())
@@ -161,14 +181,25 @@ app.whenReady().then(async () => {
 
   const manager = new SessionManager({
     db, paths, adb, scrcpy, logcat: logcatHolder, runner,
-    capturePcThumbnail: async (sourceId, outPath) => {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 480, height: 270 },
-      })
-      const source = sources.find(s => s.id === sourceId)
-      if (!source || source.thumbnail.isEmpty()) throw new Error('PC capture source thumbnail is not available')
-      await fs.promises.writeFile(outPath, source.thumbnail.toPNG())
+    onInterrupted: (session, reason) => {
+      win?.webContents.send('session:interrupted', session, reason)
+    },
+    capturePcThumbnail: async (sourceIdOrWindowTitle, outPath) => {
+      const capture = async () => {
+        const isScreenSource = sourceIdOrWindowTitle.startsWith('screen:')
+        const sources = await withTimeout(desktopCapturer.getSources({
+          types: isScreenSource ? ['screen'] : ['window'],
+          thumbnailSize: { width: 360, height: 360 },
+        }), 2500, 'PC thumbnail capture')
+        const normalizedTitle = sourceIdOrWindowTitle.trim().toLowerCase()
+        const source = sources.find(s => s.id === sourceIdOrWindowTitle)
+          ?? sources.find(s => s.name.trim().toLowerCase() === normalizedTitle)
+          ?? sources.find(s => s.name.trim().toLowerCase().includes(normalizedTitle))
+        if (!source || source.thumbnail.isEmpty()) throw new Error('PC capture source thumbnail is not available')
+        await fs.promises.writeFile(outPath, source.thumbnail.toPNG())
+      }
+      thumbnailCaptureQueue = thumbnailCaptureQueue.then(capture, capture)
+      return thumbnailCaptureQueue
     },
   })
   // Override manager.start to swap a fresh logcat for the chosen deviceId.

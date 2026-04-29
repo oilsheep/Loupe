@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
-    "dist:win": "electron-vite build && electron-builder --win nsis",
+    "dist:win": "electron-vite build && electron-builder --win",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
@@ -63,9 +63,10 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ],
-      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "artifactName": "${productName}-${version}.${ext}",
       "signAndEditExecutable": false
     },
     "nsis": {

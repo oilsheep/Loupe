@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bugs (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   offset_ms INTEGER NOT NULL,
-  severity TEXT NOT NULL CHECK(severity IN ('note','major','normal','minor','improvement')),
+  severity TEXT NOT NULL,
   note TEXT NOT NULL,
   screenshot_rel TEXT,
   logcat_rel TEXT,
@@ -116,13 +116,14 @@ function migrate(db: Database.Database): void {
   if (!cols.includes('audio_duration_ms')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_duration_ms INTEGER`)
 
   const bugTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='bugs'`).get() as { sql?: string } | undefined
-  if (!bugTable?.sql?.includes(`'note'`)) {
+  if (!bugTable?.sql?.includes(`'note'`) || bugTable?.sql?.includes(`CHECK(severity IN`)) {
+    db.pragma('foreign_keys = OFF')
     db.exec(`
       CREATE TABLE bugs_new (
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
         offset_ms INTEGER NOT NULL,
-        severity TEXT NOT NULL CHECK(severity IN ('note','major','normal','minor','improvement')),
+        severity TEXT NOT NULL,
         note TEXT NOT NULL,
         screenshot_rel TEXT,
         logcat_rel TEXT,
@@ -138,6 +139,7 @@ function migrate(db: Database.Database): void {
       ALTER TABLE bugs_new RENAME TO bugs;
       CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
     `)
+    db.pragma('foreign_keys = ON')
   }
 }
 
@@ -173,7 +175,7 @@ export function openDb(file: string) {
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
   `)
   const updateSessionMetadataStmt = db.prepare(`
-    UPDATE sessions SET test_note=@testNote, tester=@tester WHERE id=@id
+    UPDATE sessions SET build_version=@buildVersion, test_note=@testNote, tester=@tester WHERE id=@id
   `)
   const updateSessionPcRecordingStmt = db.prepare(`
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
@@ -217,7 +219,7 @@ export function openDb(file: string) {
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
       finalizeSessionStmt.run({ id, ...args })
     },
-    updateSessionMetadata(id: string, patch: { testNote: string; tester: string }) {
+    updateSessionMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }) {
       updateSessionMetadataStmt.run({ id, ...patch })
     },
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {

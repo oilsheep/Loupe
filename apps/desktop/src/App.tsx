@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { Home } from '@/routes/Home'
 import { Recording } from '@/routes/Recording'
 import { Draft } from '@/routes/Draft'
+import { I18nProvider } from '@/lib/i18n'
 
 export default function App() {
   const view = useApp(s => s.view)
@@ -26,8 +27,11 @@ export default function App() {
       void api.hotkey.setEnabled(true)
     }
   }, [])
-  if (view.name === 'home') return <Home />
-  if (view.name === 'recording') return <Recording session={view.session} />
-  if (view.name === 'draft') return <Draft sessionId={view.sessionId} />
-  return null
+  return (
+    <I18nProvider>
+      {view.name === 'home' && <Home />}
+      {view.name === 'recording' && <Recording session={view.session} />}
+      {view.name === 'draft' && <Draft sessionId={view.sessionId} />}
+    </I18nProvider>
+  )
 }

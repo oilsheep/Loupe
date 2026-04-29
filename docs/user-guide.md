@@ -4,7 +4,7 @@ This guide explains how to install Loupe, record PC screens or Android devices, 
 
 ## 1. Install Loupe
 
-1. Run `Loupe QA Recorder-0.0.2-Setup.exe`.
+1. Run `Loupe QA Recorder-0.0.2.exe`.
 2. If Windows shows a SmartScreen warning, select **More info** and then **Run anyway**.
 3. Open **Loupe QA Recorder** from the desktop shortcut or Start menu.
 
@@ -25,7 +25,7 @@ Loupe supports two recording source types:
 4. Enter the build or test version in the session form.
 5. Press **Start session**.
 6. Loupe changes the frame to red while recording.
-7. Add markers with the hotkeys or colored Add buttons.
+7. Add markers with the hotkeys or colored label buttons.
 8. Press **Stop** when finished.
 
 PC recording currently supports full-screen monitor capture only. Window/application capture is not exposed in this version.
@@ -83,12 +83,12 @@ Loupe begins recording and shows a recording indicator. Android sessions open a 
 
 Use the default hotkeys:
 
-- `F6`: improvement
-- `F7`: minor
-- `F8`: normal
-- `F9`: major
+- `F6`: Note
+- `F7`: Polish
+- `F8`: Bug
+- `F9`: Critical
 
-You can also click the colored **Add** buttons in the recording panel to create a marker of the matching type.
+You can also click the colored label buttons in the recording panel to create a marker of the matching type. Four more custom labels can be added for mouse-only marking.
 
 Markers are created immediately. Thumbnail capture runs in the background so testing is not blocked.
 

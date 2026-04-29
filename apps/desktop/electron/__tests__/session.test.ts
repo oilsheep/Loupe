@@ -34,7 +34,8 @@ function makeStubs() {
   })
   const prepareVideo = vi.fn().mockResolvedValue(undefined)
   const clickRecorder = { start: vi.fn(), stop: vi.fn() }
-  return { adb, scrcpy, logcat, screenshot, prepareVideo, clickRecorder }
+  const telemetrySampler = { start: vi.fn(), stop: vi.fn() }
+  return { adb, scrcpy, logcat, screenshot, prepareVideo, clickRecorder, telemetrySampler }
 }
 
 describe('SessionManager', () => {
@@ -57,6 +58,7 @@ describe('SessionManager', () => {
       captureScreenshot: stubs.screenshot,
       prepareVideoForPlayback: stubs.prepareVideo,
       clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
       now: () => nowMs,
       newId: ((seq) => () => `bug-${seq++}`)(1),
       makeSessionId: () => 'sess-1',
@@ -79,6 +81,12 @@ describe('SessionManager', () => {
     expect(stubs.clickRecorder.start).toHaveBeenCalledWith({
       outputPath: paths.clicksFile('sess-1'),
       windowTitle: 'Loupe - Pixel 7',
+    })
+    expect(stubs.telemetrySampler.start).toHaveBeenCalledWith({
+      adb: stubs.adb,
+      deviceId: 'ABC',
+      sessionStartedAt: 1_700_000_000_000,
+      outputPath: paths.telemetryFile('sess-1'),
     })
     expect(existsSync(paths.screenshotsDir('sess-1'))).toBe(true)
     expect(existsSync(paths.projectFile('sess-1'))).toBe(true)
@@ -126,6 +134,64 @@ describe('SessionManager', () => {
     expect(db.listBugs('sess-1')[0].screenshotRel).toBe('screenshots/bug-1.png')
   })
 
+  it('uses the PC-side scrcpy window thumbnail for Android markers when available', async () => {
+    const order: string[] = []
+    const capturePcThumbnail = vi.fn().mockImplementation(async (sourceId: string, out: string) => {
+      order.push('thumbnail')
+      expect(sourceId).toBe('Loupe - Pixel 7')
+      writeFileSync(out, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    })
+    stubs.logcat.dumpRecentToFile = vi.fn().mockImplementation((path: string) => {
+      order.push('logcat')
+      writeFileSync(path, 'log line\n')
+    }) as any
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner: { run: vi.fn() as any, spawn: vi.fn() as any },
+      captureScreenshot: stubs.screenshot,
+      capturePcThumbnail,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'sess-1',
+    })
+    await mgr.start({ deviceId: 'ABC', connectionMode: 'wifi', buildVersion: '', testNote: '' })
+    const bug = await mgr.markBug()
+    await flushPromises()
+
+    expect(capturePcThumbnail).toHaveBeenCalledWith('Loupe - Pixel 7', paths.screenshotFile('sess-1', bug.id))
+    expect(stubs.screenshot).not.toHaveBeenCalled()
+    expect(order).toEqual(['thumbnail', 'logcat'])
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBe('screenshots/bug-1.png')
+  })
+
+  it('does not block Android recording with adb or ffmpeg fallback when PC-side thumbnail capture fails', async () => {
+    const runner = { run: vi.fn() as any, spawn: vi.fn() as any }
+    const capturePcThumbnail = vi.fn().mockRejectedValue(new Error('window not ready'))
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner,
+      captureScreenshot: stubs.screenshot,
+      capturePcThumbnail,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'sess-1',
+    })
+    await mgr.start({ deviceId: 'ABC', connectionMode: 'wifi', buildVersion: '', testNote: '' })
+    await mgr.markBug()
+    await flushPromises()
+
+    expect(capturePcThumbnail).toHaveBeenCalled()
+    expect(stubs.screenshot).not.toHaveBeenCalled()
+    expect(runner.run).not.toHaveBeenCalled()
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
+  })
+
   it('markBug throws when no active session', async () => {
     await expect(mgr.markBug({ severity: 'normal', note: 'x' })).rejects.toThrow(/no active/)
   })
@@ -138,10 +204,41 @@ describe('SessionManager', () => {
     expect(s.durationMs).toBe(60_000)
     expect(stubs.scrcpy.stop).toHaveBeenCalled()
     expect(stubs.clickRecorder.stop).toHaveBeenCalled()
+    expect(stubs.telemetrySampler.stop).toHaveBeenCalled()
     expect(stubs.prepareVideo).toHaveBeenCalledWith(paths.videoFile('sess-1'))
     expect(stubs.logcat.stop).toHaveBeenCalled()
     expect(mgr.activeSessionId()).toBeNull()
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.status).toBe('draft')
+  })
+
+  it('finalizes the session when Android recording exits unexpectedly', async () => {
+    const onInterrupted = vi.fn()
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner: { run: vi.fn() as any, spawn: vi.fn() as any },
+      captureScreenshot: stubs.screenshot,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      onInterrupted,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'sess-1',
+    })
+    await mgr.start({ deviceId: 'A', connectionMode: 'usb', buildVersion: '', testNote: '' })
+    advance(12_000)
+    const onExit = (stubs.scrcpy.start as any).mock.calls[0][0].onUnexpectedExit as (code: number | null) => void
+    onExit(1)
+    await flushPromises()
+
+    const session = db.getSession('sess-1')
+    expect(session?.status).toBe('draft')
+    expect(session?.durationMs).toBe(12_000)
+    expect(stubs.scrcpy.stop).not.toHaveBeenCalled()
+    expect(stubs.clickRecorder.stop).toHaveBeenCalled()
+    expect(stubs.logcat.stop).toHaveBeenCalled()
+    expect(stubs.prepareVideo).toHaveBeenCalledWith(paths.videoFile('sess-1'))
+    expect(onInterrupted).toHaveBeenCalledWith(expect.objectContaining({ id: 'sess-1', status: 'draft' }), expect.stringContaining('Android recording stopped'))
   })
 
   it('importProject restores session and bugs into the db and writes a project file', () => {

@@ -4,11 +4,13 @@ export interface ScrcpyOptions {
   deviceId: string
   recordPath: string
   windowTitle?: string
+  onUnexpectedExit?: (code: number | null) => void
 }
 
 export class Scrcpy {
   private process?: SpawnedProcess
   private startTime?: number
+  private stopping = false
   private platform: NodeJS.Platform
 
   constructor(private runner: IProcessRunner, platform?: NodeJS.Platform) {
@@ -35,6 +37,14 @@ export class Scrcpy {
       '--show-touches',
     ]
     this.process = this.runner.spawn('scrcpy', args)
+    const proc = this.process
+    this.stopping = false
+    proc.onExit((code) => {
+      if (this.process !== proc) return
+      this.process = undefined
+      this.startTime = undefined
+      if (!this.stopping) opts.onUnexpectedExit?.(code)
+    })
     // performance.now() is monotonic; immune to NTP slew / clock changes during a session.
     this.startTime = performance.now()
   }
@@ -53,9 +63,15 @@ export class Scrcpy {
     if (!this.process) return
     const proc = this.process
     this.process = undefined
+    this.stopping = true
     return new Promise<void>((resolve) => {
       const hardKill = setTimeout(() => { this.forceKill(proc).catch(() => {}) }, 5000).unref()
-      proc.onExit(() => { clearTimeout(hardKill); resolve() })
+      proc.onExit(() => {
+        clearTimeout(hardKill)
+        this.startTime = undefined
+        this.stopping = false
+        resolve()
+      })
       this.gracefulKill(proc).catch(() => { /* already dead */ })
     })
   }

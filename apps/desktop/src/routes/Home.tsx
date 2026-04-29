@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
+import { useI18n } from '@/lib/i18n'
 
 export function Home() {
+  const { t, locale, localeOptions, setLocale } = useI18n()
   const goDraft = useApp(s => s.goDraft)
   const [selected, setSelected] = useState<{ id: string; mode: 'usb' | 'wifi' | 'pc'; label?: string } | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
@@ -68,64 +70,64 @@ export function Home() {
       <main className="overflow-auto p-8">
         {missing.length > 0 && (
           <div className="mb-6 rounded border border-yellow-700 bg-yellow-950/40 p-4 text-sm text-yellow-200">
-            <div className="font-medium">Missing tools:</div>
+            <div className="font-medium">{t('home.missingTools')}</div>
             <ul className="mt-1 list-disc pl-5">
               {missing.map(c => <li key={c.name}><code>{c.name}</code> - {c.error}</li>)}
             </ul>
             <p className="mt-2 text-xs text-yellow-300/80">
-              See README for setup details. The app cannot record until required tools are available.
+              {t('home.missingToolsHelp')}
             </p>
           </div>
         )}
 
         <div className="mb-6 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-zinc-300">Session</h2>
+          <h2 className="text-sm font-medium text-zinc-300">{t('home.session')}</h2>
           <button
             onClick={openSavedSession}
             disabled={opening}
             className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
           >
-            {opening ? 'Opening...' : 'Open saved session'}
+            {opening ? t('home.opening') : t('home.openSaved')}
           </button>
         </div>
 
         {!selected && (
           <section className="mb-6 border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="max-w-2xl">
-              <div className="text-xs uppercase tracking-wider text-zinc-500">Get started</div>
-              <h2 className="mt-2 text-2xl font-semibold text-zinc-100">Choose PC screen or an Android device to start recording QA sessions.</h2>
+              <div className="text-xs uppercase tracking-wider text-zinc-500">{t('home.getStarted')}</div>
+              <h2 className="mt-2 text-2xl font-semibold text-zinc-100">{t('home.heroTitle')}</h2>
               <p className="mt-2 text-sm leading-6 text-zinc-400">
-                Loupe records the selected screen, lets you drop markers with configurable hotkeys, then exports clipped evidence videos and review sheets.
+                {t('home.heroBody')}
               </p>
             </div>
 
             <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
               <div className="border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="text-lg font-semibold text-blue-300">1</div>
-                <div className="mt-2 font-medium text-zinc-200">Pick a source</div>
-                <div className="mt-1 text-xs leading-5 text-zinc-500">Choose PC screen, USB Android, or Wi-Fi Android from the left panel.</div>
+                <div className="mt-2 font-medium text-zinc-200">{t('home.step1Title')}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">{t('home.step1Body')}</div>
               </div>
               <div className="border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="text-lg font-semibold text-blue-300">2</div>
-                <div className="mt-2 font-medium text-zinc-200">Fill session info</div>
-                <div className="mt-1 text-xs leading-5 text-zinc-500">Add build version and optional test note before starting.</div>
+                <div className="mt-2 font-medium text-zinc-200">{t('home.step2Title')}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">{t('home.step2Body')}</div>
               </div>
               <div className="border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="text-lg font-semibold text-blue-300">3</div>
-                <div className="mt-2 font-medium text-zinc-200">Record and mark</div>
-                <div className="mt-1 text-xs leading-5 text-zinc-500">F6 improvement, F7 minor, F8 normal, F9 major by default while recording.</div>
+                <div className="mt-2 font-medium text-zinc-200">{t('home.step3Title')}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">{t('home.step3Body')}</div>
               </div>
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
               <div className="border border-zinc-800 bg-zinc-950/60 p-4">
-                <div className="text-xs uppercase tracking-wider text-zinc-500">Android setup</div>
-                <h3 className="mt-2 font-medium text-zinc-100">Enable Developer options</h3>
+                <div className="text-xs uppercase tracking-wider text-zinc-500">{t('home.androidSetup')}</div>
+                <h3 className="mt-2 font-medium text-zinc-100">{t('home.enableDeveloper')}</h3>
                 <ol className="mt-3 space-y-2 text-xs leading-5 text-zinc-400">
-                  <li>1. Open Android Settings.</li>
-                  <li>2. Go to About phone.</li>
-                  <li>3. Tap Build number seven times.</li>
-                  <li>4. Return to Settings and open System / Developer options.</li>
+                  <li>{t('home.androidStep1')}</li>
+                  <li>{t('home.androidStep2')}</li>
+                  <li>{t('home.androidStep3')}</li>
+                  <li>{t('home.androidStep4')}</li>
                 </ol>
                 <a
                   href="https://developer.android.com/studio/debug/dev-options"
@@ -133,16 +135,16 @@ export function Home() {
                   rel="noreferrer"
                   className="mt-3 inline-block text-xs text-blue-300 hover:text-blue-200"
                 >
-                  Official Android developer options guide
+                  {t('home.devGuide')}
                 </a>
               </div>
 
               <div className="border border-zinc-800 bg-zinc-950/60 p-4">
-                <div className="text-xs uppercase tracking-wider text-zinc-500">Connection choices</div>
-                <h3 className="mt-2 font-medium text-zinc-100">USB or Wi-Fi debugging</h3>
+                <div className="text-xs uppercase tracking-wider text-zinc-500">{t('home.connectionChoices')}</div>
+                <h3 className="mt-2 font-medium text-zinc-100">{t('home.usbWifi')}</h3>
                 <div className="mt-3 space-y-3 text-xs leading-5 text-zinc-400">
-                  <p>USB: turn on USB debugging, connect a data cable, then allow the debugging prompt on the phone.</p>
-                  <p>Wi-Fi: turn on Wireless debugging, choose Pair device with pairing code, scan in Loupe, enter the six-digit code, then connect the ready entry.</p>
+                  <p>{t('home.usbBody')}</p>
+                  <p>{t('home.wifiBody')}</p>
                 </div>
                 <a
                   href="https://developer.android.com/studio/run/device#wireless"
@@ -150,7 +152,7 @@ export function Home() {
                   rel="noreferrer"
                   className="mt-3 inline-block text-xs text-blue-300 hover:text-blue-200"
                 >
-                  Official Wi-Fi pairing guide with screenshots
+                  {t('home.wifiGuide')}
                 </a>
               </div>
             </div>
@@ -158,7 +160,7 @@ export function Home() {
         )}
 
         <div className="mb-6 border border-zinc-800 bg-zinc-900/40 p-3">
-          <div className="mb-2 text-xs font-medium text-zinc-300">Export folder</div>
+          <div className="mb-2 text-xs font-medium text-zinc-300">{t('home.exportFolder')}</div>
           <div className="flex items-center gap-2">
             <input
               value={exportRoot}
@@ -170,9 +172,19 @@ export function Home() {
               onClick={chooseExportRoot}
               className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
             >
-              Browse
+              {t('common.browse')}
             </button>
           </div>
+          <label className="mt-3 block text-xs font-medium text-zinc-300">
+            {t('home.language')}
+            <select
+              value={locale}
+              onChange={(e) => { void setLocale(e.target.value as AppLocale) }}
+              className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+            >
+              {localeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
         </div>
 
         <div className="mb-6 border border-zinc-800 bg-zinc-900/40 p-3">
@@ -210,12 +222,12 @@ export function Home() {
           </div>
         </div>
 
-        <h3 className="mb-4 text-sm font-medium text-zinc-300">New session</h3>
+        <h3 className="mb-4 text-sm font-medium text-zinc-300">{t('home.newSession')}</h3>
         {selected
           ? <NewSessionForm api={api} deviceId={selected.id} connectionMode={selected.mode} sourceName={selected.label} />
           : (
             <div className="border border-dashed border-zinc-800 p-4 text-sm text-zinc-500">
-              Select a PC screen or Android device on the left to begin. If Android does not appear, check USB debugging authorization on the phone or use Wi-Fi pairing.
+              {t('home.selectPrompt')}
             </div>
           )
         }

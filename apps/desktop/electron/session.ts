@@ -11,6 +11,7 @@ import { captureScreenshot as defaultCapture } from './screenshot'
 import { extractThumbnail, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
 import { ClickRecorder } from './click-recorder'
+import { TelemetrySampler } from './telemetry'
 
 export interface SessionDeps {
   db: Db
@@ -23,6 +24,8 @@ export interface SessionDeps {
   capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
   prepareVideoForPlayback?: (inputPath: string) => Promise<void>
   clickRecorder?: Pick<ClickRecorder, 'start' | 'stop'>
+  telemetrySampler?: Pick<TelemetrySampler, 'start' | 'stop'>
+  onInterrupted?: (session: Session, reason: string) => void
   now?: () => number
   /** Generates IDs for individual bugs (random UUID by default). */
   newId?: () => string
@@ -32,6 +35,10 @@ export interface SessionDeps {
 
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+function scrcpyWindowTitle(model: string): string {
+  return `Loupe - ${model}`
+}
 
 function isValidPngFile(filePath: string): boolean {
   if (!existsSync(filePath)) return false
@@ -94,7 +101,9 @@ export class SessionManager {
   private newId: () => string
   private makeSessionId: (buildVersion: string, nowMs: number) => string
   private clickRecorder: Pick<ClickRecorder, 'start' | 'stop'>
+  private telemetrySampler: Pick<TelemetrySampler, 'start' | 'stop'>
   private capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
+  private finalizing: Promise<Session> | null = null
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
@@ -103,6 +112,7 @@ export class SessionManager {
     this.newId = deps.newId ?? randomUUID
     this.makeSessionId = deps.makeSessionId ?? makeSessionId
     this.clickRecorder = deps.clickRecorder ?? new ClickRecorder(deps.runner)
+    this.telemetrySampler = deps.telemetrySampler ?? new TelemetrySampler()
     this.capturePcThumbnail = deps.capturePcThumbnail
   }
 
@@ -131,16 +141,33 @@ export class SessionManager {
     db.insertSession(sess)
     this.persistProject(sess.id)
     if (!isPcSession) {
-      const windowTitle = `Loupe - ${info.model}`
+      const windowTitle = scrcpyWindowTitle(info.model)
+      this.active = sess
       scrcpy.start({
         deviceId: args.deviceId,
         recordPath: paths.videoFile(id),
         windowTitle,
+        onUnexpectedExit: (code) => {
+          void this.finishActiveSession({
+            stopRecorder: false,
+            reason: `Android recording stopped${code === null ? '' : ` (code ${code})`}`,
+            interrupted: true,
+          }).catch((err) => {
+            console.warn(`Loupe: failed to finalize interrupted session ${sess.id}`, err)
+          })
+        },
       })
       this.clickRecorder.start({ outputPath: paths.clicksFile(id), windowTitle })
+      this.telemetrySampler.start({
+        adb,
+        deviceId: args.deviceId,
+        sessionStartedAt: startedAt,
+        outputPath: paths.telemetryFile(id),
+      })
       logcat.start()
+    } else {
+      this.active = sess
     }
-    this.active = sess
     return sess
   }
 
@@ -174,11 +201,28 @@ export class SessionManager {
 
   async stop(): Promise<Session> {
     if (!this.active) throw new Error('no active session')
+    return this.finishActiveSession({ stopRecorder: true })
+  }
+
+  private async finishActiveSession(args: { stopRecorder: boolean; reason?: string; interrupted?: boolean }): Promise<Session> {
+    if (this.finalizing) return this.finalizing
+    if (!this.active) throw new Error('no active session')
+    this.finalizing = this.finalizeActiveSession(args).finally(() => { this.finalizing = null })
+    return this.finalizing
+  }
+
+  private async finalizeActiveSession(args: { stopRecorder: boolean; reason?: string; interrupted?: boolean }): Promise<Session> {
     const { db, paths, scrcpy, logcat } = this.deps
     const sess = this.active
+    if (!sess) throw new Error('no active session')
     if (sess.connectionMode !== 'pc') {
-      await scrcpy.stop()
+      if (args.stopRecorder) {
+        await scrcpy.stop().catch((err) => {
+          console.warn(`Loupe: failed to stop scrcpy for session ${sess.id}; finalizing recorded data anyway`, err)
+        })
+      }
       this.clickRecorder.stop()
+      this.telemetrySampler.stop()
       logcat.stop()
     }
     const endedAt = this.now()
@@ -195,6 +239,7 @@ export class SessionManager {
       console.warn(`Loupe: failed to backfill thumbnails for session ${sess.id}`, err)
     })
     this.persistProject(sess.id)
+    if (args.interrupted) this.deps.onInterrupted?.(updated, args.reason ?? 'Recording interrupted')
     return updated
   }
 
@@ -202,6 +247,7 @@ export class SessionManager {
     if (this.active?.id === sessionId) {
       try { await this.deps.scrcpy.stop() } catch {}
       this.clickRecorder.stop()
+      this.telemetrySampler.stop()
       this.deps.logcat.stop()
       this.active = null
     }
@@ -265,10 +311,11 @@ export class SessionManager {
     this.persistProject(session.id)
     return bug
   }
-  updateSessionMetadata(id: string, patch: { testNote: string; tester: string }) {
+  updateSessionMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }) {
     const session = this.deps.db.getSession(id)
     if (!session) throw new Error('session not found')
     this.deps.db.updateSessionMetadata(id, {
+      buildVersion: patch.buildVersion.trim(),
       testNote: patch.testNote.trim(),
       tester: patch.tester.trim(),
     })
@@ -341,6 +388,9 @@ export class SessionManager {
       if (session.connectionMode === 'pc' && this.capturePcThumbnail) {
         await this.capturePcThumbnail(session.deviceId, screenshotPath)
         screenshotRel = `screenshots/${bugId}.png`
+      } else if (session.connectionMode !== 'pc' && this.capturePcThumbnail) {
+        await this.capturePcThumbnail(scrcpyWindowTitle(session.deviceModel), screenshotPath)
+        screenshotRel = `screenshots/${bugId}.png`
       } else if (session.connectionMode !== 'pc') {
         await this.capture(runner, session.deviceId, screenshotPath)
         screenshotRel = `screenshots/${bugId}.png`
@@ -349,7 +399,7 @@ export class SessionManager {
       console.warn(`Loupe: failed to capture screenshot for marker ${bugId}`, err)
     }
 
-    if (!screenshotRel && bug) {
+    if (!screenshotRel && bug && session.status !== 'recording') {
       const inputPath = session.connectionMode === 'pc'
         ? session.pcVideoPath
         : session.videoPath ?? paths.videoFile(session.id)

@@ -9,8 +9,19 @@ export interface Device {
 }
 
 export type SessionStatus = 'recording' | 'draft'
-export type BugSeverity = 'note' | 'major' | 'normal' | 'minor' | 'improvement'
+export type BugSeverity =
+  | 'note'
+  | 'major'
+  | 'normal'
+  | 'minor'
+  | 'improvement'
+  | 'custom1'
+  | 'custom2'
+  | 'custom3'
+  | 'custom4'
 export type HotkeySeverity = 'improvement' | 'minor' | 'normal' | 'major'
+export type AppLocale = 'system' | 'en' | 'zh-TW' | 'zh-CN' | 'ja' | 'ko' | 'es'
+export type SeveritySettings = Record<BugSeverity, { label: string; color: string }>
 
 export interface HotkeySettings {
   improvement: string
@@ -27,6 +38,8 @@ export interface SlackPublishSettings {
 export interface AppSettings {
   exportRoot: string
   hotkeys: HotkeySettings
+  locale: AppLocale
+  severities: SeveritySettings
   slack: SlackPublishSettings
 }
 
@@ -97,6 +110,27 @@ export interface PcCaptureSource {
   thumbnailDataUrl?: string
 }
 
+export interface ExportProgress {
+  exportId: string
+  phase: 'prepare' | 'video' | 'image' | 'complete' | 'error'
+  message: string
+  detail?: string
+  current: number
+  total: number
+  clipIndex: number
+  clipCount: number
+  remaining: number
+}
+
+export interface SessionLoadProgress {
+  sessionId: string
+  phase: 'load' | 'repair' | 'assets' | 'complete' | 'error'
+  message: string
+  detail?: string
+  current: number
+  total: number
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   app: {
@@ -126,7 +160,7 @@ export interface DesktopApi {
     list():                                                        Promise<Session[]>
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
     openProject():                                                 Promise<Session | null>
-    updateMetadata(id: string, patch: { testNote: string; tester: string }): Promise<void>
+    updateMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }): Promise<void>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
   }
   bug: {
@@ -136,8 +170,9 @@ export interface DesktopApi {
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
-    exportClip(args: { sessionId: string; bugId: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string | null>
-    exportClips(args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null>
+    exportClip(args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string | null>
+    exportClips(args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null>
+    cancelExport(exportId: string):                                Promise<void>
   }
   hotkey: {
     /** Globally enable or disable the bug-mark hotkey. Used to suppress capture while typing in the dialog. */
@@ -148,10 +183,18 @@ export interface DesktopApi {
     setExportRoot(path: string):                                   Promise<AppSettings>
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
+    setLocale(locale: AppLocale):                                  Promise<AppSettings>
+    setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     chooseExportRoot():                                            Promise<AppSettings | null>
   }
   /** Renderer subscribes to this to know when the global bug-mark hotkey fired in main. */
   onBugMarkRequested(cb: (severity: BugSeverity) => void):         () => void   // returns unsubscribe
+  /** Renderer subscribes to interrupted sessions, e.g. Android disconnect while recording. */
+  onSessionInterrupted(cb: (session: Session, reason: string) => void): () => void
+  /** Renderer subscribes to long-running export progress. */
+  onBugExportProgress(cb: (progress: ExportProgress) => void):    () => void
+  /** Renderer subscribes to potentially slow session loading/asset repair progress. */
+  onSessionLoadProgress(cb: (progress: SessionLoadProgress) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>
 }

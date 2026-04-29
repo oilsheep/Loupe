@@ -78,6 +78,12 @@ export class Adb {
     return r.stdout.trim()
   }
 
+  async shell(deviceId: string, args: string[]): Promise<string> {
+    const r = await this.runner.run('adb', ['-s', deviceId, 'shell', ...args])
+    if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `adb shell failed with code ${r.code}`)
+    return r.stdout.trim()
+  }
+
   async getDeviceInfo(deviceId: string): Promise<{ model: string; androidVersion: string }> {
     const [model, androidVersion] = await Promise.all([
       this.getProp(deviceId, 'ro.product.model'),

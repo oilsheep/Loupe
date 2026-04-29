@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import type { SpawnOptions } from 'node:child_process'
 import type { IProcessRunner } from './process-runner'
 
 export interface ClipOptions {
@@ -8,7 +9,7 @@ export interface ClipOptions {
   endMs: number
   narrationPath?: string | null
   narrationDurationMs?: number | null
-  severity?: 'note' | 'major' | 'normal' | 'minor' | 'improvement' | null
+  severity?: 'note' | 'major' | 'normal' | 'minor' | 'improvement' | 'custom1' | 'custom2' | 'custom3' | 'custom4' | null
   note?: string | null
   markerMs?: number | null
   deviceModel?: string | null
@@ -18,6 +19,11 @@ export interface ClipOptions {
   tester?: string | null
   testedAtMs?: number | null
   clicks?: ClickPoint[]
+  severityLabel?: string | null
+  severityColor?: string | null
+  clipStartMs?: number | null
+  clipEndMs?: number | null
+  telemetryLine?: string | null
 }
 
 export interface ClickPoint {
@@ -41,6 +47,17 @@ export interface ContactSheetOptions extends ClipOptions {
   outputPath: string
   tileWidth?: number
   tileHeight?: number | null
+  outputWidth?: number | null
+  outputHeight?: number | null
+}
+
+export interface IntroClipOptions extends ClipOptions {
+  introImagePath: string
+  introDurationMs?: number
+  introFadeMs?: number
+  canvasWidth: number
+  canvasHeight: number
+  sourceHasAudio?: boolean
 }
 
 export interface ClipWindowOptions {
@@ -80,6 +97,7 @@ interface CaptionLine {
     height: number
     textColor: string
   }
+  small?: boolean
 }
 
 interface CaptionLayout {
@@ -93,11 +111,19 @@ interface CaptionFonts {
 }
 
 const SEVERITY_STYLE: Record<NonNullable<ClipOptions['severity']>, { label: string; color: string }> = {
-  note: { label: 'note', color: '0x8b5cf6' },
-  major: { label: 'major', color: '0xff4d4f' },
-  normal: { label: 'normal', color: '0xffa500' },
-  minor: { label: 'minor', color: '0x22b8f0' },
-  improvement: { label: 'improvement', color: '0x22c55e' },
+  note: { label: 'note', color: '#a1a1aa' },
+  major: { label: 'Critical', color: '#ff4d4f' },
+  normal: { label: 'Bug', color: '#f59e0b' },
+  minor: { label: 'Polish', color: '#22b8f0' },
+  improvement: { label: 'Note', color: '#22c55e' },
+  custom1: { label: 'custom 1', color: '#8b5cf6' },
+  custom2: { label: 'custom 2', color: '#ec4899' },
+  custom3: { label: 'custom 3', color: '#14b8a6' },
+  custom4: { label: 'custom 4', color: '#eab308' },
+}
+
+function ffmpegColor(value: string): string {
+  return value.startsWith('#') ? `0x${value.slice(1)}` : value
 }
 
 function escapeFontFile(path: string): string {
@@ -158,6 +184,24 @@ function formatDateTime(msValue: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function formatClipTime(msValue: number): string {
+  const totalTenths = Math.max(0, Math.round(msValue / 100))
+  const totalSeconds = Math.floor(totalTenths / 10)
+  const tenths = totalTenths % 10
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenths}`
+    : `${m}:${String(s).padStart(2, '0')}.${tenths}`
+}
+
+function formatOsLabel(androidVersion: string | null | undefined): string | null {
+  const value = androidVersion?.trim()
+  if (!value) return null
+  return value.toLowerCase() === 'windows' ? 'Windows' : `Android ${value}`
+}
+
 function wrapTextLine(line: string, maxChars: number): string[] {
   const trimmed = line.replace(/\s+/g, ' ').trim()
   if (trimmed.length <= maxChars) return [trimmed]
@@ -185,37 +229,51 @@ function buildCaptionLines(opts: ClipOptions, layout: CaptionLayout = { noteChar
     return values.length > 0 ? values.join(' / ') : null
   }
 
-  const majorSeverity = opts.severity === 'major' ? SEVERITY_STYLE.major : null
-  const severityPrefix = opts.severity && opts.severity !== 'major' ? `[${opts.severity}]` : null
+  const severityStyle = opts.severity
+    ? {
+        label: opts.severityLabel?.trim() || SEVERITY_STYLE[opts.severity].label,
+        color: ffmpegColor(opts.severityColor?.trim() || SEVERITY_STYLE[opts.severity].color),
+      }
+    : null
   const note = opts.note?.trim()
-  if (majorSeverity) {
-    const labelWidth = Math.max(76, majorSeverity.label.length * 15 + 24)
+  if (severityStyle) {
+    const labelWidth = Math.max(76, severityStyle.label.length * 15 + 24)
     const firstLineMax = note ? Math.max(8, layout.noteChars - Math.ceil(labelWidth / 16)) : 0
     const noteLines = note ? wrapTextLine(note, firstLineMax) : []
     lines.push({
-      text: majorSeverity.label,
+      text: severityStyle.label,
       bold: true,
       afterText: noteLines[0] ? `/ ${noteLines[0]}` : undefined,
       afterX: 18 + labelWidth + 12,
-      box: { color: majorSeverity.color, width: labelWidth, height: 30, textColor: 'white' },
+      box: { color: severityStyle.color, width: labelWidth, height: 30, textColor: 'black' },
     })
     for (const line of noteLines.slice(1)) lines.push({ text: line, bold: true })
-  } else if (severityPrefix) {
-    const text = note ? `${severityPrefix} ${note}` : severityPrefix
-    addWrapped(text, layout.noteChars, true)
   } else if (note) {
     addWrapped(note, layout.noteChars, true)
   }
 
   addWrapped(compactLine([
     opts.buildVersion,
-    opts.androidVersion ? `Android ${opts.androidVersion}` : null,
+    formatOsLabel(opts.androidVersion),
     opts.deviceModel,
   ]), layout.metaChars)
-  addWrapped(compactLine([
-    opts.tester,
-    opts.testedAtMs != null ? formatDateTime(opts.testedAtMs) : null,
-  ]), layout.metaChars)
+  const tester = opts.tester?.trim()
+  if (opts.testedAtMs != null) {
+    addWrapped(`Tester: ${tester || '-'} / ${formatDateTime(opts.testedAtMs)}`, layout.metaChars)
+  } else if (tester) {
+    addWrapped(`Tester: ${tester}`, layout.metaChars)
+  }
+  const telemetryLine = opts.telemetryLine?.trim()
+  const clipLine = opts.clipStartMs != null && opts.clipEndMs != null
+    ? `Clip ${formatClipTime(opts.clipStartMs)} - ${formatClipTime(opts.clipEndMs)}`
+    : null
+  if (telemetryLine) {
+    for (const line of wrapTextLine([telemetryLine, clipLine].filter(Boolean).join(' / '), layout.metaChars)) {
+      lines.push({ text: line, bold: false, small: true })
+    }
+  } else if (clipLine) {
+    addWrapped(clipLine, layout.metaChars)
+  }
   return lines
 }
 
@@ -225,12 +283,12 @@ function captionFilter(lines: CaptionLine[], layout: { x?: number } = {}): strin
   const topPad = 18
   const bottomPad = 16
   const lineGap = 8
-  const lineHeights = lines.map(line => line.box ? 34 : line.bold ? 31 : 24)
+  const lineHeights = lines.map(line => line.box ? 34 : line.bold ? 31 : line.small ? 19 : 24)
   const captionHeight = topPad + bottomPad + lineHeights.reduce((sum, h) => sum + h, 0) + Math.max(0, lines.length - 1) * lineGap
   const filters = [`pad=iw:ih+${captionHeight}:0:0:color=#d9d9d9`]
   let y = topPad
   for (const line of lines) {
-    const fontSize = line.bold ? 25 : 18
+    const fontSize = line.bold ? 25 : line.small ? 14 : 18
     const fontFile = line.bold ? boldFont : regularFont
     const x = line.x ?? layout.x ?? 18
     if (line.box) {
@@ -246,9 +304,41 @@ function captionFilter(lines: CaptionLine[], layout: { x?: number } = {}): strin
         `drawtext=fontfile='${boldFont}':text='${escapeDrawtextValue(line.afterText)}':fontcolor=black:fontsize=25:x=${line.afterX ?? 18}:y=h-${captionHeight - y}`,
       )
     }
-    y += (line.box ? 34 : line.bold ? 31 : 24) + lineGap
+    y += (line.box ? 34 : line.bold ? 31 : line.small ? 19 : 24) + lineGap
   }
   return filters.join(',')
+}
+
+function captionOverlayFilters(lines: CaptionLine[], layout: { x?: number; y: number; height: number }): string[] {
+  if (lines.length === 0 || layout.height <= 0) return []
+  const { regular: regularFont, bold: boldFont } = resolveCaptionFonts()
+  const baseLineHeight = (line: CaptionLine) => line.box ? 34 : line.bold ? 31 : line.small ? 19 : 24
+  const baseTotalHeight = 18 + lines.reduce((sum, line) => sum + baseLineHeight(line), 0) + Math.max(0, lines.length - 1) * 8
+  const scale = Math.max(0.72, Math.min(1, (layout.height - 12) / Math.max(1, baseTotalHeight)))
+  const topPad = Math.max(8, Math.round(18 * scale))
+  const lineGap = Math.max(4, Math.round(8 * scale))
+  const xBase = layout.x ?? 18
+  const filters = [`drawbox=x=0:y=${layout.y}:w=iw:h=${layout.height}:color=#d9d9d9@1:t=fill`]
+  let y = layout.y + topPad
+  for (const line of lines) {
+    const fontSize = Math.max(10, Math.round((line.bold ? 25 : line.small ? 14 : 18) * scale))
+    const fontFile = line.bold ? boldFont : regularFont
+    const lineHeight = Math.max(13, Math.round(baseLineHeight(line) * scale))
+    const x = line.x ?? xBase
+    if (line.box) {
+      filters.push(`drawbox=x=${x}:y=${y}:w=${line.box.width}:h=${Math.max(22, Math.round(line.box.height * scale))}:color=${line.box.color}@1:t=fill`)
+    }
+    filters.push(
+      `drawtext=fontfile='${fontFile}':text='${escapeDrawtextValue(line.text)}':fontcolor=${line.box?.textColor ?? line.color ?? 'black'}:fontsize=${fontSize}:x=${x + (line.box ? 11 : 0)}:y=${y}`,
+    )
+    if (line.afterText) {
+      filters.push(
+        `drawtext=fontfile='${boldFont}':text='${escapeDrawtextValue(line.afterText)}':fontcolor=black:fontsize=${fontSize}:x=${line.afterX ?? 18}:y=${y}`,
+      )
+    }
+    y += lineHeight + lineGap
+  }
+  return filters
 }
 
 function clickOverlayFilters(clicks: ClickPoint[] | undefined, startMs: number, endMs: number): string[] {
@@ -355,9 +445,72 @@ export function buildClipArgs(opts: ClipOptions): string[] {
   ]
 }
 
-export async function extractClip(runner: IProcessRunner, ffmpegPath: string, opts: ClipOptions): Promise<void> {
-  const r = await runner.run(ffmpegPath, buildClipArgs(opts))
+export async function extractClip(runner: IProcessRunner, ffmpegPath: string, opts: ClipOptions, runOpts?: SpawnOptions): Promise<void> {
+  const args = buildClipArgs(opts)
+  const r = runOpts ? await runner.run(ffmpegPath, args, runOpts) : await runner.run(ffmpegPath, args)
   if (r.code !== 0) throw new Error(`ffmpeg failed (code ${r.code}): ${r.stderr.trim()}`)
+}
+
+export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
+  const startMs = Math.max(0, opts.startMs)
+  const endMs = Math.max(0, opts.endMs)
+  if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
+  const durationMs = endMs - startMs
+  const introDurationMs = Math.max(500, opts.introDurationMs ?? 3_000)
+  const introFadeMs = Math.max(0, Math.min(introDurationMs, opts.introFadeMs ?? 500))
+  const introDurationSec = ms(introDurationMs)
+  const fadeStartSec = ms(Math.max(0, introDurationMs - introFadeMs))
+  const fadeDurationSec = ms(introFadeMs)
+  const canvasWidth = Math.max(2, Math.floor(opts.canvasWidth / 2) * 2)
+  const canvasHeight = Math.max(2, Math.floor(opts.canvasHeight / 2) * 2)
+  const clipFilters = clickOverlayFilters(opts.clicks, startMs, endMs)
+  const sourceHasAudio = opts.sourceHasAudio ?? true
+  const clipFilter = [
+    `[1:v:0]trim=start=${ms(startMs)}:duration=${ms(durationMs)}`,
+    'setpts=PTS-STARTPTS',
+    ...clipFilters,
+    `scale=${canvasWidth}:${canvasHeight}:force_original_aspect_ratio=decrease`,
+    `pad=${canvasWidth}:${canvasHeight}:(ow-iw)/2:0:color=black`,
+    'format=yuv420p',
+    'setsar=1',
+  ].join(',')
+  const filterComplex = [
+    `[0:v:0]fps=30,scale=${canvasWidth}:${canvasHeight}:force_original_aspect_ratio=decrease,pad=${canvasWidth}:${canvasHeight}:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p,setsar=1[introfit]`,
+    `[introfit]fade=t=out:st=${fadeStartSec}:d=${fadeDurationSec},format=yuv420p,setsar=1[intro]`,
+    `${clipFilter}[clip]`,
+    '[intro][clip]concat=n=2:v=1:a=0[v]',
+    ...(sourceHasAudio
+      ? [`[1:a:0]atrim=start=${ms(startMs)}:duration=${ms(durationMs)},asetpts=PTS-STARTPTS,adelay=${introDurationMs}|${introDurationMs}[a]`]
+      : []),
+  ].join(';')
+
+  return [
+    '-y',
+    '-fflags', '+genpts',
+    '-loop', '1',
+    '-framerate', '30',
+    '-t', introDurationSec,
+    '-i', opts.introImagePath,
+    '-i', opts.inputPath,
+    '-filter_complex', filterComplex,
+    '-map', '[v]',
+    ...(sourceHasAudio ? ['-map', '[a]'] : []),
+    '-t', ms(introDurationMs + durationMs),
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '20',
+    ...(sourceHasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
+    '-max_muxing_queue_size', '4096',
+    '-avoid_negative_ts', 'make_zero',
+    '-movflags', '+faststart',
+    opts.outputPath,
+  ]
+}
+
+export async function extractClipWithIntro(runner: IProcessRunner, ffmpegPath: string, opts: IntroClipOptions, runOpts?: SpawnOptions): Promise<void> {
+  const args = buildIntroClipArgs(opts)
+  const r = runOpts ? await runner.run(ffmpegPath, args, runOpts) : await runner.run(ffmpegPath, args)
+  if (r.code !== 0) throw new Error(`ffmpeg intro clip failed (code ${r.code}): ${r.stderr.trim()}`)
 }
 
 export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
@@ -365,9 +518,13 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
   const endMs = Math.max(0, opts.endMs)
   if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
   const durationMs = endMs - startMs
-  const fps = (9_000 / durationMs).toFixed(6)
+  const fps = (6_000 / durationMs).toFixed(6)
   const tileWidth = opts.tileWidth ?? 240
   const tileHeight = opts.tileHeight === undefined ? 426 : opts.tileHeight
+  const outputWidth = opts.outputWidth ? Math.max(2, Math.floor(opts.outputWidth / 2) * 2) : null
+  const outputHeight = opts.outputHeight ? Math.max(2, Math.floor(opts.outputHeight / 2) * 2) : null
+  const gridWidth = tileWidth * 3
+  const gridHeight = tileHeight ? tileHeight * 2 : null
   const scaleAndPad = tileHeight
     ? [
         `scale=${tileWidth}:${tileHeight}:force_original_aspect_ratio=decrease`,
@@ -376,13 +533,26 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
     : [
         `scale=${tileWidth}:-2`,
       ]
-  const filters = videoCaptionFilters(opts, [
+  const filters = [
     `trim=start=${ms(startMs)}:duration=${ms(durationMs)}`,
     'setpts=PTS-STARTPTS',
     `fps=${fps}`,
     ...scaleAndPad,
-    'tile=3x3',
-  ], { noteChars: 44, metaChars: 96, x: 26 })
+    'tile=3x2',
+    ...(outputWidth && outputHeight
+      ? [`pad=${outputWidth}:${outputHeight}:(ow-iw)/2:0:color=black`]
+      : outputWidth && outputWidth > gridWidth
+        ? [`pad=${outputWidth}:ih:(ow-iw)/2:0:color=black`]
+        : []),
+  ]
+  const captionLines = buildCaptionLines(opts, { noteChars: 52, metaChars: 96 })
+  if (captionLines.length > 0) {
+    if (outputHeight && gridHeight && outputHeight > gridHeight) {
+      filters.push(...captionOverlayFilters(captionLines, { x: 26, y: gridHeight, height: outputHeight - gridHeight }))
+    } else {
+      filters.push(captionFilter(captionLines, { x: 26 }))
+    }
+  }
   return [
     '-y',
     '-fflags', '+genpts',
@@ -394,8 +564,9 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
   ]
 }
 
-export async function extractContactSheet(runner: IProcessRunner, ffmpegPath: string, opts: ContactSheetOptions): Promise<void> {
-  const r = await runner.run(ffmpegPath, buildContactSheetArgs(opts))
+export async function extractContactSheet(runner: IProcessRunner, ffmpegPath: string, opts: ContactSheetOptions, runOpts?: SpawnOptions): Promise<void> {
+  const args = buildContactSheetArgs(opts)
+  const r = runOpts ? await runner.run(ffmpegPath, args, runOpts) : await runner.run(ffmpegPath, args)
   if (r.code !== 0) throw new Error(`ffmpeg contact sheet failed (code ${r.code}): ${r.stderr.trim()}`)
 }
 

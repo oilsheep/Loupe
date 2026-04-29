@@ -26,8 +26,11 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
     },
     session: { updateMetadata: vi.fn() as any } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
-    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, chooseExportRoot: vi.fn() as any },
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setLocale: vi.fn() as any, setSeverities: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
+    onSessionInterrupted: () => () => {},
+    onBugExportProgress: () => () => {},
+    onSessionLoadProgress: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }
@@ -74,14 +77,12 @@ describe('DevicePicker', () => {
     expect(onSelect).toHaveBeenCalledWith('screen:1:0', 'pc', 'Entire screen')
   })
 
-  it('selects PC window as a recording source', async () => {
+  it('does not expose PC window sources', async () => {
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
-    await waitFor(() => expect(screen.getByText('Window')).toBeTruthy())
-    fireEvent.click(screen.getByText('Window'))
-    await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('source-pc-window:2:0'))
-    expect(onSelect).toHaveBeenCalledWith('window:2:0', 'pc', 'Chrome')
+    await waitFor(() => expect(screen.getByTestId('source-pc-screen:1:0')).toBeTruthy())
+    expect(screen.queryByTestId('source-pc-window:2:0')).toBeNull()
+    expect(screen.queryByText('Chrome')).toBeNull()
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {

@@ -38,6 +38,7 @@ const api: DesktopApi = {
     delete:     (id)            => ipcRenderer.invoke(CHANNEL.bugDelete, id),
     exportClip: (args)          => ipcRenderer.invoke(CHANNEL.bugExportClip, args),
     exportClips:(args)          => ipcRenderer.invoke(CHANNEL.bugExportClips, args),
+    cancelExport:(exportId)     => ipcRenderer.invoke(CHANNEL.bugExportCancel, exportId),
   },
   hotkey: {
     setEnabled: (enabled)       => ipcRenderer.invoke(CHANNEL.hotkeySetEnabled, enabled),
@@ -47,12 +48,29 @@ const api: DesktopApi = {
     setExportRoot:    (path)    => ipcRenderer.invoke(CHANNEL.settingsSetExportRoot, path),
     setHotkeys:        (hotkeys) => ipcRenderer.invoke(CHANNEL.settingsSetHotkeys, hotkeys),
     setSlack:          (settings) => ipcRenderer.invoke(CHANNEL.settingsSetSlack, settings),
+    setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
+    setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
     chooseExportRoot: ()        => ipcRenderer.invoke(CHANNEL.settingsChooseExportRoot),
   },
   onBugMarkRequested: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, severity: any) => cb(severity)
     ipcRenderer.on(CHANNEL.bugMarkRequested, handler)
     return () => ipcRenderer.removeListener(CHANNEL.bugMarkRequested, handler)
+  },
+  onSessionInterrupted: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, session: any, reason: string) => cb(session, reason)
+    ipcRenderer.on(CHANNEL.sessionInterrupted, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.sessionInterrupted, handler)
+  },
+  onBugExportProgress: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
+    ipcRenderer.on(CHANNEL.bugExportProgress, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.bugExportProgress, handler)
+  },
+  onSessionLoadProgress: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
+    ipcRenderer.on(CHANNEL.sessionLoadProgress, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.sessionLoadProgress, handler)
   },
   _resolveAssetPath: (id, relPath) => ipcRenderer.invoke(CHANNEL.sessionResolveAssetPath, id, relPath),
 }
