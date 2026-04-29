@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
-import type { Device, DesktopApi, MdnsEntry } from '@shared/types'
+import type { Device, DesktopApi, MdnsEntry, PcCaptureSource } from '@shared/types'
 
 interface Props {
   api: DesktopApi
   selectedId: string | null
-  onSelect(id: string, mode: 'usb' | 'wifi'): void
+  onSelect(id: string, mode: 'usb' | 'wifi' | 'pc', label?: string): void
 }
 
 const LABEL_KEY = 'loupe.deviceLabels'
+
 function readLabels(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LABEL_KEY) ?? '{}') } catch { return {} }
 }
+
 function writeLabels(map: Record<string, string>) {
   localStorage.setItem(LABEL_KEY, JSON.stringify(map))
 }
@@ -22,32 +24,46 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [wifiIp, setWifiIp] = useState('')
   const [wifiBusy, setWifiBusy] = useState(false)
 
-  // Per-device user-set name from Android Settings (fetched once per id)
   const [userNames, setUserNames] = useState<Record<string, string>>({})
-  // Custom user-typed labels, persisted in localStorage
   const [labels, setLabels] = useState<Record<string, string>>(readLabels)
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
 
-  // mDNS scan state
   const [mdnsEntries, setMdnsEntries] = useState<MdnsEntry[] | null>(null)
   const [mdnsScanning, setMdnsScanning] = useState(false)
-  // Map of ipPort → pair code being entered
   const [pairCodes, setPairCodes] = useState<Record<string, string>>({})
-  // Set of ipPorts currently submitting pair
   const [pairingInFlight, setPairingInFlight] = useState<Set<string>>(new Set())
+  const [pcSources, setPcSources] = useState<PcCaptureSource[]>([])
+  const [pcSourcesLoading, setPcSourcesLoading] = useState(false)
 
   async function refresh() {
-    try { setDevices(await api.device.list()); setError(null) }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    try {
+      setDevices(await api.device.list())
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
+
   useEffect(() => {
     refresh()
+    refreshPcSources()
     const t = setInterval(refresh, 3000)
     return () => clearInterval(t)
   }, [])
 
-  // Fetch the Android-side user name once per new device id (Android 12+).
+  async function refreshPcSources() {
+    setPcSourcesLoading(true)
+    try {
+      const sources = await api.app.listPcCaptureSources()
+      setPcSources(sources.filter(source => source.type === 'screen'))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPcSourcesLoading(false)
+    }
+  }
+
   useEffect(() => {
     for (const d of devices) {
       if (d.state !== 'device' || d.id in userNames) continue
@@ -71,14 +87,15 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   }
 
   async function markConnected(id: string, mode: 'usb' | 'wifi') {
+    void api.app.hidePcCaptureFrame()
     upsertConnectedDevice(id, mode)
     setError(null)
-    setConnectionStatus(`已連接：${userNames[id] || labels[id] || id}`)
+    setConnectionStatus(`Connected: ${userNames[id] || labels[id] || id}`)
     onSelect(id, mode)
     api.device.getUserName(id).then(name => {
       if (!name) return
       setUserNames(prev => ({ ...prev, [id]: name }))
-      setConnectionStatus(`已連接：${name}`)
+      setConnectionStatus(`Connected: ${name}`)
     }).catch(() => {})
   }
 
@@ -86,6 +103,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     setEditingLabel(id)
     setLabelDraft(labels[id] ?? '')
   }
+
   function commitLabel(id: string) {
     const v = labelDraft.trim()
     setLabels(prev => {
@@ -114,14 +132,19 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         setError(r.message)
         setConnectionStatus(null)
       }
-    } finally { setWifiBusy(false) }
+    } finally {
+      setWifiBusy(false)
+    }
   }
 
   async function runMdnsScan() {
     setMdnsScanning(true)
+    setError(null)
     try {
       const entries = await api.device.mdnsScan()
       setMdnsEntries(entries)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setMdnsScanning(false)
     }
@@ -149,12 +172,19 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
       if (!r.ok) {
         setError(r.message)
       } else {
-        // Clear the code input and re-run scan so the connect entry appears
-        setPairCodes(prev => { const next = { ...prev }; delete next[entry.ipPort]; return next })
+        setPairCodes(prev => {
+          const next = { ...prev }
+          delete next[entry.ipPort]
+          return next
+        })
         await runMdnsScan()
       }
     } finally {
-      setPairingInFlight(prev => { const next = new Set(prev); next.delete(entry.ipPort); return next })
+      setPairingInFlight(prev => {
+        const next = new Set(prev)
+        next.delete(entry.ipPort)
+        return next
+      })
     }
   }
 
@@ -173,10 +203,15 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     })
   }
 
+  function selectPcSource(source: PcCaptureSource) {
+    onSelect(source.id, 'pc', source.name)
+    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-zinc-300">Devices</h2>
+        <h2 className="text-sm font-medium text-zinc-300">Recording source</h2>
         <button onClick={refresh} className="text-xs text-zinc-400 hover:text-zinc-200">refresh</button>
       </div>
 
@@ -187,8 +222,47 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         </div>
       )}
 
+      <div className="rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-200">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-medium">PC recording</div>
+            <div className="mt-0.5 text-xs text-zinc-500">Choose which screen to record.</div>
+          </div>
+          <button
+            type="button"
+            onClick={refreshPcSources}
+            disabled={pcSourcesLoading}
+            className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {pcSourcesLoading ? 'loading...' : 'refresh'}
+          </button>
+        </div>
+        <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+          {pcSources.length === 0 && <div className="text-xs text-zinc-500">No screens found.</div>}
+          {pcSources.map(source => {
+            const isSel = selectedId === source.id
+            return (
+              <button
+                key={source.id}
+                type="button"
+                data-testid={`source-pc-${source.id}`}
+                onClick={() => selectPcSource(source)}
+                className={`w-full rounded px-2 py-2 text-left text-xs
+                  ${isSel ? 'bg-blue-700 text-white' : 'bg-zinc-950 text-zinc-300 hover:bg-zinc-800'}`}
+              >
+                <span className={`mr-2 rounded px-1.5 py-0.5 ${source.type === 'screen' ? 'bg-red-950 text-red-200' : 'bg-zinc-800 text-zinc-300'}`}>
+                  screen
+                </span>
+                <span className="align-middle">{source.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="space-y-1">
-        {devices.length === 0 && <div className="text-xs text-zinc-500">no devices — connect via USB or add a Wi-Fi device below</div>}
+        <div className="text-xs font-medium text-zinc-500">Android devices</div>
+        {devices.length === 0 && <div className="text-xs text-zinc-500">No devices yet. Connect with USB or add a Wi-Fi device below.</div>}
         {devices.map(d => {
           const isSel = selectedId === d.id
           const isEditing = editingLabel === d.id
@@ -198,7 +272,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             userNames[d.id],
             d.model,
             d.id,
-          ].filter(Boolean).join(' · ')
+          ].filter(Boolean).join(' / ')
           return (
             <div
               key={d.id}
@@ -217,7 +291,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                     onBlur={() => commitLabel(d.id)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                      if (e.key === 'Escape') { setEditingLabel(null) }
+                      if (e.key === 'Escape') setEditingLabel(null)
                     }}
                     placeholder="custom label (e.g. Pixel-7-A)"
                     data-testid={`label-input-${d.id}`}
@@ -251,16 +325,20 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                 </button>
               </div>
               <div className="mt-0.5 flex items-center gap-2 truncate text-xs text-zinc-400">
-                {isSel && <span className="rounded bg-emerald-900 px-1.5 py-0.5 text-emerald-200">已連接</span>}
+                {isSel && <span className="rounded bg-emerald-900 px-1.5 py-0.5 text-emerald-200">connected</span>}
                 <span className="truncate">{subtitle}</span>
               </div>
+              {isSel && (
+                <div className="mt-1 text-[11px] text-blue-200">
+                  Selected. Set build details and optional PC screen recording on the right.
+                </div>
+              )}
             </div>
           )
         })}
       </div>
 
-      {/* mDNS Wi-Fi auto-discovery */}
-      <div className="border-t border-zinc-800 pt-3 space-y-2">
+      <div className="space-y-2 border-t border-zinc-800 pt-3">
         <div className="flex items-center justify-between">
           <span className="text-xs text-zinc-400">Wi-Fi auto-discovery (Android 11+)</span>
           <button
@@ -269,21 +347,21 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             data-testid="mdns-scan-button"
             className="rounded bg-teal-700 px-3 py-1 text-xs text-white hover:bg-teal-600 disabled:opacity-50"
           >
-            {mdnsScanning ? 'scanning…' : 'Scan Wi-Fi devices'}
+            {mdnsScanning ? 'scanning...' : 'Scan Wi-Fi devices'}
           </button>
         </div>
 
         {mdnsEntries !== null && mdnsEntries.length === 0 && (
-          <div className="text-xs text-zinc-500">no devices found — make sure Wireless debugging is on</div>
+          <div className="text-xs text-zinc-500">No devices found. Make sure Wireless debugging is on, or use the connected Wi-Fi device above.</div>
         )}
 
         {mdnsEntries !== null && mdnsEntries.length > 0 && (
           <div className="space-y-1">
             {mdnsEntries.map(entry => (
               <div
-                key={entry.ipPort}
+                key={`${entry.type}-${entry.ipPort}`}
                 data-testid={`mdns-entry-${entry.ipPort}`}
-                className="rounded bg-zinc-900 px-3 py-2 space-y-1"
+                className="space-y-1 rounded bg-zinc-900 px-3 py-2"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div>
@@ -311,7 +389,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                   )}
                 </div>
                 {entry.type === 'pair' && entry.ipPort in pairCodes && (
-                  <div className="flex gap-2 mt-1">
+                  <div className="mt-1 flex gap-2">
                     <input
                       value={pairCodes[entry.ipPort] ?? ''}
                       onChange={e => setPairCode(entry.ipPort, e.target.value)}
@@ -326,7 +404,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                       data-testid={`mdns-pair-submit-${entry.ipPort}`}
                       className="rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50"
                     >
-                      {pairingInFlight.has(entry.ipPort) ? 'pairing…' : 'Submit'}
+                      {pairingInFlight.has(entry.ipPort) ? 'pairing...' : 'Submit'}
                     </button>
                   </div>
                 )}
@@ -336,20 +414,23 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         )}
       </div>
 
-      {/* Manual Wi-Fi IP entry */}
       <div className="border-t border-zinc-800 pt-3">
         <label className="text-xs text-zinc-400">Add Wi-Fi device (e.g. 192.168.1.42)</label>
         <div className="mt-1 flex gap-2">
           <input
-            value={wifiIp} onChange={e => setWifiIp(e.target.value)}
-            placeholder="ip[:port]" data-testid="wifi-ip"
+            value={wifiIp}
+            onChange={e => setWifiIp(e.target.value)}
+            placeholder="ip[:port]"
+            data-testid="wifi-ip"
             className="flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
           />
           <button
-            onClick={addWifi} disabled={wifiBusy} data-testid="wifi-connect"
+            onClick={addWifi}
+            disabled={wifiBusy}
+            data-testid="wifi-connect"
             className="rounded bg-blue-700 px-3 py-1 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
           >
-            {wifiBusy ? 'connecting…' : 'connect'}
+            {wifiBusy ? 'connecting...' : 'connect'}
           </button>
         </div>
       </div>

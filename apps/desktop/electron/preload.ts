@@ -7,6 +7,10 @@ const api: DesktopApi = {
   app: {
     showItemInFolder: (path) => ipcRenderer.invoke(CHANNEL.showItemInFolder, path),
     openPath:         (path) => ipcRenderer.invoke(CHANNEL.openPath, path),
+    getPrimaryScreenSource: () => ipcRenderer.invoke(CHANNEL.getPrimaryScreenSource),
+    listPcCaptureSources:  () => ipcRenderer.invoke(CHANNEL.listPcCaptureSources),
+    showPcCaptureFrame:    (sourceId, color, displayId) => ipcRenderer.invoke(CHANNEL.showPcCaptureFrame, sourceId, color, displayId),
+    hidePcCaptureFrame:    () => ipcRenderer.invoke(CHANNEL.hidePcCaptureFrame),
   },
   device: {
     list:        ()             => ipcRenderer.invoke(CHANNEL.deviceList),

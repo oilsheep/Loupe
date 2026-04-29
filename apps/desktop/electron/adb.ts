@@ -30,14 +30,18 @@ export function parseMdnsOutput(stdout: string): MdnsEntry[] {
   for (const line of lines) {
     if (line.toLowerCase().startsWith('list of discovered mdns services')) continue
     const parts = line.split(/\s+/)
-    if (parts.length !== 3) continue
-    const [name, rawType, ipPort] = parts
+    const rawType = parts.find(p => {
+      const t = p.replace(/\.$/, '')
+      return t === '_adb-tls-pairing._tcp' || t === '_adb-tls-connect._tcp'
+    })
+    const ipPort = parts.find(p => IP_PORT.test(p))
+    if (!rawType || !ipPort) continue
     const type = rawType.replace(/\.$/, '')
+    const name = parts.find(p => p !== rawType && p !== ipPort && !p.includes(':')) ?? ipPort
     let entryType: 'pair' | 'connect'
     if (type === '_adb-tls-pairing._tcp') entryType = 'pair'
     else if (type === '_adb-tls-connect._tcp') entryType = 'connect'
     else continue
-    if (!IP_PORT.test(ipPort)) continue
     entries.push({ name, type: entryType, ipPort })
   }
   return entries
@@ -90,7 +94,7 @@ export class Adb {
 
   async mdnsServices(): Promise<MdnsEntry[]> {
     const r = await this.runner.run('adb', ['mdns', 'services'])
-    return parseMdnsOutput(r.stdout)
+    return parseMdnsOutput([r.stdout, r.stderr].filter(Boolean).join('\n'))
   }
 
   async pair(ipPort: string, code: string): Promise<{ ok: boolean; message: string }> {

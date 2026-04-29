@@ -1,43 +1,85 @@
 # Loupe QA Recorder User Guide
 
-This guide explains how to install Loupe, connect an Android device, record a QA session, mark bugs, review markers, and export clips.
+This guide explains how to install Loupe, record PC screens or Android devices, mark bugs, review markers, and export clips.
 
 ## 1. Install Loupe
 
-1. Run `Loupe QA Recorder-0.0.0-Setup.exe`.
+1. Run `Loupe QA Recorder-0.0.2-Setup.exe`.
 2. If Windows shows a SmartScreen warning, select **More info** and then **Run anyway**.
 3. Open **Loupe QA Recorder** from the desktop shortcut or Start menu.
 
-Loupe ships with the required Windows binaries for Android control and recording. Users do not need to install `adb`, `scrcpy`, or ffmpeg manually.
+Loupe ships with the required Windows binaries for Android control, screen mirroring, recording, and export. Users do not need to install `adb`, `scrcpy`, or ffmpeg manually.
 
-## 2. Prepare the Android Device
+## 2. Choose What to Record
+
+Loupe supports two recording source types:
+
+- **PC screen**: record one full monitor. This is useful for PC builds, browser tests, admin tools, or workflows that are not on an Android device.
+- **Android device**: record and control an Android device over USB or Wi-Fi debugging.
+
+### PC Screen Recording
+
+1. In the left panel, locate **PC recording**.
+2. Select the monitor you want to record.
+3. Confirm the thin green frame appears on that monitor.
+4. Enter the build or test version in the session form.
+5. Press **Start session**.
+6. Loupe changes the frame to red while recording.
+7. Add markers with the hotkeys or colored Add buttons.
+8. Press **Stop** when finished.
+
+PC recording currently supports full-screen monitor capture only. Window/application capture is not exposed in this version.
+
+## 3. Prepare an Android Device
+
+Official Android references with screenshots:
+
+- [Configure on-device developer options](https://developer.android.com/studio/debug/dev-options)
+- [Connect to your device using Wi-Fi](https://developer.android.com/studio/run/device#wireless)
+
+### Enable Developer Options
+
+1. Open Android **Settings**.
+2. Go to **About phone**.
+3. Find **Build number**.
+4. Tap **Build number** seven times until Android says you are now a developer.
+5. Enter the phone PIN/password if prompted.
+6. Go back to Settings and open **System > Developer options**. On some brands this location can be slightly different.
 
 ### USB Connection
 
-1. Open Android **Settings**.
-2. Enable **Developer options**.
-3. Enable **USB debugging**.
-4. Connect the phone to the PC with a USB data cable.
-5. Approve the debugging prompt on the device.
-6. In Loupe, select the detected device.
+1. In **Developer options**, enable **USB debugging**.
+2. Connect the phone to the PC with a USB data cable.
+3. Approve the **Allow USB debugging?** prompt on the device.
+4. In Loupe, select the detected USB device from the left panel.
 
 ### Wi-Fi Connection
 
-1. Enable **Wireless debugging** in Android Developer options.
-2. Make sure the PC and phone are on the same network.
-3. Use the Wi-Fi pairing option in Loupe.
-4. After the connection succeeds, Loupe shows the connected device name.
+Android 11 or later is required for Wireless debugging.
 
-## 3. Start a Session
+1. Make sure the PC and phone are on the same Wi-Fi network.
+2. In **Developer options**, enable **Wireless debugging**.
+3. Tap **Wireless debugging** to open its detail page.
+4. Tap **Pair device with pairing code**.
+5. Keep this phone screen open. Android shows an IP:port and a six-digit pairing code.
+6. In Loupe, click **Scan Wi-Fi devices**.
+7. If a `needs pairing` entry appears, click **Pair**, enter the six-digit code from the phone, and submit.
+8. Click **Scan Wi-Fi devices** again if needed.
+9. Click **Connect** on the `ready` Wi-Fi entry.
+10. Loupe shows the device as connected in the left panel.
 
-1. Confirm the connected device.
+If auto-discovery does not find the phone, type the Wireless debugging IP:port into **Add Wi-Fi device** and click **connect**.
+
+## 4. Start a Session
+
+1. Select a PC screen or Android device.
 2. Enter the build or test version.
-3. Optionally enter tester information later during export.
-4. Press **Start**.
+3. Optionally enter a test note.
+4. Press **Start session**.
 
-Loupe begins recording the session and shows a recording indicator. The Android device remains controllable from the PC.
+Loupe begins recording and shows a recording indicator. Android sessions open a controllable mirror window; PC sessions record the selected full monitor.
 
-## 4. Add Markers While Recording
+## 5. Add Markers While Recording
 
 Use the default hotkeys:
 
@@ -46,11 +88,13 @@ Use the default hotkeys:
 - `F8`: normal
 - `F9`: major
 
-Markers are created immediately. Loupe may show a loading state while it captures the thumbnail, but the marker itself is added first so testing is not blocked.
+You can also click the colored **Add** buttons in the recording panel to create a marker of the matching type.
+
+Markers are created immediately. Thumbnail capture runs in the background so testing is not blocked.
 
 Hotkeys are ignored while typing inside text fields to avoid interrupting note input.
 
-## 5. Review Markers
+## 6. Review Markers
 
 After stopping the session, Loupe opens the review screen. In this screen, you can:
 
@@ -64,7 +108,7 @@ After stopping the session, Loupe opens the review screen. In this screen, you c
 
 Clicking a marker card seeks the video to the clip start, plays to the clip end, and then pauses. Clicking it again replays the same range.
 
-## 6. Export Clips
+## 7. Export Clips
 
 1. Select one or more markers.
 2. Press **Export**.
@@ -79,19 +123,24 @@ For each selected marker, Loupe creates:
 
 The file name is based on the marker note, build version, and date.
 
-## 7. Caption Layout
+## 8. Caption and Preview Layout
 
 Exported clips and preview sheets include a caption area with:
 
 ```text
-Marker note
-Build / Android OS / Device
+Severity / Marker note
+Build / Android OS or Windows / Device or PC screen
 Tester / Computer timestamp
 ```
 
 The marker note is bold and wraps automatically when it is too long.
 
-## 8. Session Files
+Preview sheets preserve orientation:
+
+- landscape recordings export landscape 3x3 sheets
+- portrait recordings export portrait 3x3 sheets
+
+## 9. Session Files
 
 Loupe saves sessions as `.loupe` files. Reopen a saved session to restore:
 
@@ -106,12 +155,24 @@ If the linked video is missing, Loupe asks the user to locate it manually.
 
 ## Troubleshooting
 
-### The device is not detected
+### PC screen recording selects the wrong area
+
+- Re-select the target monitor in the left panel.
+- Confirm the green frame appears only on the intended monitor.
+- If the recording still clips incorrectly, check Windows display scaling and monitor arrangement.
+
+### The Android device is not detected
 
 - Confirm USB debugging is enabled.
 - Confirm the phone authorized this computer.
 - Try another USB data cable or port.
 - For Wi-Fi, confirm both devices are on the same network.
+
+### Wi-Fi scan does not find the phone
+
+- Keep the Android Wireless debugging screen open.
+- Try **Scan Wi-Fi devices** again.
+- Use **Add Wi-Fi device** with the IP:port shown on the phone.
 
 ### Hotkeys do not create markers
 

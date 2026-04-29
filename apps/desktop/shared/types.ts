@@ -27,7 +27,7 @@ export interface Session {
   deviceId: string
   deviceModel: string
   androidVersion: string
-  connectionMode: 'usb' | 'wifi'
+  connectionMode: 'usb' | 'wifi' | 'pc'
   status: SessionStatus
   durationMs: number | null
   startedAt: number             // epoch ms
@@ -63,11 +63,22 @@ export interface MdnsEntry {
   ipPort: string                // e.g. '192.168.1.42:43615'
 }
 
+export interface PcCaptureSource {
+  id: string
+  name: string
+  type: 'screen' | 'window'
+  displayId?: string
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   app: {
     showItemInFolder(path: string):                                Promise<void>
     openPath(path: string):                                        Promise<void>
+    getPrimaryScreenSource():                                      Promise<{ id: string; name: string } | null>
+    listPcCaptureSources():                                        Promise<PcCaptureSource[]>
+    showPcCaptureFrame(sourceId: string, color?: 'green' | 'red', displayId?: string): Promise<boolean>
+    hidePcCaptureFrame():                                          Promise<void>
   }
   device: {
     list():                                                        Promise<Device[]>
@@ -79,8 +90,8 @@ export interface DesktopApi {
   }
   session: {
     start(args: {
-      deviceId: string; connectionMode: 'usb' | 'wifi';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean;
+      deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>

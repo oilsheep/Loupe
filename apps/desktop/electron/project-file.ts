@@ -28,5 +28,6 @@ export function readProjectFile(filePath: string): LoupeProjectFile {
 }
 
 export function projectVideoExists(session: Session): boolean {
-  return Boolean(session.videoPath && existsSync(session.videoPath))
+  const videoPath = session.connectionMode === 'pc' ? session.pcVideoPath : session.videoPath
+  return Boolean(videoPath && existsSync(videoPath))
 }

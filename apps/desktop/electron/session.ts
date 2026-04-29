@@ -8,7 +8,7 @@ import type { Db } from './db'
 import type { Paths } from './paths'
 import type { Session, Bug, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
-import { remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
+import { extractThumbnail, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
 import { ClickRecorder } from './click-recorder'
 
@@ -20,6 +20,7 @@ export interface SessionDeps {
   logcat: LogcatBuffer
   runner: IProcessRunner
   captureScreenshot?: typeof defaultCapture
+  capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
   prepareVideoForPlayback?: (inputPath: string) => Promise<void>
   clickRecorder?: Pick<ClickRecorder, 'start' | 'stop'>
   now?: () => number
@@ -47,11 +48,12 @@ export function makeSessionId(buildVersion: string, nowMs: number): string {
 
 export interface StartArgs {
   deviceId: string
-  connectionMode: 'usb' | 'wifi'
+  connectionMode: 'usb' | 'wifi' | 'pc'
   buildVersion: string
   testNote: string
   tester?: string
   recordPcScreen?: boolean
+  pcCaptureSourceName?: string
 }
 
 export interface MarkBugArgs {
@@ -74,6 +76,7 @@ export class SessionManager {
   private newId: () => string
   private makeSessionId: (buildVersion: string, nowMs: number) => string
   private clickRecorder: Pick<ClickRecorder, 'start' | 'stop'>
+  private capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
@@ -82,6 +85,7 @@ export class SessionManager {
     this.newId = deps.newId ?? randomUUID
     this.makeSessionId = deps.makeSessionId ?? makeSessionId
     this.clickRecorder = deps.clickRecorder ?? new ClickRecorder(deps.runner)
+    this.capturePcThumbnail = deps.capturePcThumbnail
   }
 
   activeSessionId(): string | null { return this.active?.id ?? null }
@@ -89,7 +93,10 @@ export class SessionManager {
   async start(args: StartArgs): Promise<Session> {
     if (this.active) throw new Error('a session is already active')
     const { db, paths, adb, scrcpy, logcat } = this.deps
-    const info = await adb.getDeviceInfo(args.deviceId)
+    const isPcSession = args.connectionMode === 'pc'
+    const info = isPcSession
+      ? { model: args.pcCaptureSourceName?.trim() || 'PC screen', androidVersion: 'Windows' }
+      : await adb.getDeviceInfo(args.deviceId)
     const startedAt = this.now()
     const id = this.makeSessionId(args.buildVersion, startedAt)
     paths.ensureSessionDirs(id)
@@ -99,20 +106,22 @@ export class SessionManager {
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
       connectionMode: args.connectionMode, status: 'recording',
       durationMs: null, startedAt, endedAt: null,
-      videoPath: paths.videoFile(id),
-      pcRecordingEnabled: Boolean(args.recordPcScreen),
+      videoPath: isPcSession ? null : paths.videoFile(id),
+      pcRecordingEnabled: isPcSession || Boolean(args.recordPcScreen),
       pcVideoPath: null,
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
-    const windowTitle = `Loupe - ${info.model}`
-    scrcpy.start({
-      deviceId: args.deviceId,
-      recordPath: paths.videoFile(id),
-      windowTitle,
-    })
-    this.clickRecorder.start({ outputPath: paths.clicksFile(id), windowTitle })
-    logcat.start()
+    if (!isPcSession) {
+      const windowTitle = `Loupe - ${info.model}`
+      scrcpy.start({
+        deviceId: args.deviceId,
+        recordPath: paths.videoFile(id),
+        windowTitle,
+      })
+      this.clickRecorder.start({ outputPath: paths.clicksFile(id), windowTitle })
+      logcat.start()
+    }
     this.active = sess
     return sess
   }
@@ -121,7 +130,9 @@ export class SessionManager {
     if (!this.active) throw new Error('no active session')
     const { db, paths, scrcpy } = this.deps
     const sess = this.active
-    const offsetMs = scrcpy.elapsedMs() ?? 0
+    const offsetMs = sess.connectionMode === 'pc'
+      ? Math.max(0, this.now() - sess.startedAt)
+      : scrcpy.elapsedMs() ?? 0
     const bugId = this.newId()
 
     const bug: Bug = {
@@ -147,17 +158,24 @@ export class SessionManager {
     if (!this.active) throw new Error('no active session')
     const { db, paths, scrcpy, logcat } = this.deps
     const sess = this.active
-    await scrcpy.stop()
-    this.clickRecorder.stop()
-    logcat.stop()
+    if (sess.connectionMode !== 'pc') {
+      await scrcpy.stop()
+      this.clickRecorder.stop()
+      logcat.stop()
+    }
     const endedAt = this.now()
     const durationMs = endedAt - sess.startedAt
-    await this.prepareVideo(paths.videoFile(sess.id)).catch((err) => {
-      console.warn(`Loupe: video remux failed for session ${sess.id}; keeping original recording`, err)
-    })
+    if (sess.connectionMode !== 'pc') {
+      await this.prepareVideo(paths.videoFile(sess.id)).catch((err) => {
+        console.warn(`Loupe: video remux failed for session ${sess.id}; keeping original recording`, err)
+      })
+    }
     db.finalizeSession(sess.id, { durationMs, endedAt })
     this.active = null
     const updated = db.getSession(sess.id)!
+    await this.backfillMissingThumbnails(updated).catch((err) => {
+      console.warn(`Loupe: failed to backfill thumbnails for session ${sess.id}`, err)
+    })
     this.persistProject(sess.id)
     return updated
   }
@@ -256,27 +274,79 @@ export class SessionManager {
 
   private async captureMarkerAssets(session: Session, bugId: string): Promise<void> {
     const { db, paths, logcat, runner } = this.deps
+    const bug = db.listBugs(session.id).find(b => b.id === bugId)
     const screenshotPath = paths.screenshotFile(session.id, bugId)
     const logcatPath = paths.logcatFile(session.id, bugId)
     let logcatRel: string | null = null
     let screenshotRel: string | null = null
 
-    try {
-      logcat.dumpRecentToFile(logcatPath)
-      logcatRel = `logcat/${bugId}.txt`
-    } catch (err) {
-      console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)
+    if (session.connectionMode !== 'pc') {
+      try {
+        logcat.dumpRecentToFile(logcatPath)
+        logcatRel = `logcat/${bugId}.txt`
+      } catch (err) {
+        console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)
+      }
     }
 
     try {
-      await this.capture(runner, session.deviceId, screenshotPath)
-      screenshotRel = `screenshots/${bugId}.png`
+      if (session.connectionMode === 'pc' && this.capturePcThumbnail) {
+        await this.capturePcThumbnail(session.deviceId, screenshotPath)
+        screenshotRel = `screenshots/${bugId}.png`
+      } else if (session.connectionMode !== 'pc') {
+        await this.capture(runner, session.deviceId, screenshotPath)
+        screenshotRel = `screenshots/${bugId}.png`
+      }
     } catch (err) {
       console.warn(`Loupe: failed to capture screenshot for marker ${bugId}`, err)
     }
 
+    if (!screenshotRel && bug) {
+      const inputPath = session.connectionMode === 'pc'
+        ? session.pcVideoPath
+        : session.videoPath ?? paths.videoFile(session.id)
+      if (inputPath) {
+        try {
+          await extractThumbnail(runner, resolveBundledFfmpegPath(), {
+            inputPath,
+            outputPath: screenshotPath,
+            offsetMs: bug.offsetMs,
+          })
+          screenshotRel = `screenshots/${bugId}.png`
+        } catch (err) {
+          console.warn(`Loupe: failed to extract video thumbnail for marker ${bugId}`, err)
+        }
+      }
+    }
+
     db.updateBugAssets(bugId, { screenshotRel, logcatRel })
     this.persistProject(session.id)
+  }
+
+  private async backfillMissingThumbnails(session: Session): Promise<void> {
+    const { db, paths, runner } = this.deps
+    const inputPath = session.connectionMode === 'pc'
+      ? session.pcVideoPath
+      : session.videoPath ?? paths.videoFile(session.id)
+    if (!inputPath) return
+
+    for (const bug of db.listBugs(session.id)) {
+      if (bug.screenshotRel) continue
+      const screenshotPath = paths.screenshotFile(session.id, bug.id)
+      try {
+        await extractThumbnail(runner, resolveBundledFfmpegPath(), {
+          inputPath,
+          outputPath: screenshotPath,
+          offsetMs: bug.offsetMs,
+        })
+        db.updateBugAssets(bug.id, {
+          screenshotRel: `screenshots/${bug.id}.png`,
+          logcatRel: bug.logcatRel,
+        })
+      } catch (err) {
+        console.warn(`Loupe: failed to backfill thumbnail for marker ${bug.id}`, err)
+      }
+    }
   }
 
   private async defaultPrepareVideoForPlayback(inputPath: string): Promise<void> {

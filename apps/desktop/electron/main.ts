@@ -157,11 +157,22 @@ app.whenReady().then(async () => {
 
   const manager = new SessionManager({
     db, paths, adb, scrcpy, logcat: logcatHolder, runner,
+    capturePcThumbnail: async (sourceId, outPath) => {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 480, height: 270 },
+      })
+      const source = sources.find(s => s.id === sourceId)
+      if (!source || source.thumbnail.isEmpty()) throw new Error('PC capture source thumbnail is not available')
+      await fs.promises.writeFile(outPath, source.thumbnail.toPNG())
+    },
   })
   // Override manager.start to swap a fresh logcat for the chosen deviceId.
   const origStart = manager.start.bind(manager)
   manager.start = async (args) => {
-    ;(manager as any).deps.logcat = new LogcatBuffer(runner, args.deviceId)
+    if (args.connectionMode !== 'pc') {
+      ;(manager as any).deps.logcat = new LogcatBuffer(runner, args.deviceId)
+    }
     return origStart(args)
   }
 

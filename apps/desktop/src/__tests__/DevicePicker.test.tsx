@@ -6,7 +6,14 @@ import type { Device, DesktopApi, MdnsEntry } from '@shared/types'
 function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairImpl?: any, getUserNameImpl?: any): DesktopApi {
   return {
     doctor: vi.fn() as any,
-    app: { showItemInFolder: vi.fn() as any, openPath: vi.fn() as any },
+    app: {
+      showItemInFolder: vi.fn() as any,
+      openPath: vi.fn() as any,
+      getPrimaryScreenSource: vi.fn().mockResolvedValue({ id: 'screen:1:0', name: 'Entire screen' }) as any,
+      listPcCaptureSources: vi.fn().mockResolvedValue([{ id: 'screen:1:0', name: 'Entire screen', type: 'screen' }]) as any,
+      showPcCaptureFrame: vi.fn().mockResolvedValue(true) as any,
+      hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+    },
     device: {
       list: vi.fn().mockResolvedValue(devices),
       connect: connectImpl ?? vi.fn().mockResolvedValue({ ok: true, message: 'connected' }),
@@ -47,7 +54,15 @@ describe('DevicePicker', () => {
     fireEvent.change(screen.getByTestId('wifi-ip'), { target: { value: '10.0.0.7' } })
     fireEvent.click(screen.getByTestId('wifi-connect'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('10.0.0.7:5555', 'wifi'))
-    await waitFor(() => expect(screen.getByText('已連接：QA Pixel')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Connected: QA Pixel')).toBeTruthy())
+  })
+
+  it('selects PC screen as a recording source', async () => {
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
+    await waitFor(() => expect(screen.getByTestId('source-pc-screen:1:0')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('source-pc-screen:1:0'))
+    expect(onSelect).toHaveBeenCalledWith('screen:1:0', 'pc', 'Entire screen')
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {

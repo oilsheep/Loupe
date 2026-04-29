@@ -19,7 +19,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const refresh = useCallback(async () => {
     const r = await api.session.get(sessionId)
     if (!r) { goHome(); return }
-    const videoUrl = await assetUrl(sessionId, 'video.mp4')
+    const videoRel = r.session.connectionMode === 'pc' && r.session.pcVideoPath ? 'pc-recording.webm' : 'video.mp4'
+    const videoUrl = await assetUrl(sessionId, videoRel)
     setData({ session: r.session, bugs: r.bugs, videoUrl })
     setTester(r.session.tester)
     setTestNote(r.session.testNote)

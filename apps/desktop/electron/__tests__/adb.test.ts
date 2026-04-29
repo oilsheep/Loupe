@@ -141,6 +141,19 @@ describe('parseMdnsOutput', () => {
     expect(entries[0].type).toBe('connect')
   })
 
+  it('parses adb mdns output with extra columns', () => {
+    const out = [
+      'List of discovered mdns services',
+      'adb-ABC123-zxcvbn  _adb-tls-pairing._tcp.  local.  192.168.1.42:39247',
+      'adb-ABC123-zxcvbn  if4  _adb-tls-connect._tcp.  local.  192.168.1.42:43615',
+    ].join('\n')
+    const entries = parseMdnsOutput(out)
+    expect(entries).toEqual([
+      { name: 'adb-ABC123-zxcvbn', type: 'pair', ipPort: '192.168.1.42:39247' },
+      { name: 'adb-ABC123-zxcvbn', type: 'connect', ipPort: '192.168.1.42:43615' },
+    ])
+  })
+
   it('returns empty for header-only output', () => {
     expect(parseMdnsOutput('List of discovered mdns services\n')).toEqual([])
   })

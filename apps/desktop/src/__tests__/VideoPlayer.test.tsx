@@ -13,7 +13,14 @@ const bug = (over: Partial<Bug> = {}): Bug => ({
 function fakeApi(): DesktopApi {
   return {
     doctor: vi.fn() as any,
-    app: { showItemInFolder: vi.fn() as any, openPath: vi.fn() as any },
+    app: {
+      showItemInFolder: vi.fn() as any,
+      openPath: vi.fn() as any,
+      getPrimaryScreenSource: vi.fn().mockResolvedValue(null) as any,
+      listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
+      showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,
+      hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+    },
     device: {} as any,
     session: { updateMetadata: vi.fn() as any } as any,
     bug: {} as any,

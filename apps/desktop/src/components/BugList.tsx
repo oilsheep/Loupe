@@ -77,7 +77,7 @@ function MicIcon() {
 
 function ThumbnailWaiting() {
   return (
-    <div className="flex h-24 w-16 items-center justify-center rounded border border-zinc-800 bg-zinc-950">
+    <div className="flex h-24 w-28 items-center justify-center rounded border border-zinc-800 bg-zinc-950">
       <div
         className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-blue-400"
         aria-label="Waiting for screenshot"
@@ -576,12 +576,12 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, onSe
                 src={thumbnailUrl}
                 alt=""
                 data-testid={`thumb-${bug.id}`}
-                className="h-24 w-16 rounded border border-zinc-800 object-cover"
+                className="h-24 w-28 rounded border border-zinc-800 bg-black object-contain"
               />
             )
             : Date.now() - bug.createdAt < THUMB_PENDING_MS
               ? <ThumbnailWaiting />
-              : <div className="h-24 w-16 rounded border border-zinc-800 bg-zinc-950" />
+              : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
           }
         </button>
 

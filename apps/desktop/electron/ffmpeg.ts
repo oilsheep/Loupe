@@ -30,8 +30,16 @@ export interface FaststartOptions {
   outputPath: string
 }
 
+export interface ThumbnailOptions {
+  inputPath: string
+  outputPath: string
+  offsetMs: number
+}
+
 export interface ContactSheetOptions extends ClipOptions {
   outputPath: string
+  tileWidth?: number
+  tileHeight?: number | null
 }
 
 export interface ClipWindowOptions {
@@ -73,6 +81,11 @@ interface CaptionLine {
   }
 }
 
+interface CaptionLayout {
+  noteChars: number
+  metaChars: number
+}
+
 const SEVERITY_STYLE: Record<NonNullable<ClipOptions['severity']>, { label: string; color: string }> = {
   note: { label: 'note', color: '0x8b5cf6' },
   major: { label: 'major', color: '0xff4d4f' },
@@ -102,7 +115,7 @@ function wrapTextLine(line: string, maxChars: number): string[] {
   return out
 }
 
-function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
+function buildCaptionLines(opts: ClipOptions, layout: CaptionLayout = { noteChars: 20, metaChars: 44 }): CaptionLine[] {
   const lines: CaptionLine[] = []
   const addWrapped = (text: string | null | undefined, maxChars: number, bold = false) => {
     const value = text?.trim()
@@ -119,7 +132,7 @@ function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
   const note = opts.note?.trim()
   if (majorSeverity) {
     const labelWidth = Math.max(76, majorSeverity.label.length * 15 + 24)
-    const firstLineMax = note ? Math.max(8, 22 - Math.ceil(labelWidth / 16)) : 0
+    const firstLineMax = note ? Math.max(8, layout.noteChars - Math.ceil(labelWidth / 16)) : 0
     const noteLines = note ? wrapTextLine(note, firstLineMax) : []
     lines.push({
       text: majorSeverity.label,
@@ -131,24 +144,24 @@ function buildCaptionLines(opts: ClipOptions): CaptionLine[] {
     for (const line of noteLines.slice(1)) lines.push({ text: line, bold: true })
   } else if (severityPrefix) {
     const text = note ? `${severityPrefix} ${note}` : severityPrefix
-    addWrapped(text, 20, true)
+    addWrapped(text, layout.noteChars, true)
   } else if (note) {
-    addWrapped(note, 20, true)
+    addWrapped(note, layout.noteChars, true)
   }
 
   addWrapped(compactLine([
     opts.buildVersion,
     opts.androidVersion ? `Android ${opts.androidVersion}` : null,
     opts.deviceModel,
-  ]), 44)
+  ]), layout.metaChars)
   addWrapped(compactLine([
     opts.tester,
     opts.testedAtMs != null ? formatDateTime(opts.testedAtMs) : null,
-  ]), 44)
+  ]), layout.metaChars)
   return lines
 }
 
-function captionFilter(lines: CaptionLine[]): string {
+function captionFilter(lines: CaptionLine[], layout: { x?: number } = {}): string {
   if (lines.length === 0) return ''
   const regularFont = 'C\\:/Windows/Fonts/msjh.ttc'
   const boldFont = 'C\\:/Windows/Fonts/msjhbd.ttc'
@@ -162,7 +175,7 @@ function captionFilter(lines: CaptionLine[]): string {
   for (const line of lines) {
     const fontSize = line.bold ? 25 : 18
     const fontFile = line.bold ? boldFont : regularFont
-    const x = line.x ?? 18
+    const x = line.x ?? layout.x ?? 18
     if (line.box) {
       filters.push(
         `drawbox=x=${x}:y=ih-${captionHeight - y}:w=${line.box.width}:h=${line.box.height}:color=${line.box.color}@1:t=fill`,
@@ -198,10 +211,10 @@ function clickOverlayFilters(clicks: ClickPoint[] | undefined, startMs: number, 
   return out
 }
 
-function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = []): string[] {
-  const captionLines = buildCaptionLines(opts)
+function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = [], layout?: CaptionLayout & { x?: number }): string[] {
+  const captionLines = buildCaptionLines(opts, layout)
   const filters = [...prefixFilters]
-  if (captionLines.length > 0) filters.push(captionFilter(captionLines))
+  if (captionLines.length > 0) filters.push(captionFilter(captionLines, layout))
   return filters
 }
 
@@ -296,14 +309,23 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
   if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
   const durationMs = endMs - startMs
   const fps = (9_000 / durationMs).toFixed(6)
+  const tileWidth = opts.tileWidth ?? 240
+  const tileHeight = opts.tileHeight === undefined ? 426 : opts.tileHeight
+  const scaleAndPad = tileHeight
+    ? [
+        `scale=${tileWidth}:${tileHeight}:force_original_aspect_ratio=decrease`,
+        `pad=${tileWidth}:${tileHeight}:(ow-iw)/2:(oh-ih)/2:color=black`,
+      ]
+    : [
+        `scale=${tileWidth}:-2`,
+      ]
   const filters = videoCaptionFilters(opts, [
     `trim=start=${ms(startMs)}:duration=${ms(durationMs)}`,
     'setpts=PTS-STARTPTS',
     `fps=${fps}`,
-    'scale=240:426:force_original_aspect_ratio=decrease',
-    'pad=240:426:(ow-iw)/2:(oh-ih)/2:color=black',
+    ...scaleAndPad,
     'tile=3x3',
-  ])
+  ], { noteChars: 44, metaChars: 96, x: 26 })
   return [
     '-y',
     '-fflags', '+genpts',
@@ -318,6 +340,23 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
 export async function extractContactSheet(runner: IProcessRunner, ffmpegPath: string, opts: ContactSheetOptions): Promise<void> {
   const r = await runner.run(ffmpegPath, buildContactSheetArgs(opts))
   if (r.code !== 0) throw new Error(`ffmpeg contact sheet failed (code ${r.code}): ${r.stderr.trim()}`)
+}
+
+export function buildThumbnailArgs(opts: ThumbnailOptions): string[] {
+  return [
+    '-y',
+    '-ss', ms(opts.offsetMs),
+    '-i', opts.inputPath,
+    '-frames:v', '1',
+    '-vf', 'scale=320:-2',
+    '-q:v', '3',
+    opts.outputPath,
+  ]
+}
+
+export async function extractThumbnail(runner: IProcessRunner, ffmpegPath: string, opts: ThumbnailOptions): Promise<void> {
+  const r = await runner.run(ffmpegPath, buildThumbnailArgs(opts))
+  if (r.code !== 0) throw new Error(`ffmpeg thumbnail failed (code ${r.code}): ${r.stderr.trim()}`)
 }
 
 export function buildFaststartArgs(opts: FaststartOptions): string[] {

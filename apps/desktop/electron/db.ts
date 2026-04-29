@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   device_id TEXT NOT NULL,
   device_model TEXT NOT NULL,
   android_version TEXT NOT NULL,
-  connection_mode TEXT NOT NULL CHECK(connection_mode IN ('usb','wifi')),
+  connection_mode TEXT NOT NULL CHECK(connection_mode IN ('usb','wifi','pc')),
   status TEXT NOT NULL CHECK(status IN ('recording','draft')),
   duration_ms INTEGER,
   started_at INTEGER NOT NULL,
@@ -75,6 +75,39 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('tester')) db.exec(`ALTER TABLE sessions ADD COLUMN tester TEXT NOT NULL DEFAULT ''`)
   if (!sessionCols.includes('pc_recording_enabled')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_recording_enabled INTEGER NOT NULL DEFAULT 0`)
   if (!sessionCols.includes('pc_video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_video_path TEXT`)
+  const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
+  if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
+    db.pragma('foreign_keys = OFF')
+    db.exec(`
+      CREATE TABLE sessions_new (
+        id TEXT PRIMARY KEY,
+        build_version TEXT NOT NULL,
+        test_note TEXT NOT NULL DEFAULT '',
+        tester TEXT NOT NULL DEFAULT '',
+        device_id TEXT NOT NULL,
+        device_model TEXT NOT NULL,
+        android_version TEXT NOT NULL,
+        connection_mode TEXT NOT NULL CHECK(connection_mode IN ('usb','wifi','pc')),
+        status TEXT NOT NULL CHECK(status IN ('recording','draft')),
+        duration_ms INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        video_path TEXT,
+        pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
+        pc_video_path TEXT
+      );
+      INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
+                                connection_mode, status, duration_ms, started_at, ended_at, video_path,
+                                pc_recording_enabled, pc_video_path)
+      SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
+             connection_mode, status, duration_ms, started_at, ended_at, video_path,
+             pc_recording_enabled, pc_video_path FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+      CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
+    `)
+    db.pragma('foreign_keys = ON')
+  }
 
   const cols = (db.pragma(`table_info('bugs')`) as { name: string }[]).map(c => c.name)
   if (!cols.includes('pre_sec'))  db.exec(`ALTER TABLE bugs ADD COLUMN pre_sec  INTEGER NOT NULL DEFAULT 5`)
