@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, PublishTarget, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 
 interface Props {
@@ -120,12 +120,17 @@ interface ExportConfirmDialogProps {
   tester: string
   testNote: string
   includeLogcat: boolean
+  publishTarget: PublishTarget
+  slackThreadMode: SlackThreadMode
   busy: boolean
+  error: string
   hasMissingNotes: boolean
   onOutputRootChange(value: string): void
   onTesterChange(value: string): void
   onTestNoteChange(value: string): void
   onIncludeLogcatChange(value: boolean): void
+  onPublishTargetChange(value: PublishTarget): void
+  onSlackThreadModeChange(value: SlackThreadMode): void
   onBrowseOutputRoot(): void
   onCancel(): void
   onConfirm(): void
@@ -137,21 +142,27 @@ function ExportConfirmDialog({
   tester,
   testNote,
   includeLogcat,
+  publishTarget,
+  slackThreadMode,
   busy,
+  error,
   hasMissingNotes,
   onOutputRootChange,
   onTesterChange,
   onTestNoteChange,
   onIncludeLogcatChange,
+  onPublishTargetChange,
+  onSlackThreadModeChange,
   onBrowseOutputRoot,
   onCancel,
   onConfirm,
 }: ExportConfirmDialogProps) {
+  const isSlack = publishTarget === 'slack'
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-24" data-testid="export-dialog">
       <div className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
-        <div className="text-sm font-medium text-zinc-100">Export {count === 1 ? 'clip' : `${count} clips`}</div>
-        <div className="mt-1 text-xs text-zinc-500">Confirm destination and metadata for the exported video caption.</div>
+        <div className="text-sm font-medium text-zinc-100">Publish {count === 1 ? 'clip' : `${count} clips`}</div>
+        <div className="mt-1 text-xs text-zinc-500">Export evidence files, manifest JSON, and manifest CSV for downstream tools.</div>
 
         <label className="mt-4 block text-xs text-zinc-500">
           Output folder
@@ -204,9 +215,60 @@ function ExportConfirmDialog({
           Export marker logcat as sidecar text files
         </label>
 
+        <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3">
+          <div className="text-xs font-medium text-zinc-300">Publish target</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onPublishTargetChange('local')}
+              className={`rounded px-3 py-2 text-sm ${publishTarget === 'local' ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+            >
+              Local only
+            </button>
+            <button
+              type="button"
+              onClick={() => onPublishTargetChange('slack')}
+              className={`rounded px-3 py-2 text-sm ${isSlack ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+            >
+              Slack
+            </button>
+          </div>
+
+          {isSlack && (
+            <div className="mt-3">
+              <div className="text-xs text-zinc-500">Slack thread layout</div>
+              <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="Slack publish mode">
+                <button
+                  type="button"
+                  onClick={() => onSlackThreadModeChange('single-thread')}
+                  className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'single-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                >
+                  All markers in one thread
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSlackThreadModeChange('per-marker-thread')}
+                  className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'per-marker-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                >
+                  Every marker per thread
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-zinc-500">
+                Loupe writes a Slack publish plan next to the manifest.
+              </div>
+            </div>
+          )}
+        </div>
+
         {hasMissingNotes && (
           <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
             Some selected markers do not have notes. They will still export if you continue.
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 rounded border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+            {error}
           </div>
         )}
 
@@ -223,7 +285,7 @@ function ExportConfirmDialog({
             disabled={busy || !outputRoot.trim()}
             className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
           >
-            {busy ? 'Exporting...' : 'Export'}
+            {busy ? 'Publishing...' : 'Publish'}
           </button>
         </div>
       </div>
@@ -298,6 +360,9 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportTester, setExportTester] = useState(tester)
   const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
+  const [publishTarget, setPublishTarget] = useState<PublishTarget>('local')
+  const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('single-thread')
+  const [exportError, setExportError] = useState('')
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   const allChecked = bugs.length > 0 && bugs.every(b => checked.has(b.id))
@@ -372,6 +437,9 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportTester(tester)
     setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
+    setPublishTarget('local')
+    setSlackThreadMode('single-thread')
+    setExportError('')
     setExportRequest(request)
   }
 
@@ -386,6 +454,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
     setExporting(true)
+    setExportError('')
     try {
       await api.settings.setExportRoot(trimmedRoot)
       await api.session.updateMetadata(sessionId, {
@@ -393,11 +462,14 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         testNote: exportTestNote.trim(),
       })
       onMutated()
+      const publish = { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], includeLogcat: exportIncludeLogcat })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, includeLogcat: exportIncludeLogcat })
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], includeLogcat: exportIncludeLogcat, publish })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, includeLogcat: exportIncludeLogcat, publish })
       if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length)
       setExportRequest(null)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Publish failed')
     } finally {
       setExporting(false)
     }
@@ -454,12 +526,17 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           tester={exportTester}
           testNote={exportTestNote}
           includeLogcat={exportIncludeLogcat}
+          publishTarget={publishTarget}
+          slackThreadMode={slackThreadMode}
           busy={exporting}
+          error={exportError}
           hasMissingNotes={exportRequest.bugs.some(b => !b.note.trim())}
           onOutputRootChange={setExportRoot}
           onTesterChange={setExportTester}
           onTestNoteChange={setExportTestNote}
           onIncludeLogcatChange={setExportIncludeLogcat}
+          onPublishTargetChange={setPublishTarget}
+          onSlackThreadModeChange={setSlackThreadMode}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={() => { if (!exporting) setExportRequest(null) }}
           onConfirm={confirmExport}

@@ -19,6 +19,17 @@ export interface HotkeySettings {
   major: string
 }
 
+export interface SlackPublishSettings {
+  botToken: string
+  channelId: string
+}
+
+export interface AppSettings {
+  exportRoot: string
+  hotkeys: HotkeySettings
+  slack: SlackPublishSettings
+}
+
 export interface Session {
   id: string
   buildVersion: string
@@ -52,6 +63,21 @@ export interface Bug {
   preSec: number
   /** Seconds after offsetMs to include when exporting a clip. */
   postSec: number
+}
+
+export type PublishTarget = 'local' | 'slack'
+export type SlackThreadMode = 'single-thread' | 'per-marker-thread'
+
+export interface ExportPublishOptions {
+  target: PublishTarget
+  slackThreadMode?: SlackThreadMode
+}
+
+export interface ExportedMarkerFile {
+  bugId: string
+  videoPath: string
+  previewPath: string
+  logcatPath: string | null
 }
 
 import type { ToolCheck } from '../electron/doctor'    // type-only import is fine across boundaries
@@ -110,18 +136,19 @@ export interface DesktopApi {
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
-    exportClip(args: { sessionId: string; bugId: string; includeLogcat?: boolean }): Promise<string | null>
-    exportClips(args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean }): Promise<string[] | null>
+    exportClip(args: { sessionId: string; bugId: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string | null>
+    exportClips(args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null>
   }
   hotkey: {
     /** Globally enable or disable the bug-mark hotkey. Used to suppress capture while typing in the dialog. */
     setEnabled(enabled: boolean):                                  Promise<void>
   }
   settings: {
-    get():                                                         Promise<{ exportRoot: string; hotkeys: HotkeySettings }>
-    setExportRoot(path: string):                                   Promise<{ exportRoot: string; hotkeys: HotkeySettings }>
-    setHotkeys(hotkeys: HotkeySettings):                           Promise<{ exportRoot: string; hotkeys: HotkeySettings }>
-    chooseExportRoot():                                            Promise<{ exportRoot: string; hotkeys: HotkeySettings } | null>
+    get():                                                         Promise<AppSettings>
+    setExportRoot(path: string):                                   Promise<AppSettings>
+    setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
+    setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
+    chooseExportRoot():                                            Promise<AppSettings | null>
   }
   /** Renderer subscribes to this to know when the global bug-mark hotkey fired in main. */
   onBugMarkRequested(cb: (severity: BugSeverity) => void):         () => void   // returns unsubscribe

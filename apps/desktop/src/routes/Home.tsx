@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { ToolCheck } from '@shared/types'
+import type { SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 
 export function Home() {
@@ -11,9 +11,17 @@ export function Home() {
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [opening, setOpening] = useState(false)
   const [exportRoot, setExportRoot] = useState('')
+  const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', channelId: '' })
+  const [savingSlack, setSavingSlack] = useState(false)
+  const [slackSaved, setSlackSaved] = useState(false)
 
   useEffect(() => { api.doctor().then(setChecks) }, [])
-  useEffect(() => { api.settings.get().then(s => setExportRoot(s.exportRoot)) }, [])
+  useEffect(() => {
+    api.settings.get().then(s => {
+      setExportRoot(s.exportRoot)
+      setSlack(s.slack)
+    })
+  }, [])
 
   const missing = checks.filter(c => !c.ok)
 
@@ -30,6 +38,21 @@ export function Home() {
   async function chooseExportRoot() {
     const settings = await api.settings.chooseExportRoot()
     if (settings) setExportRoot(settings.exportRoot)
+  }
+
+  async function saveSlackSettings() {
+    setSavingSlack(true)
+    setSlackSaved(false)
+    try {
+      const settings = await api.settings.setSlack({
+        botToken: slack.botToken.trim(),
+        channelId: slack.channelId.trim(),
+      })
+      setSlack(settings.slack)
+      setSlackSaved(true)
+    } finally {
+      setSavingSlack(false)
+    }
   }
 
   return (
@@ -148,6 +171,41 @@ export function Home() {
               className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
             >
               Browse
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6 border border-zinc-800 bg-zinc-900/40 p-3">
+          <div className="mb-2 text-xs font-medium text-zinc-300">Publish</div>
+          <div className="grid grid-cols-[1fr_180px] gap-2">
+            <label className="text-xs text-zinc-500">
+              Slack bot token
+              <input
+                value={slack.botToken}
+                onChange={(e) => { setSlack({ ...slack, botToken: e.target.value }); setSlackSaved(false) }}
+                type="password"
+                placeholder="xoxb-..."
+                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </label>
+            <label className="text-xs text-zinc-500">
+              Slack channel ID
+              <input
+                value={slack.channelId}
+                onChange={(e) => { setSlack({ ...slack, channelId: e.target.value }); setSlackSaved(false) }}
+                placeholder="C..."
+                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-2">
+            {slackSaved && <span className="text-xs text-emerald-300">Saved</span>}
+            <button
+              onClick={saveSlackSettings}
+              disabled={savingSlack}
+              className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {savingSlack ? 'Saving...' : 'Save publish settings'}
             </button>
           </div>
         </div>

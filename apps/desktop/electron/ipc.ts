@@ -10,8 +10,10 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { HotkeySettings, PcCaptureSource, Session } from '@shared/types'
+import type { Bug, ExportedMarkerFile, ExportPublishOptions, HotkeySettings, PcCaptureSource, Session, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
+import { writeExportManifests } from './export-manifest'
+import { publishManifestToSlack } from './slack-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 
@@ -50,6 +52,7 @@ export const CHANNEL = {
   settingsGet:             'settings:get',
   settingsSetExportRoot:   'settings:setExportRoot',
   settingsSetHotkeys:      'settings:setHotkeys',
+  settingsSetSlack:        'settings:setSlack',
   settingsChooseExportRoot:'settings:chooseExportRoot',
 } as const
 
@@ -100,11 +103,59 @@ function exportBaseName(session: Session, bug: { id: string; note: string; creat
   return `${note}_${build}_${localDatePart(bug.createdAt)}_${bug.id.slice(0, 8)}`
 }
 
-function exportLogcatSidecar(paths: Paths, session: Session, bug: { id: string; logcatRel: string | null }, outDir: string, baseName: string): void {
-  if (!bug.logcatRel) return
+function exportLogcatSidecar(paths: Paths, session: Session, bug: { id: string; logcatRel: string | null }, outDir: string, baseName: string): string | null {
+  if (!bug.logcatRel) return null
   const sourcePath = join(paths.sessionDir(session.id), bug.logcatRel)
-  if (!existsSync(sourcePath)) return
-  copyFileSync(sourcePath, join(outDir, `${baseName}.logcat.txt`))
+  if (!existsSync(sourcePath)) return null
+  const outputPath = join(outDir, `${baseName}.logcat.txt`)
+  copyFileSync(sourcePath, outputPath)
+  return outputPath
+}
+
+async function exportBugEvidence(args: {
+  deps: IpcDeps
+  session: Session
+  bug: Bug
+  outDir: string
+  baseName: string
+  includeLogcat?: boolean
+}): Promise<ExportedMarkerFile> {
+  const outputPath = join(args.outDir, `${args.baseName}.mp4`)
+  const imagePath = join(args.outDir, `${args.baseName}.jpg`)
+  const { startMs, endMs } = clampClipWindow({ ...args.bug, durationMs: args.session.durationMs })
+  const ffmpegPath = resolveBundledFfmpegPath()
+  const clicks = readClickLog(args.deps.paths.clicksFile(args.session.id))
+  const inputPath = sessionVideoInputPath(args.session, args.deps.paths)
+  const tileSize = await contactSheetTileSize(args.deps.runner, inputPath)
+  const clipOptions = {
+    inputPath,
+    outputPath,
+    startMs,
+    endMs,
+    narrationPath: args.bug.audioRel ? join(args.deps.paths.sessionDir(args.session.id), args.bug.audioRel) : null,
+    narrationDurationMs: args.bug.audioDurationMs,
+    severity: args.bug.severity,
+    note: args.bug.note,
+    markerMs: args.bug.offsetMs,
+    deviceModel: args.session.deviceModel,
+    buildVersion: args.session.buildVersion,
+    androidVersion: args.session.androidVersion,
+    testNote: args.session.testNote,
+    tester: args.session.tester,
+    testedAtMs: args.bug.createdAt,
+    clicks,
+  }
+  await extractClip(args.deps.runner, ffmpegPath, clipOptions)
+  await extractContactSheet(args.deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
+  const logcatPath = args.includeLogcat
+    ? exportLogcatSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName)
+    : null
+  return {
+    bugId: args.bug.id,
+    videoPath: outputPath,
+    previewPath: imagePath,
+    logcatPath,
+  }
 }
 
 function readClickLog(filePath: string): { t: number; x: number; y: number }[] {
@@ -614,7 +665,8 @@ export function registerIpc(deps: IpcDeps): void {
     deps.setHotkeys(settings.hotkeys)
     return settings
   })
-  ipcMain.handle(CHANNEL.settingsChooseExportRoot, async (): Promise<{ exportRoot: string } | null> => {
+  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => deps.settings.setSlack(slack))
+  ipcMain.handle(CHANNEL.settingsChooseExportRoot, async () => {
     const win = deps.getWindow()
     const pick = await (win
       ? dialog.showOpenDialog(win, { title: 'Choose export folder', properties: ['openDirectory', 'createDirectory'] })
@@ -630,7 +682,7 @@ export function registerIpc(deps: IpcDeps): void {
     const bytes = Buffer.from(args.base64, 'base64')
     deps.manager.saveBugAudio(args.sessionId, args.bugId, bytes, args.durationMs)
   })
-  ipcMain.handle(CHANNEL.bugExportClip, async (_e, args: { sessionId: string; bugId: string; includeLogcat?: boolean }): Promise<string | null> => {
+  ipcMain.handle(CHANNEL.bugExportClip, async (_e, args: { sessionId: string; bugId: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId)
     const bug = bugs.find(b => b.id === args.bugId)
@@ -639,38 +691,19 @@ export function registerIpc(deps: IpcDeps): void {
     const outDir = exportDirForSession(deps.settings.get().exportRoot, session)
     mkdirSync(outDir, { recursive: true })
     const baseName = exportBaseName(session, bug)
-    const outputPath = join(outDir, `${baseName}.mp4`)
-    const imagePath = join(outDir, `${baseName}.jpg`)
-
-    const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
-    const ffmpegPath = resolveBundledFfmpegPath()
-    const clicks = readClickLog(deps.paths.clicksFile(session.id))
-    const inputPath = sessionVideoInputPath(session, deps.paths)
-    const tileSize = await contactSheetTileSize(deps.runner, inputPath)
-    const clipOptions = {
-      inputPath,
-      outputPath,
-      startMs, endMs,
-      narrationPath: bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-      narrationDurationMs: bug.audioDurationMs,
-      severity: bug.severity,
-      note: bug.note,
-      markerMs: bug.offsetMs,
-      deviceModel: session.deviceModel,
-      buildVersion: session.buildVersion,
-      androidVersion: session.androidVersion,
-      testNote: session.testNote,
-      tester: session.tester,
-      testedAtMs: bug.createdAt,
-      clicks,
+    const file = await exportBugEvidence({ deps, session, bug, outDir, baseName, includeLogcat: args.includeLogcat })
+    const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, publish: args.publish })
+    if (args.publish?.target === 'slack') {
+      await publishManifestToSlack({
+        manifest: manifestFiles.manifest,
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        settings: deps.settings.get().slack,
+      })
     }
-    await extractClip(deps.runner, ffmpegPath, clipOptions)
-    await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
-    if (args.includeLogcat) exportLogcatSidecar(deps.paths, session, bug, outDir, baseName)
-    return outputPath
+    return file.videoPath
   })
 
-  ipcMain.handle(CHANNEL.bugExportClips, async (_e, args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean }): Promise<string[] | null> => {
+  ipcMain.handle(CHANNEL.bugExportClips, async (_e, args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
@@ -678,41 +711,21 @@ export function registerIpc(deps: IpcDeps): void {
 
     const outDir = exportDirForSession(deps.settings.get().exportRoot, session)
     mkdirSync(outDir, { recursive: true })
-    const outputs: string[] = []
-    const clicks = readClickLog(deps.paths.clicksFile(session.id))
+    const files: ExportedMarkerFile[] = []
     for (let i = 0; i < bugs.length; i++) {
       const bug = bugs[i]
-      const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
       const baseName = `${String(i + 1).padStart(2, '0')}-${exportBaseName(session, bug)}`
-      const outputPath = join(outDir, `${baseName}.mp4`)
-      const imagePath = join(outDir, `${baseName}.jpg`)
-      const ffmpegPath = resolveBundledFfmpegPath()
-      const inputPath = sessionVideoInputPath(session, deps.paths)
-      const tileSize = await contactSheetTileSize(deps.runner, inputPath)
-      const clipOptions = {
-        inputPath,
-        outputPath,
-        startMs,
-        endMs,
-        narrationPath: bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-        narrationDurationMs: bug.audioDurationMs,
-        severity: bug.severity,
-        note: bug.note,
-        markerMs: bug.offsetMs,
-        deviceModel: session.deviceModel,
-        buildVersion: session.buildVersion,
-        androidVersion: session.androidVersion,
-        testNote: session.testNote,
-        tester: session.tester,
-        testedAtMs: bug.createdAt,
-        clicks,
-      }
-      await extractClip(deps.runner, ffmpegPath, clipOptions)
-      await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
-      if (args.includeLogcat) exportLogcatSidecar(deps.paths, session, bug, outDir, baseName)
-      outputs.push(outputPath)
+      files.push(await exportBugEvidence({ deps, session, bug, outDir, baseName, includeLogcat: args.includeLogcat }))
     }
-    return outputs
+    const manifestFiles = writeExportManifests({ session, bugs, files, outDir, publish: args.publish })
+    if (args.publish?.target === 'slack') {
+      await publishManifestToSlack({
+        manifest: manifestFiles.manifest,
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        settings: deps.settings.get().slack,
+      })
+    }
+    return files.map(file => file.videoPath)
   })
 }
 

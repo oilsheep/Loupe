@@ -46,6 +46,7 @@ const api: DesktopApi = {
     get:              ()        => ipcRenderer.invoke(CHANNEL.settingsGet),
     setExportRoot:    (path)    => ipcRenderer.invoke(CHANNEL.settingsSetExportRoot, path),
     setHotkeys:        (hotkeys) => ipcRenderer.invoke(CHANNEL.settingsSetHotkeys, hotkeys),
+    setSlack:          (settings) => ipcRenderer.invoke(CHANNEL.settingsSetSlack, settings),
     chooseExportRoot: ()        => ipcRenderer.invoke(CHANNEL.settingsChooseExportRoot),
   },
   onBugMarkRequested: (cb) => {

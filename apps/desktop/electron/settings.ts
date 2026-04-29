@@ -1,11 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { HotkeySettings } from '@shared/types'
-
-export interface AppSettings {
-  exportRoot: string
-  hotkeys: HotkeySettings
-}
+import type { AppSettings, HotkeySettings, SlackPublishSettings } from '@shared/types'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
   improvement: 'F6',
@@ -23,6 +18,13 @@ function normalizeHotkeys(raw?: Partial<HotkeySettings> & { note?: string }): Ho
   }
 }
 
+function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettings {
+  return {
+    botToken: raw?.botToken || '',
+    channelId: raw?.channelId || '',
+  }
+}
+
 export class SettingsStore {
   constructor(private filePath: string, private defaults: AppSettings) {}
 
@@ -33,6 +35,7 @@ export class SettingsStore {
       return {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
+        slack: normalizeSlack(raw.slack),
       }
     } catch {
       return this.defaults
@@ -48,6 +51,13 @@ export class SettingsStore {
 
   setHotkeys(hotkeys: HotkeySettings): AppSettings {
     const next = { ...this.get(), hotkeys: normalizeHotkeys(hotkeys) }
+    mkdirSync(dirname(this.filePath), { recursive: true })
+    writeFileSync(this.filePath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+    return next
+  }
+
+  setSlack(slack: SlackPublishSettings): AppSettings {
+    const next = { ...this.get(), slack: normalizeSlack(slack) }
     mkdirSync(dirname(this.filePath), { recursive: true })
     writeFileSync(this.filePath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
     return next

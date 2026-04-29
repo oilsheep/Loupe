@@ -145,7 +145,11 @@ app.whenReady().then(async () => {
     : join(__dirname, '..', '..', '..', '..', 'recordings')
   console.log(`Loupe: session data root = ${root}`)
   const paths = createPaths(root); paths.ensureRoot()
-  const settings = new SettingsStore(paths.settingsFile(), { exportRoot: join(app.getPath('videos'), 'Loupe'), hotkeys: DEFAULT_HOTKEYS })
+  const settings = new SettingsStore(paths.settingsFile(), {
+    exportRoot: join(app.getPath('videos'), 'Loupe'),
+    hotkeys: DEFAULT_HOTKEYS,
+    slack: { botToken: '', channelId: '' },
+  })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()
   const adb = new Adb(runner)

@@ -33,9 +33,10 @@ function fakeApi(): DesktopApi {
     } as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     settings: {
-      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' } }) as any,
-      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' } }) as any,
+      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, slack: { botToken: '', channelId: '' } }) as any,
+      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, slack: { botToken: '', channelId: '' } }) as any,
       setHotkeys: vi.fn() as any,
+      setSlack: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,
     },
     onBugMarkRequested: () => () => {},
@@ -123,8 +124,13 @@ describe('BugList', () => {
     await screen.findByTestId('export-dialog')
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(false)
-    fireEvent.click(screen.getByText('Export'))
-    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({ sessionId: 's1', bugId: 'b1', includeLogcat: false }))
+    fireEvent.click(screen.getByText('Publish'))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({
+      sessionId: 's1',
+      bugId: 'b1',
+      includeLogcat: false,
+      publish: { target: 'local', slackThreadMode: 'single-thread' },
+    }))
     expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { tester: 'Avery', testNote: 'smoke' })
     expect(alertSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
@@ -139,8 +145,38 @@ describe('BugList', () => {
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(true)
     fireEvent.click(logcatToggle)
-    fireEvent.click(screen.getByText('Export'))
-    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({ sessionId: 's1', bugId: 'b1', includeLogcat: false }))
+    fireEvent.click(screen.getByText('Publish'))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({
+      sessionId: 's1',
+      bugId: 'b1',
+      includeLogcat: false,
+      publish: { target: 'local', slackThreadMode: 'single-thread' },
+    }))
+  })
+
+  it('passes Slack thread layout through publish options', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByText('Slack'))
+    fireEvent.click(screen.getByText('Every marker per thread'))
+    fireEvent.click(screen.getByText('Publish'))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
+      publish: { target: 'slack', slackThreadMode: 'per-marker-thread' },
+    })))
+  })
+
+  it('keeps the publish dialog open when Slack publish fails', async () => {
+    const api = fakeApi()
+    api.bug.exportClip = vi.fn().mockRejectedValue(new Error('Slack channel ID is missing')) as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByText('Slack'))
+    fireEvent.click(screen.getByText('Publish'))
+    await screen.findByText('Slack channel ID is missing')
+    expect(screen.getByTestId('export-dialog')).toBeTruthy()
   })
 
   it('opens exported item location when export completion prompt is accepted', async () => {
@@ -149,7 +185,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByText('Publish'))
     await waitFor(() => expect(api.app.showItemInFolder).toHaveBeenCalledWith('/path/out.mp4'))
   })
 
