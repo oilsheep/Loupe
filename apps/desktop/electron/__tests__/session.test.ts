@@ -27,6 +27,7 @@ function makeStubs() {
     start: vi.fn(),
     stop: vi.fn(),
     dumpRecentToFile: vi.fn().mockImplementation((path: string) => writeFileSync(path, 'log line\n')),
+    dumpRecentLinesToFile: vi.fn().mockImplementation((path: string) => writeFileSync(path, 'line 1\nline 2\nline 3\nline 4\nline 5\n')),
   } as unknown as LogcatBuffer
   const screenshot = vi.fn().mockImplementation(async (_runner, _id, out: string) => {
     writeFileSync(out, Buffer.from([0x89, 0x50]))
@@ -103,7 +104,7 @@ describe('SessionManager', () => {
     await flushPromises()
     expect(existsSync(paths.screenshotFile('sess-1', bug.id))).toBe(true)
     expect(existsSync(paths.logcatFile('sess-1', bug.id))).toBe(true)
-    expect(stubs.logcat.dumpRecentToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id))
+    expect(stubs.logcat.dumpRecentLinesToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id), 5)
     expect(db.listBugs('sess-1')[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).bugs[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
   })

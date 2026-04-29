@@ -104,12 +104,13 @@ export interface DesktopApi {
   }
   bug: {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string }): Promise<Bug>
+    getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
     update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }): Promise<void>
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
-    exportClip(args: { sessionId: string; bugId: string }):        Promise<string | null>
-    exportClips(args: { sessionId: string; bugIds: string[] }):    Promise<string[] | null>
+    exportClip(args: { sessionId: string; bugId: string; includeLogcat?: boolean }): Promise<string | null>
+    exportClips(args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean }): Promise<string[] | null>
   }
   hotkey: {
     /** Globally enable or disable the bug-mark hotkey. Used to suppress capture while typing in the dialog. */

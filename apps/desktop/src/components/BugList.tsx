@@ -119,11 +119,13 @@ interface ExportConfirmDialogProps {
   outputRoot: string
   tester: string
   testNote: string
+  includeLogcat: boolean
   busy: boolean
   hasMissingNotes: boolean
   onOutputRootChange(value: string): void
   onTesterChange(value: string): void
   onTestNoteChange(value: string): void
+  onIncludeLogcatChange(value: boolean): void
   onBrowseOutputRoot(): void
   onCancel(): void
   onConfirm(): void
@@ -134,11 +136,13 @@ function ExportConfirmDialog({
   outputRoot,
   tester,
   testNote,
+  includeLogcat,
   busy,
   hasMissingNotes,
   onOutputRootChange,
   onTesterChange,
   onTestNoteChange,
+  onIncludeLogcatChange,
   onBrowseOutputRoot,
   onCancel,
   onConfirm,
@@ -189,6 +193,16 @@ function ExportConfirmDialog({
             />
           </label>
         </div>
+
+        <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            checked={includeLogcat}
+            onChange={(e) => onIncludeLogcatChange(e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          Export marker logcat as sidecar text files
+        </label>
 
         {hasMissingNotes && (
           <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
@@ -276,12 +290,14 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
 
 export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, tester = '', testNote = '' }: Props) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [logcatPreview, setLogcatPreview] = useState<Record<string, string>>({})
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
   const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
   const [exportRoot, setExportRoot] = useState('')
   const [exportTester, setExportTester] = useState(tester)
   const [exportTestNote, setExportTestNote] = useState(testNote)
+  const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   const allChecked = bugs.length > 0 && bugs.every(b => checked.has(b.id))
@@ -317,6 +333,26 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     return () => { cancelled = true }
   }, [bugs, api])
 
+  useEffect(() => {
+    let cancelled = false
+    Promise.all(
+      bugs
+        .filter(b => b.logcatRel)
+        .map(async b => {
+          const preview = await api.bug.getLogcatPreview({ sessionId: b.sessionId, relPath: b.logcatRel!, maxLines: 5 })
+          return [b.id, preview ?? ''] as const
+        })
+    ).then(entries => {
+      if (cancelled) return
+      const next: Record<string, string> = {}
+      for (const [id, preview] of entries) {
+        if (preview) next[id] = preview
+      }
+      setLogcatPreview(next)
+    })
+    return () => { cancelled = true }
+  }, [bugs, api])
+
   function toggleAll() {
     setChecked(allChecked ? new Set() : new Set(bugs.map(b => b.id)))
   }
@@ -335,6 +371,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportRoot(settings.exportRoot)
     setExportTester(tester)
     setExportTestNote(testNote)
+    setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
     setExportRequest(request)
   }
 
@@ -357,8 +394,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       })
       onMutated()
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0] })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds })
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], includeLogcat: exportIncludeLogcat })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, includeLogcat: exportIncludeLogcat })
       if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length)
       setExportRequest(null)
     } finally {
@@ -399,6 +436,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             isSelected={b.id === selectedBugId}
             isChecked={checked.has(b.id)}
             thumbnailUrl={thumbs[b.id]}
+            logcatPreview={logcatPreview[b.id]}
             onSelect={onSelect}
             onCheckedChange={toggleOne}
             onMutated={onMutated}
@@ -415,11 +453,13 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           outputRoot={exportRoot}
           tester={exportTester}
           testNote={exportTestNote}
+          includeLogcat={exportIncludeLogcat}
           busy={exporting}
           hasMissingNotes={exportRequest.bugs.some(b => !b.note.trim())}
           onOutputRootChange={setExportRoot}
           onTesterChange={setExportTester}
           onTestNoteChange={setExportTestNote}
+          onIncludeLogcatChange={setExportIncludeLogcat}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={() => { if (!exporting) setExportRequest(null) }}
           onConfirm={confirmExport}
@@ -436,6 +476,7 @@ interface RowProps {
   isSelected: boolean
   isChecked: boolean
   thumbnailUrl?: string
+  logcatPreview?: string
   onSelect(bug: Bug): void
   onCheckedChange(id: string): void
   onMutated(): void
@@ -445,7 +486,7 @@ interface RowProps {
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, onExportRequest }: RowProps) {
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
   const [post, setPost] = useState(bug.postSec)
@@ -656,6 +697,13 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, onSe
             data-testid={`note-${bug.id}`}
             className="max-h-32 min-h-8 w-full resize-none overflow-hidden rounded bg-zinc-950/40 px-2 py-1 text-sm text-zinc-200 outline-none hover:bg-zinc-950 focus:bg-zinc-800 focus:ring-1 focus:ring-blue-600"
           />
+
+          {logcatPreview && (
+            <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`}>
+              <div className="mb-1 text-zinc-500">logcat preview</div>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-zinc-400">{logcatPreview}</pre>
+            </div>
+          )}
 
           <ClipWindowControl
             id={bug.id}

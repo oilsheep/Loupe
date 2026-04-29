@@ -80,6 +80,7 @@ export interface AddMarkerArgs {
 }
 
 export class SessionManager {
+  private static readonly MARKER_LOGCAT_LINES = 5
   private active: Session | null = null
   private capture: typeof defaultCapture
   private prepareVideo: (inputPath: string) => Promise<void>
@@ -323,7 +324,7 @@ export class SessionManager {
 
     if (session.connectionMode !== 'pc') {
       try {
-        logcat.dumpRecentToFile(logcatPath)
+        logcat.dumpRecentLinesToFile(logcatPath, SessionManager.MARKER_LOGCAT_LINES)
         logcatRel = `logcat/${bugId}.txt`
       } catch (err) {
         console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)

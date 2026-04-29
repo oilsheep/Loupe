@@ -40,6 +40,15 @@ describe('LogcatBuffer', () => {
     expect(buf.dumpRecent(7000)).toBe('mid\nnew')   // window: [2000, 7000]
   })
 
+  it('returns only the latest recent lines when requested', () => {
+    const buf = new LogcatBuffer({ run: vi.fn() as any, spawn: vi.fn() as any }, 'ABC', { windowMs: 5_000 })
+    buf.appendLineForTest('old', 1000)
+    buf.appendLineForTest('mid', 4000)
+    buf.appendLineForTest('new', 6000)
+    expect(buf.dumpRecentLines(2, 7000)).toBe('mid\nnew')
+    expect(buf.dumpRecentLines(1, 7000)).toBe('new')
+  })
+
   it('stop kills the process', () => {
     const m = mockSpawnedProcess()
     const runner: IProcessRunner = { run: vi.fn() as any, spawn: vi.fn().mockReturnValue(m.proc) as any }

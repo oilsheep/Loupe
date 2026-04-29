@@ -49,9 +49,22 @@ export class LogcatBuffer {
       .join('\n')
   }
 
+  dumpRecentLines(maxLines: number, now: number = this.now()): string {
+    const cutoff = now - this.windowMs
+    return this.entries
+      .filter(e => e.t >= cutoff)
+      .slice(-Math.max(1, maxLines))
+      .map(e => e.line)
+      .join('\n')
+  }
+
   /** Convenience: dump and write to file. */
   dumpRecentToFile(filePath: string, now: number = this.now()): void {
     writeFileSync(filePath, this.dumpRecent(now), 'utf8')
+  }
+
+  dumpRecentLinesToFile(filePath: string, maxLines: number, now: number = this.now()): void {
+    writeFileSync(filePath, this.dumpRecentLines(maxLines, now), 'utf8')
   }
 
   /** Test-only seam — bypass spawn pipe. */

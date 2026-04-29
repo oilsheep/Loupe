@@ -32,6 +32,7 @@ const api: DesktopApi = {
   },
   bug: {
     addMarker:  (args)          => ipcRenderer.invoke(CHANNEL.bugAddMarker, args),
+    getLogcatPreview: (args)    => ipcRenderer.invoke(CHANNEL.bugGetLogcatPreview, args),
     update:     (id, patch)     => ipcRenderer.invoke(CHANNEL.bugUpdate, id, patch),
     saveAudio:  (args)          => ipcRenderer.invoke(CHANNEL.bugSaveAudio, args),
     delete:     (id)            => ipcRenderer.invoke(CHANNEL.bugDelete, id),

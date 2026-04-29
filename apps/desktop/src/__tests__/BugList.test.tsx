@@ -24,6 +24,7 @@ function fakeApi(): DesktopApi {
     device: {} as any, session: { updateMetadata: vi.fn() as any } as any,
     bug: {
       addMarker:  vi.fn().mockResolvedValue(bug()),
+      getLogcatPreview: vi.fn().mockResolvedValue(null),
       update:     vi.fn().mockResolvedValue(undefined),
       saveAudio:  vi.fn().mockResolvedValue(undefined),
       delete:     vi.fn().mockResolvedValue(undefined),
@@ -120,11 +121,26 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" testNote="smoke" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
+    expect(logcatToggle.checked).toBe(false)
     fireEvent.click(screen.getByText('Export'))
-    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({ sessionId: 's1', bugId: 'b1' }))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({ sessionId: 's1', bugId: 'b1', includeLogcat: false }))
     expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { tester: 'Avery', testNote: 'smoke' })
     expect(alertSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+
+  it('enables logcat sidecar export when requested', async () => {
+    const api = fakeApi()
+    api.bug.getLogcatPreview = vi.fn().mockResolvedValue('FATAL EXCEPTION: main') as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug({ logcatRel: 'logcat/b1.txt' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
+    expect(logcatToggle.checked).toBe(true)
+    fireEvent.click(logcatToggle)
+    fireEvent.click(screen.getByText('Export'))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith({ sessionId: 's1', bugId: 'b1', includeLogcat: false }))
   })
 
   it('opens exported item location when export completion prompt is accepted', async () => {
@@ -154,5 +170,13 @@ describe('BugList', () => {
   it('renders thumbnail when bug has screenshotRel', async () => {
     render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug({ screenshotRel: 'screenshots/b1.png' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('thumb-b1')).toBeTruthy())
+  })
+
+  it('renders a one-line logcat preview when bug has logcatRel', async () => {
+    const api = fakeApi()
+    api.bug.getLogcatPreview = vi.fn().mockResolvedValue('line 4\nline 5\nFATAL EXCEPTION: main') as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug({ logcatRel: 'logcat/b1.txt' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
+    await waitFor(() => expect(api.bug.getLogcatPreview).toHaveBeenCalledWith({ sessionId: 's1', relPath: 'logcat/b1.txt', maxLines: 5 }))
+    await waitFor(() => expect(screen.getByTestId('logcat-preview-b1').textContent).toContain('FATAL EXCEPTION: main'))
   })
 })
