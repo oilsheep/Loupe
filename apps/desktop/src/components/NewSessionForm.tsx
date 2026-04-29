@@ -60,7 +60,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         </div>
         <div className={`rounded border p-3 text-sm ${connectionMode === 'pc' ? 'border-blue-900/70 bg-blue-950/30 text-blue-100' : 'border-zinc-800 bg-zinc-900/60 text-zinc-300'}`}>
           {connectionMode === 'pc'
-            ? 'PC screen recording will start automatically when you press Start session. The selected screen shows a red frame while recording.'
+            ? 'PC recording will start automatically when you press Start session. Selected screens show a red frame while recording.'
             : 'Android device recording will start automatically when you press Start session.'}
         </div>
       </div>

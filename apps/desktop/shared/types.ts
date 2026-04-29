@@ -68,6 +68,7 @@ export interface PcCaptureSource {
   name: string
   type: 'screen' | 'window'
   displayId?: string
+  thumbnailDataUrl?: string
 }
 
 export interface DesktopApi {

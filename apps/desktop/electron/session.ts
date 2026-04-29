@@ -43,6 +43,12 @@ function isValidPngFile(filePath: string): boolean {
   }
 }
 
+function pcPlatformLabel(): string {
+  if (process.platform === 'darwin') return 'macOS'
+  if (process.platform === 'win32') return 'Windows'
+  return process.platform
+}
+
 /**
  * Default session id generator. Returns e.g. `2026-04-29_14-30-45_1.4.2-RC3`.
  * Folder name is human-readable (date + build) so QA can find recordings without
@@ -107,7 +113,7 @@ export class SessionManager {
     const { db, paths, adb, scrcpy, logcat } = this.deps
     const isPcSession = args.connectionMode === 'pc'
     const info = isPcSession
-      ? { model: args.pcCaptureSourceName?.trim() || 'PC screen', androidVersion: 'Windows' }
+      ? { model: args.pcCaptureSourceName?.trim() || 'PC screen', androidVersion: pcPlatformLabel() }
       : await adb.getDeviceInfo(args.deviceId)
     const startedAt = this.now()
     const id = this.makeSessionId(args.buildVersion, startedAt)

@@ -38,6 +38,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [pairingInFlight, setPairingInFlight] = useState<Set<string>>(new Set())
   const [pcSources, setPcSources] = useState<PcCaptureSource[]>([])
   const [pcSourcesLoading, setPcSourcesLoading] = useState(false)
+  const [pcSourceTab, setPcSourceTab] = useState<'screen' | 'window'>('screen')
 
   async function refresh() {
     try {
@@ -59,7 +60,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     setPcSourcesLoading(true)
     try {
       const sources = await api.app.listPcCaptureSources()
-      setPcSources(sources.filter(source => source.type === 'screen'))
+      setPcSources(sources)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -230,8 +231,11 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
 
   function selectPcSource(source: PcCaptureSource) {
     onSelect(source.id, 'pc', source.name)
-    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
+    if (source.type === 'screen') void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
+    else void api.app.hidePcCaptureFrame()
   }
+
+  const pcTabSources = pcSources.filter(source => source.type === pcSourceTab)
 
   return (
     <div className="space-y-3">
@@ -251,7 +255,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-medium">PC recording</div>
-            <div className="mt-0.5 text-xs text-zinc-500">Choose which screen to record.</div>
+            <div className="mt-0.5 text-xs text-zinc-500">Choose a screen or a single window.</div>
           </div>
           <button
             type="button"
@@ -262,9 +266,25 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             {pcSourcesLoading ? 'loading...' : 'refresh'}
           </button>
         </div>
-        <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
-          {pcSources.length === 0 && <div className="text-xs text-zinc-500">No screens found.</div>}
-          {pcSources.map(source => {
+        <div className="mt-3 grid grid-cols-2 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+          {(['screen', 'window'] as const).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setPcSourceTab(tab)}
+              className={`rounded px-2 py-1.5 ${pcSourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+            >
+              {tab === 'screen' ? 'Entire Screen' : 'Window'}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 grid max-h-72 grid-cols-2 gap-2 overflow-auto pr-1">
+          {pcTabSources.length === 0 && (
+            <div className="col-span-2 text-xs text-zinc-500">
+              {pcSourcesLoading ? 'Loading sources...' : `No ${pcSourceTab === 'screen' ? 'screens' : 'windows'} found.`}
+            </div>
+          )}
+          {pcTabSources.map(source => {
             const isSel = selectedId === source.id
             return (
               <button
@@ -272,13 +292,15 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
                 type="button"
                 data-testid={`source-pc-${source.id}`}
                 onClick={() => selectPcSource(source)}
-                className={`w-full rounded px-2 py-2 text-left text-xs
-                  ${isSel ? 'bg-blue-700 text-white' : 'bg-zinc-950 text-zinc-300 hover:bg-zinc-800'}`}
+                className={`min-w-0 rounded border p-2 text-left text-xs
+                  ${isSel ? 'border-blue-500 bg-blue-950/70 text-white' : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'}`}
               >
-                <span className={`mr-2 rounded px-1.5 py-0.5 ${source.type === 'screen' ? 'bg-red-950 text-red-200' : 'bg-zinc-800 text-zinc-300'}`}>
-                  screen
-                </span>
-                <span className="align-middle">{source.name}</span>
+                <div className="aspect-video overflow-hidden rounded bg-zinc-900">
+                  {source.thumbnailDataUrl
+                    ? <img src={source.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
+                    : <div className="h-full w-full bg-zinc-800" />}
+                </div>
+                <div className="mt-2 truncate">{source.name}</div>
               </button>
             )
           })}

@@ -10,7 +10,10 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       showItemInFolder: vi.fn() as any,
       openPath: vi.fn() as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue({ id: 'screen:1:0', name: 'Entire screen' }) as any,
-      listPcCaptureSources: vi.fn().mockResolvedValue([{ id: 'screen:1:0', name: 'Entire screen', type: 'screen' }]) as any,
+      listPcCaptureSources: vi.fn().mockResolvedValue([
+        { id: 'screen:1:0', name: 'Entire screen', type: 'screen', thumbnailDataUrl: 'data:image/png;base64,screen' },
+        { id: 'window:2:0', name: 'Chrome', type: 'window', thumbnailDataUrl: 'data:image/png;base64,window' },
+      ]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(true) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
     },
@@ -69,6 +72,16 @@ describe('DevicePicker', () => {
     await waitFor(() => expect(screen.getByTestId('source-pc-screen:1:0')).toBeTruthy())
     fireEvent.click(screen.getByTestId('source-pc-screen:1:0'))
     expect(onSelect).toHaveBeenCalledWith('screen:1:0', 'pc', 'Entire screen')
+  })
+
+  it('selects PC window as a recording source', async () => {
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
+    await waitFor(() => expect(screen.getByText('Window')).toBeTruthy())
+    fireEvent.click(screen.getByText('Window'))
+    await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('source-pc-window:2:0'))
+    expect(onSelect).toHaveBeenCalledWith('window:2:0', 'pc', 'Chrome')
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {

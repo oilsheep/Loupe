@@ -184,13 +184,14 @@ async function contactSheetTileSize(runner: IProcessRunner, inputPath: string): 
 async function listPcCaptureSources(): Promise<PcCaptureSource[]> {
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: { width: 1, height: 1 },
+    thumbnailSize: { width: 320, height: 180 },
   })
   return sources.map(source => ({
     id: source.id,
     name: source.name,
     type: source.id.startsWith('screen:') ? 'screen' : 'window',
     displayId: source.display_id || undefined,
+    thumbnailDataUrl: source.thumbnail.isEmpty() ? undefined : source.thumbnail.toDataURL(),
   }))
 }
 
@@ -496,9 +497,11 @@ export function registerIpc(deps: IpcDeps): void {
       const outputPath = deps.paths.pcVideoFile(session.id)
       try {
         await showPcCaptureFrame(args.deviceId, 'red').catch(() => false)
-        await startPcFfmpegRecording(args.deviceId, outputPath)
-        deps.db.updateSessionPcRecording(session.id, { pcRecordingEnabled: true, pcVideoPath: outputPath })
-        deps.manager.persistProject(session.id)
+        if (process.platform !== 'darwin') {
+          await startPcFfmpegRecording(args.deviceId, outputPath)
+          deps.db.updateSessionPcRecording(session.id, { pcRecordingEnabled: true, pcVideoPath: outputPath })
+          deps.manager.persistProject(session.id)
+        }
       } catch (err) {
         await hidePcCaptureFrame()
         await stopPcFfmpegRecording().catch(() => {})
