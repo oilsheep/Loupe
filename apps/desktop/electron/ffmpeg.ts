@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import type { IProcessRunner } from './process-runner'
 
 export interface ClipOptions {
@@ -381,5 +382,11 @@ export function resolveBundledFfmpegPath(): string {
   // Lazy require so test suite (vitest) doesn't pull binary.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const installer = require('@ffmpeg-installer/ffmpeg') as { path: string }
-  return installer.path
+  return resolveAsarUnpackedPath(installer.path)
+}
+
+export function resolveAsarUnpackedPath(filePath: string, exists: (path: string) => boolean = existsSync): string {
+  if (!filePath.includes('app.asar')) return filePath
+  const unpackedPath = filePath.replace('app.asar', 'app.asar.unpacked')
+  return exists(unpackedPath) ? unpackedPath : filePath
 }

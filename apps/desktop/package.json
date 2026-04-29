@@ -48,6 +48,10 @@
       "out/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/.pnpm/@ffmpeg-installer+*/node_modules/@ffmpeg-installer/**",
+      "node_modules/@ffmpeg-installer/**"
+    ],
     "extraResources": [
       {
         "from": "vendor/scrcpy",
@@ -61,7 +65,8 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-${version}-Setup.${ext}"
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": true,
