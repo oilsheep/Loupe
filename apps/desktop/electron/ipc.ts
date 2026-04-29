@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, desktopCapturer, dialog, screen, shell } from 'electron'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
@@ -40,6 +40,7 @@ export const CHANNEL = {
   sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
   bugAddMarker:            'bug:addMarker',
+  bugGetLogcatPreview:     'bug:getLogcatPreview',
   bugDelete:               'bug:delete',
   bugExportClip:           'bug:exportClip',
   bugExportClips:          'bug:exportClips',
@@ -97,6 +98,13 @@ function exportBaseName(session: Session, bug: { id: string; note: string; creat
   const note = safeFilePart(bug.note || 'marker')
   const build = safeFilePart(session.buildVersion || 'build')
   return `${note}_${build}_${localDatePart(bug.createdAt)}_${bug.id.slice(0, 8)}`
+}
+
+function exportLogcatSidecar(paths: Paths, session: Session, bug: { id: string; logcatRel: string | null }, outDir: string, baseName: string): void {
+  if (!bug.logcatRel) return
+  const sourcePath = join(paths.sessionDir(session.id), bug.logcatRel)
+  if (!existsSync(sourcePath)) return
+  copyFileSync(sourcePath, join(outDir, `${baseName}.logcat.txt`))
 }
 
 function readClickLog(filePath: string): { t: number; x: number; y: number }[] {
@@ -246,11 +254,21 @@ function parseGdigrabWindowArea(stderr: string): Electron.Rectangle | null {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
+export function isUnsupportedGdigrabDrawMouseError(stderr: string): boolean {
+  return /Unrecognized option 'draw_mouse'|Option not found/i.test(stderr)
+}
+
 function gdigrabWindowInput(source: PcCaptureSource): string {
   const match = source.id.match(/^window:(\d+):/)
   const hwnd = match ? Number(match[1]) : NaN
   if (Number.isFinite(hwnd) && hwnd > 0) return `hwnd=0x${hwnd.toString(16)}`
   return `title=${source.name}`
+}
+
+export function buildMacAvfoundationInputName(source: PcCaptureSource, screenSources: PcCaptureSource[]): string {
+  if (source.type !== 'screen') throw new Error('Window PC recording is only supported on Windows for now. Please choose a screen instead.')
+  const screenIndex = Math.max(0, screenSources.findIndex(s => s.id === source.id))
+  return `Capture screen ${screenIndex}:none`
 }
 
 async function startPcFfmpegRecording(sourceId: string, outputPath: string): Promise<void> {
@@ -259,6 +277,9 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
   const sources = await listPcCaptureSources()
   const source = sources.find(s => s.id === sourceId)
   if (!source) throw new Error('Selected PC capture source is no longer available.')
+  if (process.platform !== 'win32' && source.type === 'window') {
+    throw new Error('Window PC recording is only supported on Windows for now. Please choose a screen instead.')
+  }
   const display = source.type === 'screen'
     ? (source.displayId
         ? screen.getAllDisplays().find(d => String(d.id) === source.displayId)
@@ -266,8 +287,34 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
     : null
   if (source.type === 'screen' && !display) throw new Error('Selected display is no longer available.')
 
-  function buildArgs(boundsOverride?: Electron.Rectangle): string[] {
-    const args = ['-y', '-hide_banner', '-loglevel', 'warning', '-f', 'gdigrab', '-framerate', '30', '-draw_mouse', '1']
+  function buildArgs(boundsOverride?: Electron.Rectangle, includeMouse = true): string[] {
+    if (process.platform === 'darwin') {
+      const args = [
+        '-y',
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-f', 'avfoundation',
+        '-framerate', '30',
+        '-capture_cursor', '1',
+        '-i', buildMacAvfoundationInputName(source!, sources.filter(s => s.type === 'screen')),
+      ]
+      args.push(
+        '-c:v', 'libvpx-vp9',
+        '-deadline', 'realtime',
+        '-cpu-used', '8',
+        '-b:v', '4M',
+        '-pix_fmt', 'yuv420p',
+        outputPath,
+      )
+      return args
+    }
+
+    if (process.platform !== 'win32') {
+      throw new Error(`PC recording is not supported on ${process.platform}.`)
+    }
+
+    const args = ['-y', '-hide_banner', '-loglevel', 'warning', '-f', 'gdigrab', '-framerate', '30']
+    if (includeMouse) args.push('-draw_mouse', '1')
     if (source!.type === 'screen') {
       const rawBounds = displayPhysicalBounds(display!)
       const physicalBounds = boundsOverride
@@ -323,13 +370,30 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
     })
   }
 
-  try {
-    await spawnAndWait(buildArgs())
-  } catch (err) {
-    const gdigrabBounds = source.type === 'screen' ? parseGdigrabWindowArea(pcRecordingStderr) : null
-    if (!gdigrabBounds) throw err
-    await spawnAndWait(buildArgs(gdigrabBounds))
+  let includeMouse = true
+  let boundsOverride: Electron.Rectangle | undefined
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await spawnAndWait(buildArgs(boundsOverride, includeMouse))
+      return
+    } catch (err) {
+      lastErr = err
+      const stderr = pcRecordingStderr
+      if (includeMouse && isUnsupportedGdigrabDrawMouseError(stderr)) {
+        includeMouse = false
+        continue
+      }
+
+      const gdigrabBounds = source.type === 'screen' && !boundsOverride ? parseGdigrabWindowArea(stderr) : null
+      if (gdigrabBounds) {
+        boundsOverride = gdigrabBounds
+        continue
+      }
+      throw err
+    }
   }
+  throw lastErr
 }
 
 async function stopPcFfmpegRecording(): Promise<void> {
@@ -526,6 +590,17 @@ export function registerIpc(deps: IpcDeps): void {
   })
 
   ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch) => deps.manager.updateBug(id, patch))
+  ipcMain.handle(CHANNEL.bugGetLogcatPreview, async (_e, args: { sessionId: string; relPath: string; maxLines?: number }) => {
+    const filePath = join(deps.paths.sessionDir(args.sessionId), args.relPath)
+    if (!existsSync(filePath)) return null
+    const maxLines = Math.max(1, args.maxLines ?? 1)
+    const lines = readFileSync(filePath, 'utf8')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+    if (lines.length === 0) return null
+    return lines.slice(-maxLines).join('\n')
+  })
   ipcMain.handle(CHANNEL.bugDelete, async (_e, id: string) => deps.manager.deleteBug(id))
 
   ipcMain.handle(CHANNEL.hotkeySetEnabled, async (_e, enabled: boolean) => deps.setHotkeyEnabled(enabled))
@@ -552,7 +627,7 @@ export function registerIpc(deps: IpcDeps): void {
     const bytes = Buffer.from(args.base64, 'base64')
     deps.manager.saveBugAudio(args.sessionId, args.bugId, bytes, args.durationMs)
   })
-  ipcMain.handle(CHANNEL.bugExportClip, async (_e, args: { sessionId: string; bugId: string }): Promise<string | null> => {
+  ipcMain.handle(CHANNEL.bugExportClip, async (_e, args: { sessionId: string; bugId: string; includeLogcat?: boolean }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId)
     const bug = bugs.find(b => b.id === args.bugId)
@@ -588,10 +663,11 @@ export function registerIpc(deps: IpcDeps): void {
     }
     await extractClip(deps.runner, ffmpegPath, clipOptions)
     await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
+    if (args.includeLogcat) exportLogcatSidecar(deps.paths, session, bug, outDir, baseName)
     return outputPath
   })
 
-  ipcMain.handle(CHANNEL.bugExportClips, async (_e, args: { sessionId: string; bugIds: string[] }): Promise<string[] | null> => {
+  ipcMain.handle(CHANNEL.bugExportClips, async (_e, args: { sessionId: string; bugIds: string[]; includeLogcat?: boolean }): Promise<string[] | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
@@ -630,6 +706,7 @@ export function registerIpc(deps: IpcDeps): void {
       }
       await extractClip(deps.runner, ffmpegPath, clipOptions)
       await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
+      if (args.includeLogcat) exportLogcatSidecar(deps.paths, session, bug, outDir, baseName)
       outputs.push(outputPath)
     }
     return outputs

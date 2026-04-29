@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import type { IProcessRunner } from './process-runner'
-import { existsSync } from 'node:fs'
 
 export interface ClipOptions {
   inputPath: string
