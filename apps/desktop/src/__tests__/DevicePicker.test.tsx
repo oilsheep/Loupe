@@ -126,4 +126,18 @@ describe('DevicePicker', () => {
     // mdnsScan re-runs after successful pair
     await waitFor(() => expect(mdnsScan).toHaveBeenCalledTimes(2))
   })
+
+  it('manual Android pair submits the pairing address and code, then refreshes mdns results', async () => {
+    const mdnsScan = vi.fn().mockResolvedValue([])
+    const pair = vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' })
+    render(<DevicePicker api={fakeApi([], undefined, mdnsScan, pair)} selectedId={null} onSelect={vi.fn()} />)
+
+    fireEvent.change(screen.getByTestId('manual-pair-ip-port'), { target: { value: '192.168.1.10:37099' } })
+    fireEvent.change(screen.getByTestId('manual-pair-code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByTestId('manual-pair-submit'))
+
+    await waitFor(() => expect(pair).toHaveBeenCalledWith({ ipPort: '192.168.1.10:37099', code: '123456' }))
+    await waitFor(() => expect(mdnsScan).toHaveBeenCalledTimes(1))
+    expect(screen.getByText(/Paired: 192.168.1.10:37099/i)).toBeTruthy()
+  })
 })

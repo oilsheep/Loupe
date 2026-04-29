@@ -23,6 +23,9 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null)
   const [wifiIp, setWifiIp] = useState('')
   const [wifiBusy, setWifiBusy] = useState(false)
+  const [manualPairIpPort, setManualPairIpPort] = useState('')
+  const [manualPairCode, setManualPairCode] = useState('')
+  const [manualPairBusy, setManualPairBusy] = useState(false)
 
   const [userNames, setUserNames] = useState<Record<string, string>>({})
   const [labels, setLabels] = useState<Record<string, string>>(readLabels)
@@ -185,6 +188,28 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         next.delete(entry.ipPort)
         return next
       })
+    }
+  }
+
+  async function submitManualPair() {
+    const ipPort = manualPairIpPort.trim()
+    const code = manualPairCode.trim()
+    if (!ipPort || !code) return
+    setManualPairBusy(true)
+    setError(null)
+    try {
+      const r = await api.device.pair({ ipPort, code })
+      if (!r.ok) {
+        setConnectionStatus(null)
+        setError(r.message)
+        return
+      }
+      setManualPairIpPort('')
+      setManualPairCode('')
+      setConnectionStatus(`Paired: ${ipPort}. Scan Wi-Fi devices for the ready/connect address.`)
+      await runMdnsScan()
+    } finally {
+      setManualPairBusy(false)
     }
   }
 
@@ -412,6 +437,38 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="border-t border-zinc-800 pt-3">
+        <label className="text-xs text-zinc-400">Pair Android manually (use the pairing address and six-digit code)</label>
+        <div className="mt-1 flex gap-2">
+          <input
+            value={manualPairIpPort}
+            onChange={e => setManualPairIpPort(e.target.value)}
+            placeholder="ip:pairing-port"
+            data-testid="manual-pair-ip-port"
+            className="flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+          />
+          <input
+            value={manualPairCode}
+            onChange={e => setManualPairCode(e.target.value)}
+            placeholder="6-digit code"
+            maxLength={6}
+            data-testid="manual-pair-code"
+            className="w-32 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+          />
+          <button
+            onClick={submitManualPair}
+            disabled={manualPairBusy}
+            data-testid="manual-pair-submit"
+            className="rounded bg-amber-700 px-3 py-1 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            {manualPairBusy ? 'pairing...' : 'pair'}
+          </button>
+        </div>
+        <div className="mt-1 text-[11px] text-zinc-500">
+          Use the address shown under Android Wireless debugging → Pair device with pairing code. After pairing, connect with the ready/connect address.
+        </div>
       </div>
 
       <div className="border-t border-zinc-800 pt-3">
