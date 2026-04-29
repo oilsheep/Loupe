@@ -6,6 +6,7 @@ import {
   buildFaststartArgs,
   clampClipWindow,
   remuxForHtml5Playback,
+  resolveAsarUnpackedPath,
 } from '../ffmpeg'
 import type { IProcessRunner } from '../process-runner'
 
@@ -277,5 +278,18 @@ describe('remuxForHtml5Playback', () => {
     }
     await expect(remuxForHtml5Playback(runner, '/ff', { inputPath: 'a', outputPath: 'b' }))
       .rejects.toThrow(/remux failed/)
+  })
+})
+
+describe('resolveAsarUnpackedPath', () => {
+  it('uses app.asar.unpacked when a packaged binary exists there', () => {
+    const packed = String.raw`C:\Program Files\Loupe\resources\app.asar\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe`
+    const unpacked = String.raw`C:\Program Files\Loupe\resources\app.asar.unpacked\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe`
+    expect(resolveAsarUnpackedPath(packed, path => path === unpacked)).toBe(unpacked)
+  })
+
+  it('keeps the original path outside packaged asar builds', () => {
+    const devPath = String.raw`C:\projects\Loupe\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe`
+    expect(resolveAsarUnpackedPath(devPath, () => false)).toBe(devPath)
   })
 })
