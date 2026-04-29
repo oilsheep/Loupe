@@ -1,16 +1,34 @@
 # Loupe QA Recorder
 
-Loupe QA Recorder is a Windows desktop tool for QA recording. It supports Android device recording and, starting in **0.0.2**, PC full-screen recording with selectable displays.
+Loupe QA Recorder is a Windows desktop app for QA teams that need fast, repeatable bug evidence. It records long Android or PC test sessions, lets testers drop timestamped bug markers during testing, and exports short annotated clips plus contact-sheet images for each selected marker.
 
-Loupe is designed for sessions where testers keep recording, drop bug markers quickly, review the timeline afterward, and export short evidence clips without manually searching through a long recording.
+The app is built around a simple loop: **record once, mark instantly, review later, export clean evidence**. Testers do not need to scrub through a full session manually after every bug.
+
+## At a Glance
+
+| Area | What Loupe Does |
+| --- | --- |
+| Android testing | Records Android devices through bundled `adb` and `scrcpy`, with USB and Wireless debugging support. |
+| PC testing | Records a selected full monitor for desktop or web test cases. |
+| Fast markers | Adds bug markers with configurable hotkeys or colored buttons while recording. |
+| Review | Replays each marker's export range directly from the review list. |
+| Export | Creates MP4 clips and 3x3 preview sheets with severity, note, build, OS, device/source, tester, and timestamp. |
+| Session files | Saves work as `.loupe` projects so markers, notes, recordings, and voice notes can be reopened later. |
+
+## Latest Version
+
+**Current version: 0.0.2**
+
+This release adds PC full-screen recording as a major feature while keeping the Android QA workflow intact.
 
 ## What's New in 0.0.2
 
-- **PC full-screen recording**: choose which monitor to record from the left panel.
-- **Screen selection frame**: selected PC screens show a green frame before recording and a red frame while recording.
-- **PC marker thumbnails**: PC markers get thumbnails immediately from the selected screen source.
-- **Landscape-aware review sheets**: exported 3x3 preview images now preserve landscape recordings instead of forcing a phone portrait layout.
-- **PC and Android source picker**: PC screen and Android devices are selected from the same left-side source list.
+- **PC full-screen recording**: choose a monitor from the left panel and record the full display.
+- **Selection and recording frames**: selected PC screens show a thin green frame before recording and a thin red frame while recording.
+- **PC marker thumbnails**: PC markers receive source thumbnails immediately, then fall back to video extraction if needed.
+- **Landscape-aware exports**: 3x3 preview sheets preserve landscape recordings instead of forcing a phone portrait layout.
+- **Unified source picker**: Android devices and PC screens are selected from the same start screen.
+- **Updated documentation**: installation, Android pairing, PC recording, marker workflow, export behavior, and `.loupe` project files are documented in English and Chinese.
 
 ## Product Highlights
 
@@ -32,6 +50,22 @@ Loupe is designed for sessions where testers keep recording, drop bug markers qu
 - **Session projects**: sessions are saved as `.loupe` files and can be reopened later.
 - **One-click Windows installer**: packaged builds include the required Android and export tooling.
 
+## Download and Install
+
+The packaged Windows installer is generated as:
+
+```text
+Loupe QA Recorder-0.0.2-Setup.exe
+```
+
+For a portable handoff, use the zip package:
+
+```text
+Loupe QA Recorder-0.0.2.zip
+```
+
+The installer includes the required Windows builds of `adb`, `scrcpy`, and export tooling. QA users do not need to install Android Platform Tools separately.
+
 ## Installation
 
 ### For QA Users
@@ -40,8 +74,6 @@ Loupe is designed for sessions where testers keep recording, drop bug markers qu
 2. Run the installer.
 3. If Windows SmartScreen warns about an unknown publisher, choose **More info** and then **Run anyway**.
 4. Launch **Loupe QA Recorder** from the desktop shortcut or Start menu.
-
-The installer includes the required Windows builds of `adb`, `scrcpy`, and export tooling. No extra Android Platform Tools installation is required.
 
 ## Recording Sources
 
