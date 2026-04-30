@@ -197,6 +197,32 @@ describe('BugList', () => {
     })))
   })
 
+  it('confirms large original attachments and passes merge audio options', async () => {
+    localStorage.setItem('loupe.skipOriginalFilesWarning', '0')
+    const api = fakeApi()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" hasSessionMicTrack />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    const includeOriginalFiles = screen.getByLabelText('附加原始檔案') as HTMLInputElement
+    fireEvent.click(includeOriginalFiles)
+    await waitFor(() => expect(includeOriginalFiles.checked).toBe(true))
+    const mergeOriginalAudio = await screen.findByLabelText('合併音軌') as HTMLInputElement
+    fireEvent.click(mergeOriginalAudio)
+    await waitFor(() => expect(mergeOriginalAudio.checked).toBe(true))
+    fireEvent.click(screen.getByText('Export'))
+
+    await screen.findByTestId('original-files-warning')
+    expect(api.bug.exportClip).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('繼續輸出'))
+
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
+      includeOriginalFiles: true,
+      mergeOriginalAudio: true,
+    })))
+    localStorage.removeItem('loupe.skipOriginalFilesWarning')
+  })
+
   it('keeps the publish dialog open when Slack publish fails', async () => {
     const api = fakeApi()
     api.bug.exportClip = vi.fn().mockRejectedValue(new Error('Slack channel ID is missing')) as any

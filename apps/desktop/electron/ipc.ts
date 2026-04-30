@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, desktopCapturer, dialog, screen, shell } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
@@ -113,6 +113,60 @@ function exportRecordsDir(outDir: string): string {
 
 function exportReportDir(outDir: string): string {
   return join(outDir, 'report')
+}
+
+function exportOriginalsDir(outDir: string): string {
+  return join(outDir, 'originals')
+}
+
+function copyOriginalRecordingFile(outDir: string, sourcePath: string | null | undefined, targetStem: string): string | null {
+  if (!sourcePath || !existsSync(sourcePath)) return null
+  const originalsDir = exportOriginalsDir(outDir)
+  mkdirSync(originalsDir, { recursive: true })
+  const ext = extname(sourcePath) || extname(basename(sourcePath)) || ''
+  const outputPath = join(originalsDir, `${targetStem}${ext}`)
+  copyFileSync(sourcePath, outputPath)
+  return outputPath
+}
+
+async function mergeOriginalRecordingAudio(runner: IProcessRunner, ffmpegPath: string, videoPath: string, micAudioPath: string, outputPath: string): Promise<void> {
+  const sourceHasAudio = await getVideoHasAudio(runner, videoPath)
+  const audioArgs = sourceHasAudio
+    ? [
+        '-filter_complex', '[0:a:0][1:a:0]amix=inputs=2:duration=first:dropout_transition=0[a]',
+        '-map', '[a]',
+      ]
+    : [
+        '-map', '1:a:0',
+      ]
+  const result = await runner.run(ffmpegPath, [
+    '-y',
+    '-i', videoPath,
+    '-i', micAudioPath,
+    '-map', '0:v:0',
+    ...audioArgs,
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-movflags', '+faststart',
+    outputPath,
+  ])
+  if (result.code !== 0) throw new Error(result.stderr || `ffmpeg failed while merging original audio into ${outputPath}`)
+}
+
+async function exportOriginalRecordingFiles(args: { outDir: string; session: Session; paths: Paths; runner: IProcessRunner; mergeAudio?: boolean }): Promise<string[]> {
+  const { outDir, session, paths } = args
+  const videoPath = sessionVideoInputPath(session, paths)
+  const originalsDir = exportOriginalsDir(outDir)
+  if (args.mergeAudio && session.micAudioPath && existsSync(videoPath) && existsSync(session.micAudioPath)) {
+    mkdirSync(originalsDir, { recursive: true })
+    const mergedPath = join(originalsDir, 'original-video-with-mic.mp4')
+    await mergeOriginalRecordingAudio(args.runner, resolveBundledFfmpegPath(), videoPath, session.micAudioPath, mergedPath)
+    return [mergedPath]
+  }
+  return [
+    copyOriginalRecordingFile(outDir, videoPath, 'original-video'),
+    copyOriginalRecordingFile(outDir, session.micAudioPath, 'session-mic'),
+  ].filter(Boolean) as string[]
 }
 
 function localDatePart(ms: number): string {
@@ -1207,7 +1261,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.bugExportCancel, async (_e, exportId: string): Promise<void> => {
     exportControllers.get(exportId)?.abort()
   })
-  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
+  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId)
     const bug = bugs.find(b => b.id === args.bugId)
@@ -1319,6 +1373,10 @@ export function registerIpc(deps: IpcDeps): void {
         previewPath: imagePath,
         logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
       }
+      if (args.includeOriginalFiles) {
+        emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
+        await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
+      }
       const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
       await publishManifestToRemote({
         manifest: manifestFiles.manifest,
@@ -1338,7 +1396,7 @@ export function registerIpc(deps: IpcDeps): void {
     }
   })
 
-  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
+  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
@@ -1452,6 +1510,10 @@ export function registerIpc(deps: IpcDeps): void {
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
       const summaryTextPath = await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
+      if (args.includeOriginalFiles) {
+        emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
+        await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
+      }
       const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
       await publishManifestToRemote({
         manifest: manifestFiles.manifest,
