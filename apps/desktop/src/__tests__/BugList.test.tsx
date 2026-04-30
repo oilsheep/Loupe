@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BugList } from '@/components/BugList'
-import type { Bug, DesktopApi } from '@shared/types'
+import type { Bug, DesktopApi, MentionIdentity } from '@shared/types'
 
 const bug = (over: Partial<Bug> = {}): Bug => ({
   id: 'b1', sessionId: 's1', offsetMs: 5000, severity: 'normal', note: 'note',
@@ -23,6 +23,7 @@ const severities = {
 }
 
 const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
+const mentionIdentities: MentionIdentity[] = []
 
 function fakeApi(): DesktopApi {
   return {
@@ -48,14 +49,21 @@ function fakeApi(): DesktopApi {
     } as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     settings: {
-      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab }) as any,
-      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab }) as any,
+      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab, mentionIdentities }) as any,
+      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab, mentionIdentities }) as any,
       setHotkeys: vi.fn() as any,
       setSlack: vi.fn() as any,
       setGitLab: vi.fn() as any,
+      connectGitLabOAuth: vi.fn() as any,
+      cancelGitLabOAuth: vi.fn() as any,
+      listGitLabProjects: vi.fn() as any,
+      setMentionIdentities: vi.fn() as any,
+      importMentionIdentities: vi.fn() as any,
+      exportMentionIdentities: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,
       refreshSlackChannels: vi.fn() as any,
       startSlackUserOAuth: vi.fn() as any,
+      refreshGitLabUsers: vi.fn() as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,

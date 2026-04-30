@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import type { GitLabPublishSettings } from '@shared/types'
+import type { GitLabMentionUser, GitLabProject, GitLabPublishSettings, MentionIdentity } from '@shared/types'
 import type { ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
@@ -25,6 +25,31 @@ interface GitLabUploadResponse {
   full_path?: string
 }
 
+interface GitLabMemberResponse {
+  id?: number
+  username?: string
+  name?: string
+  email?: string
+  public_email?: string
+  state?: string
+  avatar_url?: string
+  web_url?: string
+}
+
+interface GitLabUserResponse {
+  email?: string
+  public_email?: string
+}
+
+interface GitLabProjectResponse {
+  id?: number
+  name?: string
+  name_with_namespace?: string
+  path_with_namespace?: string
+  web_url?: string
+  archived?: boolean
+}
+
 export interface GitLabPublishResult {
   projectId: string
   mode: 'single-issue' | 'per-marker-issue'
@@ -36,6 +61,163 @@ function validateSettings(settings: GitLabPublishSettings): void {
   if (!settings.baseUrl.trim()) throw new Error('GitLab base URL is missing')
   if (!settings.token.trim()) throw new Error('GitLab token is missing')
   if (!settings.projectId.trim()) throw new Error('GitLab project ID or path is missing')
+}
+
+function authHeaders(settings: GitLabPublishSettings): Record<string, string> {
+  const token = settings.token.trim()
+  return settings.authType === 'oauth'
+    ? { Authorization: `Bearer ${token}` }
+    : { 'PRIVATE-TOKEN': token }
+}
+
+function validateProjectListSettings(settings: GitLabPublishSettings): void {
+  if (!settings.baseUrl.trim()) throw new Error('GitLab base URL is missing')
+  if (!settings.token.trim()) throw new Error('GitLab token is missing')
+}
+
+export async function fetchGitLabProjects(settings: GitLabPublishSettings, fetchImpl: GitLabPublisherFetch = fetch): Promise<GitLabProject[]> {
+  validateProjectListSettings(settings)
+  const projects: GitLabProject[] = []
+  let page = 1
+  for (;;) {
+    const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects?membership=true&simple=true&archived=false&order_by=last_activity_at&sort=desc&per_page=100&page=${page}`, {
+      method: 'GET',
+      headers: authHeaders(settings),
+    })
+    const text = await response.text()
+    const payload = text ? JSON.parse(text) as GitLabProjectResponse[] | { message?: unknown; error?: unknown } : []
+    if (!response.ok) {
+      const message = !Array.isArray(payload) && typeof payload.message === 'string'
+        ? payload.message
+        : !Array.isArray(payload) && typeof payload.error === 'string'
+          ? payload.error
+          : response.statusText
+      throw new Error(`GitLab projects fetch failed: ${message}`)
+    }
+    if (!Array.isArray(payload)) throw new Error('GitLab projects fetch failed: unexpected response')
+    for (const project of payload) {
+      const id = typeof project.id === 'number' ? project.id : 0
+      const pathWithNamespace = project.path_with_namespace?.trim() || ''
+      if (!id || !pathWithNamespace || project.archived) continue
+      projects.push({
+        id,
+        name: project.name?.trim() || pathWithNamespace.split('/').pop() || pathWithNamespace,
+        nameWithNamespace: project.name_with_namespace?.trim() || pathWithNamespace,
+        pathWithNamespace,
+        webUrl: project.web_url?.trim(),
+      })
+    }
+    const nextPage = response.headers.get('x-next-page')?.trim()
+    if (nextPage) {
+      page = Number(nextPage)
+      if (Number.isFinite(page) && page > 0) continue
+    }
+    if (payload.length === 100) {
+      page += 1
+      continue
+    }
+    break
+  }
+  const byPath = new Map(projects.map(project => [project.pathWithNamespace, project]))
+  return [...byPath.values()].sort((a, b) => a.nameWithNamespace.localeCompare(b.nameWithNamespace))
+}
+
+export async function fetchGitLabMentionUsers(settings: GitLabPublishSettings, fetchImpl: GitLabPublisherFetch = fetch): Promise<GitLabMentionUser[]> {
+  validateSettings(settings)
+  const users: GitLabMentionUser[] = []
+  let page = 1
+  for (;;) {
+    const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects/${projectPath(settings.projectId)}/members/all?per_page=100&page=${page}`, {
+      method: 'GET',
+      headers: authHeaders(settings),
+    })
+    const text = await response.text()
+    const payload = text ? JSON.parse(text) as GitLabMemberResponse[] | { message?: unknown; error?: unknown } : []
+    if (!response.ok) {
+      const message = !Array.isArray(payload) && typeof payload.message === 'string'
+        ? payload.message
+        : !Array.isArray(payload) && typeof payload.error === 'string'
+          ? payload.error
+          : response.statusText
+      throw new Error(`GitLab members fetch failed: ${message}`)
+    }
+    if (!Array.isArray(payload)) throw new Error('GitLab members fetch failed: unexpected response')
+    for (const member of payload) {
+      const id = typeof member.id === 'number' ? member.id : 0
+      const username = member.username?.trim().replace(/^@/, '') || ''
+      const state = member.state?.trim()
+      if (!id || !username) continue
+      if (state !== 'active') continue
+      users.push({
+        id,
+        username,
+        name: member.name?.trim() || username,
+        email: (member.email || member.public_email)?.trim().toLowerCase() || undefined,
+        state,
+        avatarUrl: member.avatar_url?.trim(),
+        webUrl: member.web_url?.trim(),
+      })
+    }
+    const nextPage = response.headers.get('x-next-page')?.trim()
+    if (nextPage) {
+      page = Number(nextPage)
+      if (Number.isFinite(page) && page > 0) continue
+    }
+    if (payload.length === 100) {
+      page += 1
+      continue
+    }
+    break
+  }
+  const byUsername = new Map(users.map(user => [user.username, user]))
+  return [...byUsername.values()].sort((a, b) => (a.name || a.username).localeCompare(b.name || b.username))
+}
+
+export async function fetchGitLabMentionUsersWithEmailLookup(
+  settings: GitLabPublishSettings,
+  fetchImpl: GitLabPublisherFetch = fetch,
+): Promise<{ users: GitLabMentionUser[]; warning: string | null }> {
+  const users = await fetchGitLabMentionUsers(settings, fetchImpl)
+  if (settings.emailLookup !== 'admin-users-api') return { users, warning: null }
+
+  let warning: string | null = null
+  let attemptedEmailLookup = false
+  let foundEmail = false
+  const enriched: GitLabMentionUser[] = []
+  for (const user of users) {
+    if (user.email) {
+      enriched.push(user)
+      foundEmail = true
+      continue
+    }
+    try {
+      attemptedEmailLookup = true
+      const response = await fetchImpl(`${apiBase(settings.baseUrl)}/users/${user.id}`, {
+        method: 'GET',
+        headers: authHeaders(settings),
+      })
+      const text = await response.text()
+      if (response.status === 403) {
+        warning = '需要 self-managed admin token 才能讀取 GitLab email。'
+        enriched.push(user)
+        continue
+      }
+      if (!response.ok) {
+        enriched.push(user)
+        continue
+      }
+      const payload = text ? JSON.parse(text) as GitLabUserResponse : {}
+      const email = (payload.email || payload.public_email)?.trim().toLowerCase()
+      if (email) foundEmail = true
+      enriched.push(email ? { ...user, email } : user)
+    } catch {
+      enriched.push(user)
+    }
+  }
+  if (!warning && attemptedEmailLookup && !foundEmail) {
+    warning = 'GitLab users API 沒有回傳 email；請確認 token 是 self-managed admin token 且有 api scope。'
+  }
+  return { users: enriched, warning }
 }
 
 function apiBase(baseUrl: string): string {
@@ -55,7 +237,7 @@ async function gitlabJson<T>(
   const response = await fetchImpl(`${apiBase(settings.baseUrl)}${path}`, {
     method: 'POST',
     headers: {
-      'PRIVATE-TOKEN': settings.token.trim(),
+      ...authHeaders(settings),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -79,7 +261,7 @@ async function uploadFile(fetchImpl: GitLabPublisherFetch, settings: GitLabPubli
   form.set('file', new Blob([bytes]), basename(filePath))
   const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects/${projectPath(settings.projectId)}/uploads`, {
     method: 'POST',
-    headers: { 'PRIVATE-TOKEN': settings.token.trim() },
+    headers: authHeaders(settings),
     body: form,
   })
   const text = await response.text()
@@ -110,10 +292,15 @@ function markerTitle(marker: ExportManifest['markers'][number]): string {
   return `[${marker.severityLabel || marker.severity}] ${marker.note.trim() || 'No note'}`
 }
 
-function mentionText(settings: GitLabPublishSettings, marker: ExportManifest['markers'][number]): string {
+function mentionText(settings: GitLabPublishSettings, marker: ExportManifest['markers'][number], identities: MentionIdentity[]): string {
+  const byId = new Map(identities.map(identity => [identity.id, identity]))
   const names = (settings.mentionUsernames ?? []).map(name => name.trim().replace(/^@/, '')).filter(Boolean)
-  if (names.length === 0 && marker.mentionUserIds.length === 0) return ''
-  return [...names, ...marker.mentionUserIds].map(name => `@${name.replace(/^@/, '')}`).join(' ')
+  const markerNames = marker.mentionUserIds
+    .map(id => byId.get(id)?.gitlabUsername?.trim().replace(/^@/, ''))
+    .filter(Boolean) as string[]
+  const allNames = Array.from(new Set([...names, ...markerNames]))
+  if (allNames.length === 0) return ''
+  return allNames.map(name => `@${name}`).join(' ')
 }
 
 function sessionLines(manifest: ExportManifest): string[] {
@@ -141,8 +328,8 @@ function rootDescription(manifest: ExportManifest, summaryTextPath: string | nul
   return lines.filter((line, index, arr) => line || arr[index - 1]).join('\n')
 }
 
-function markerBody(manifest: ExportManifest, settings: GitLabPublishSettings, marker: ExportManifest['markers'][number], attachments: string[], errors: string[]): string {
-  const mention = mentionText(settings, marker)
+function markerBody(manifest: ExportManifest, settings: GitLabPublishSettings, marker: ExportManifest['markers'][number], attachments: string[], errors: string[], identities: MentionIdentity[]): string {
+  const mention = mentionText(settings, marker, identities)
   const lines = [
     mention,
     markerTitle(marker),
@@ -177,11 +364,13 @@ export async function publishManifestToGitLab(args: {
   manifest: ExportManifest
   manifestPaths: ManifestPaths
   settings: GitLabPublishSettings
+  mentionIdentities?: MentionIdentity[]
   fetchImpl?: GitLabPublisherFetch
 }): Promise<GitLabPublishResult> {
   validateSettings(args.settings)
   const fetchImpl = args.fetchImpl ?? fetch
   const mode = args.manifest.publish.gitlabMode ?? args.settings.mode
+  const mentionIdentities = args.mentionIdentities ?? []
   const issueUrls: string[] = []
   const uploadErrors: string[] = []
   const reportMarkdown = await uploadFileCollectingErrors(uploadErrors, fetchImpl, args.settings, args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath)
@@ -197,7 +386,7 @@ export async function publishManifestToGitLab(args: {
     for (const marker of args.manifest.markers) {
       const markerErrors: string[] = []
       const videoMarkdown = await uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, marker.videoPath)
-      const body = markerBody(args.manifest, args.settings, marker, [videoMarkdown].filter(Boolean) as string[], markerErrors)
+      const body = markerBody(args.manifest, args.settings, marker, [videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities)
       await createIssueNote(fetchImpl, args.settings, issue.iid, body)
       uploadErrors.push(...markerErrors)
     }
@@ -209,7 +398,7 @@ export async function publishManifestToGitLab(args: {
         fetchImpl,
         args.settings,
         `[Loupe QA] ${markerTitle(marker)}`,
-        markerBody(args.manifest, args.settings, marker, [reportMarkdown, videoMarkdown].filter(Boolean) as string[], markerErrors),
+        markerBody(args.manifest, args.settings, marker, [reportMarkdown, videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities),
       )
       if (issue.web_url) issueUrls.push(issue.web_url)
       uploadErrors.push(...markerErrors)

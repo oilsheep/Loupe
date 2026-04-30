@@ -209,7 +209,8 @@ app.whenReady().then(async () => {
     locale: 'system',
     severities: DEFAULT_SEVERITIES,
     slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
-    gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] },
+    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38987/oauth/gitlab/callback', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    mentionIdentities: [],
   })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()

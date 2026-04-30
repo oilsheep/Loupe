@@ -56,6 +56,7 @@ export interface SlackMentionUser {
   name: string
   displayName: string
   realName: string
+  email?: string
   deleted?: boolean
   isBot?: boolean
 }
@@ -68,16 +69,50 @@ export interface SlackChannel {
   isMember?: boolean
 }
 
+export interface MentionIdentity {
+  id: string
+  displayName: string
+  email?: string
+  slackUserId?: string
+  gitlabUsername?: string
+}
+
 export type GitLabPublishMode = 'single-issue' | 'per-marker-issue'
 
 export interface GitLabPublishSettings {
   baseUrl: string
   token: string
+  authType?: 'pat' | 'oauth'
+  oauthClientId?: string
+  oauthClientSecret?: string
+  oauthRedirectUri?: string
   projectId: string
   mode: GitLabPublishMode
+  emailLookup?: 'off' | 'admin-users-api'
   labels?: string[]
   confidential?: boolean
   mentionUsernames?: string[]
+  mentionUsers?: GitLabMentionUser[]
+  usersFetchedAt?: string | null
+  lastUserSyncWarning?: string | null
+}
+
+export interface GitLabProject {
+  id: number
+  name: string
+  nameWithNamespace: string
+  pathWithNamespace: string
+  webUrl?: string
+}
+
+export interface GitLabMentionUser {
+  id: number
+  username: string
+  name: string
+  email?: string
+  state?: string
+  avatarUrl?: string
+  webUrl?: string
 }
 
 export interface AppSettings {
@@ -87,6 +122,7 @@ export interface AppSettings {
   severities: SeveritySettings
   slack: SlackPublishSettings
   gitlab: GitLabPublishSettings
+  mentionIdentities: MentionIdentity[]
 }
 
 export interface Session {
@@ -126,7 +162,7 @@ export interface Bug {
   preSec: number
   /** Seconds after offsetMs to include when exporting a clip. */
   postSec: number
-  /** Slack user IDs to mention when this marker is published. */
+  /** Mention identity ids. Legacy sessions may contain Slack user ids. */
   mentionUserIds?: string[]
 }
 
@@ -240,9 +276,16 @@ export interface DesktopApi {
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
     setGitLab(settings: GitLabPublishSettings):                      Promise<AppSettings>
+    connectGitLabOAuth(settings: GitLabPublishSettings):              Promise<AppSettings>
+    cancelGitLabOAuth():                                             Promise<void>
+    listGitLabProjects(settings: GitLabPublishSettings):              Promise<GitLabProject[]>
+    setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
+    importMentionIdentities():                                       Promise<AppSettings | null>
+    exportMentionIdentities():                                       Promise<string | null>
     refreshSlackUsers():                                            Promise<AppSettings>
     refreshSlackChannels():                                         Promise<AppSettings>
     startSlackUserOAuth(settings: SlackPublishSettings):             Promise<AppSettings>
+    refreshGitLabUsers():                                           Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     chooseExportRoot():                                            Promise<AppSettings | null>

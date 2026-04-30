@@ -2,8 +2,9 @@ import { ipcMain, BrowserWindow, desktopCapturer, dialog, screen, shell } from '
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createServer } from 'node:http'
+import { createHash, randomBytes } from 'node:crypto'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
 import type { Writable, Readable } from 'node:stream'
 import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
@@ -12,12 +13,13 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote } from './remote-publisher'
+import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
@@ -65,10 +67,17 @@ export const CHANNEL = {
   settingsSetHotkeys:      'settings:setHotkeys',
   settingsSetSlack:        'settings:setSlack',
   settingsSetGitLab:       'settings:setGitLab',
+  settingsConnectGitLabOAuth:'settings:connectGitLabOAuth',
+  settingsCancelGitLabOAuth:'settings:cancelGitLabOAuth',
+  settingsListGitLabProjects:'settings:listGitLabProjects',
+  settingsSetMentionIdentities:'settings:setMentionIdentities',
+  settingsImportMentionIdentities:'settings:importMentionIdentities',
+  settingsExportMentionIdentities:'settings:exportMentionIdentities',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
   settingsRefreshSlackChannels:'settings:refreshSlackChannels',
   settingsStartSlackUserOAuth:'settings:startSlackUserOAuth',
   settingsSlackOAuthCompleted:'settings:slackOAuthCompleted',
+  settingsRefreshGitLabUsers:'settings:refreshGitLabUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsChooseExportRoot:'settings:chooseExportRoot',
@@ -81,6 +90,7 @@ let pcRecordingStderr = ''
 const exportControllers = new Map<string, AbortController>()
 let pendingSlackOAuth: { state: string; codeVerifier: string; createdAt: number } | null = null
 let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
+let gitlabOAuthCancel: (() => void) | null = null
 
 export function handleProtocolUrl(url: string): boolean {
   if (!url.startsWith('loupe://slack-oauth')) return false
@@ -155,6 +165,103 @@ async function refreshSlackChannelsOnly(settings: SlackPublishSettings, token: s
     channelsFetchedAt: now,
     channelId: channelStillExists ? settings.channelId : (settings.channelId || ''),
   }
+}
+
+function base64Url(buffer: Buffer): string {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<string> {
+  gitlabOAuthCancel?.()
+  const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
+  const clientId = settings.oauthClientId?.trim() || ''
+  const clientSecret = settings.oauthClientSecret?.trim() || ''
+  const redirectUri = settings.oauthRedirectUri?.trim() || 'http://127.0.0.1:38987/oauth/gitlab/callback'
+  if (!baseUrl) throw new Error('GitLab base URL is missing')
+  if (!clientId) throw new Error('GitLab OAuth client ID is missing')
+
+  const redirect = new URL(redirectUri)
+  if (redirect.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(redirect.hostname)) {
+    throw new Error('GitLab OAuth redirect URI must be a localhost HTTP URL')
+  }
+  const port = Number(redirect.port || 80)
+  const state = base64Url(randomBytes(24))
+  const verifier = base64Url(randomBytes(48))
+  const challenge = base64Url(createHash('sha256').update(verifier).digest())
+
+  const code = await new Promise<string>((resolve, reject) => {
+    let settled = false
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      gitlabOAuthCancel = null
+      server.close()
+      fn()
+    }
+    const timeout = setTimeout(() => {
+      finish(() => reject(new Error('GitLab OAuth timed out')))
+    }, 30000)
+    timeout.unref?.()
+    const server = createServer((req, res) => {
+      try {
+        const url = new URL(req.url || '/', redirect.origin)
+        if (url.pathname !== redirect.pathname) {
+          res.writeHead(404).end('Not found')
+          return
+        }
+        const error = url.searchParams.get('error')
+        if (error) throw new Error(url.searchParams.get('error_description') || error)
+        if (url.searchParams.get('state') !== state) throw new Error('GitLab OAuth state mismatch')
+        const receivedCode = url.searchParams.get('code')
+        if (!receivedCode) throw new Error('GitLab OAuth code is missing')
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end('<!doctype html><meta charset="utf-8"><title>Loupe</title><p>GitLab OAuth connected. You can return to Loupe.</p>')
+        finish(() => resolve(receivedCode))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(err instanceof Error ? err.message : String(err))
+        finish(() => reject(err))
+      }
+    })
+    server.on('error', error => finish(() => reject(error)))
+    server.listen(port, redirect.hostname, () => {
+      gitlabOAuthCancel = () => finish(() => reject(new Error('GitLab OAuth cancelled')))
+      const authorize = new URL(`${baseUrl}/oauth/authorize`)
+      authorize.searchParams.set('client_id', clientId)
+      authorize.searchParams.set('redirect_uri', redirectUri)
+      authorize.searchParams.set('response_type', 'code')
+      authorize.searchParams.set('scope', 'api')
+      authorize.searchParams.set('state', state)
+      authorize.searchParams.set('code_challenge', challenge)
+      authorize.searchParams.set('code_challenge_method', 'S256')
+      void shell.openExternal(authorize.toString())
+    })
+  })
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    code,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri,
+    code_verifier: verifier,
+  })
+  if (clientSecret) body.set('client_secret', clientSecret)
+  const response = await fetch(`${baseUrl}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+  const text = await response.text()
+  const payload = text ? JSON.parse(text) as { access_token?: string; error?: string; error_description?: string } : {}
+  if (!response.ok || !payload.access_token) {
+    const reason = payload.error_description || payload.error || response.statusText
+    const hint = /client authentication|unknown client|invalid_client/i.test(reason)
+      ? ' Check Application ID, Redirect URI, and whether the GitLab application is confidential. If it is confidential, fill OAuth client secret; otherwise create a non-confidential application.'
+      : ''
+    throw new Error(`GitLab OAuth token exchange failed: ${reason}${hint}`)
+  }
+  return payload.access_token
 }
 
 function exportDirForSession(root: string, session: Session): string {
@@ -1324,16 +1431,86 @@ export function registerIpc(deps: IpcDeps): void {
     return settings
   })
   ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, gitlab: GitLabPublishSettings) => deps.settings.setGitLab(gitlab))
+  ipcMain.handle(CHANNEL.settingsConnectGitLabOAuth, async (_e, gitlab: GitLabPublishSettings) => {
+    const saved = deps.settings.setGitLab(gitlab)
+    const token = await connectGitLabOAuth(saved.gitlab)
+    return deps.settings.setGitLab({ ...saved.gitlab, token, authType: 'oauth' })
+  })
+  ipcMain.handle(CHANNEL.settingsCancelGitLabOAuth, async () => {
+    gitlabOAuthCancel?.()
+    gitlabOAuthCancel = null
+  })
+  ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, gitlab: GitLabPublishSettings) => {
+    return fetchGitLabProjects(gitlab)
+  })
+  ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
+  ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {
+    const win = deps.getWindow()
+    const result = await (win
+      ? dialog.showSaveDialog(win, {
+        title: 'Export mention identities',
+        defaultPath: 'loupe-mention-identities.json',
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      })
+      : dialog.showSaveDialog({
+        title: 'Export mention identities',
+        defaultPath: 'loupe-mention-identities.json',
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      }))
+    if (result.canceled || !result.filePath) return null
+    const settings = deps.settings.get()
+    writeFileSync(result.filePath, `${JSON.stringify({
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      mentionIdentities: settings.mentionIdentities,
+    }, null, 2)}\n`, 'utf8')
+    return result.filePath
+  })
+  ipcMain.handle(CHANNEL.settingsImportMentionIdentities, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
+    const win = deps.getWindow()
+    const result = await (win
+      ? dialog.showOpenDialog(win, {
+        title: 'Import mention identities',
+        properties: ['openFile'],
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      })
+      : dialog.showOpenDialog({
+        title: 'Import mention identities',
+        properties: ['openFile'],
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      }))
+    if (result.canceled || !result.filePaths[0]) return null
+    const payload = JSON.parse(readFileSync(result.filePaths[0], 'utf8')) as unknown
+    const identities = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { mentionIdentities?: unknown }).mentionIdentities)
+        ? (payload as { mentionIdentities: unknown[] }).mentionIdentities
+        : null
+    if (!identities) throw new Error('Mention identity import failed: expected a JSON array or mentionIdentities field')
+    return deps.settings.setMentionIdentities(identities as MentionIdentity[])
+  })
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
     const settings = deps.settings.get()
     const token = slackApiTokenForUsers(settings.slack)
     const directory = (settings.slack.mentionUsers ?? []).length > 0 && (settings.slack.channels ?? []).length === 0
       ? await refreshSlackChannelsOnly(settings.slack, token)
       : await refreshSlackDirectory(settings.slack, token)
-    return deps.settings.setSlack({
+    const next = deps.settings.setSlack({
       ...settings.slack,
       ...directory,
     })
+    return deps.settings.refreshMentionIdentities()
+  })
+  ipcMain.handle(CHANNEL.settingsRefreshGitLabUsers, async () => {
+    const settings = deps.settings.get()
+    const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(settings.gitlab)
+    const next = deps.settings.setGitLab({
+      ...settings.gitlab,
+      mentionUsers,
+      usersFetchedAt: new Date().toISOString(),
+      lastUserSyncWarning: warning,
+    })
+    return deps.settings.refreshMentionIdentities()
   })
   ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async () => {
     const settings = deps.settings.get()
