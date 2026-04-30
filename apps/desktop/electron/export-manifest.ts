@@ -19,8 +19,9 @@ export interface ExportManifest {
   exportDir: string
   reportPdfPath: string | null
   publish: {
-    target: 'local' | 'slack'
+    target: 'local' | 'slack' | 'gitlab'
     slackThreadMode: 'single-thread' | 'per-marker-thread' | null
+    gitlabMode: 'single-issue' | 'per-marker-issue' | null
   }
   session: {
     id: string
@@ -94,6 +95,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
     publish: {
       target: publish.target,
       slackThreadMode: publish.target === 'slack' ? publish.slackThreadMode ?? 'single-thread' : null,
+      gitlabMode: publish.target === 'gitlab' ? publish.gitlabMode ?? 'single-issue' : null,
     },
     session: {
       id: args.session.id,
@@ -154,6 +156,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Report PDF Path',
       'Publish Target',
       'Slack Thread Mode',
+      'GitLab Mode',
     ],
     ...manifest.markers.map(marker => [
       manifest.session.id,
@@ -175,6 +178,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       manifest.reportPdfPath ?? '',
       manifest.publish.target,
       manifest.publish.slackThreadMode ?? '',
+      manifest.publish.gitlabMode ?? '',
     ]),
   ]
   return `${rows.map(row => row.map(csvCell).join(',')).join('\n')}\n`

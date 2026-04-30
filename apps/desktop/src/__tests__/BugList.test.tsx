@@ -22,6 +22,8 @@ const severities = {
   custom4: { label: '', color: '#eab308' },
 }
 
+const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
+
 function fakeApi(): DesktopApi {
   return {
     doctor: vi.fn() as any,
@@ -46,10 +48,11 @@ function fakeApi(): DesktopApi {
     } as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     settings: {
-      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' } }) as any,
-      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' } }) as any,
+      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab }) as any,
+      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab }) as any,
       setHotkeys: vi.fn() as any,
       setSlack: vi.fn() as any,
+      setGitLab: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,

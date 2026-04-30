@@ -48,12 +48,25 @@ export interface SlackMentionUser {
   isBot?: boolean
 }
 
+export type GitLabPublishMode = 'single-issue' | 'per-marker-issue'
+
+export interface GitLabPublishSettings {
+  baseUrl: string
+  token: string
+  projectId: string
+  mode: GitLabPublishMode
+  labels?: string[]
+  confidential?: boolean
+  mentionUsernames?: string[]
+}
+
 export interface AppSettings {
   exportRoot: string
   hotkeys: HotkeySettings
   locale: AppLocale
   severities: SeveritySettings
   slack: SlackPublishSettings
+  gitlab: GitLabPublishSettings
 }
 
 export interface Session {
@@ -97,12 +110,13 @@ export interface Bug {
   mentionUserIds?: string[]
 }
 
-export type PublishTarget = 'local' | 'slack'
+export type PublishTarget = 'local' | 'slack' | 'gitlab'
 export type SlackThreadMode = 'single-thread' | 'per-marker-thread'
 
 export interface ExportPublishOptions {
   target: PublishTarget
   slackThreadMode?: SlackThreadMode
+  gitlabMode?: GitLabPublishMode
 }
 
 export interface ExportedMarkerFile {
@@ -204,6 +218,7 @@ export interface DesktopApi {
     setExportRoot(path: string):                                   Promise<AppSettings>
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
+    setGitLab(settings: GitLabPublishSettings):                      Promise<AppSettings>
     refreshSlackUsers():                                            Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>

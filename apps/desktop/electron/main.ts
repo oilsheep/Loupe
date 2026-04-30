@@ -169,6 +169,7 @@ app.whenReady().then(async () => {
     locale: 'system',
     severities: DEFAULT_SEVERITIES,
     slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
+    gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] },
   })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()

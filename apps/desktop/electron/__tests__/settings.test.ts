@@ -16,9 +16,11 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
       })
 
       expect(store.get().slack).toEqual({ botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -34,6 +36,7 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
       })
 
       const settings = store.setSlack({
@@ -53,6 +56,44 @@ describe('SettingsStore', () => {
         usersFetchedAt: null,
       })
       expect(store.get().slack.channelId).toBe(' C123 ')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('saves GitLab publish settings without changing Slack settings', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      const store = new SettingsStore(file, {
+        exportRoot: '/default',
+        hotkeys: DEFAULT_HOTKEYS,
+        locale: 'system',
+        severities: DEFAULT_SEVERITIES,
+        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+      })
+
+      const settings = store.setGitLab({
+        baseUrl: ' https://gitlab.example.com/ ',
+        token: ' glpat-test ',
+        projectId: ' group/project ',
+        mode: 'per-marker-issue',
+        labels: ['loupe, qa', 'qa'],
+        confidential: true,
+        mentionUsernames: ['@miki', 'qa'],
+      })
+
+      expect(settings.slack.channelId).toBe('')
+      expect(settings.gitlab).toEqual({
+        baseUrl: 'https://gitlab.example.com',
+        token: ' glpat-test ',
+        projectId: 'group/project',
+        mode: 'per-marker-issue',
+        labels: ['loupe', 'qa'],
+        confidential: true,
+        mentionUsernames: ['miki', 'qa'],
+      })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

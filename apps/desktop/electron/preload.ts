@@ -50,6 +50,7 @@ const api: DesktopApi = {
     setExportRoot:    (path)    => ipcRenderer.invoke(CHANNEL.settingsSetExportRoot, path),
     setHotkeys:        (hotkeys) => ipcRenderer.invoke(CHANNEL.settingsSetHotkeys, hotkeys),
     setSlack:          (settings) => ipcRenderer.invoke(CHANNEL.settingsSetSlack, settings),
+    setGitLab:         (settings) => ipcRenderer.invoke(CHANNEL.settingsSetGitLab, settings),
     refreshSlackUsers: ()        => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackUsers),
     setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),

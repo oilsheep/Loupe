@@ -11,7 +11,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackMentionUsers } from './slack-publisher'
@@ -62,6 +62,7 @@ export const CHANNEL = {
   settingsSetExportRoot:   'settings:setExportRoot',
   settingsSetHotkeys:      'settings:setHotkeys',
   settingsSetSlack:        'settings:setSlack',
+  settingsSetGitLab:       'settings:setGitLab',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
@@ -1175,6 +1176,7 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return settings
   })
+  ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, gitlab: GitLabPublishSettings) => deps.settings.setGitLab(gitlab))
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
     const settings = deps.settings.get()
     const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)

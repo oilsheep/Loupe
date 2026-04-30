@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { AppLocale, SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, GitLabPublishSettings, SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 
@@ -47,6 +47,12 @@ export function Home() {
   const [slackSaved, setSlackSaved] = useState(false)
   const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
   const [slackError, setSlackError] = useState('')
+  const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] })
+  const [gitlabLabelsInput, setGitLabLabelsInput] = useState('loupe, qa-evidence')
+  const [gitlabMentionsInput, setGitLabMentionsInput] = useState('')
+  const [savingGitLab, setSavingGitLab] = useState(false)
+  const [gitlabSaved, setGitLabSaved] = useState(false)
+  const [gitlabError, setGitLabError] = useState('')
 
   useEffect(() => { api.doctor().then(setChecks) }, [])
   useEffect(() => {
@@ -54,6 +60,9 @@ export function Home() {
       setExportRoot(s.exportRoot)
       setSlack(s.slack)
       setSlackMentionInput(formatMentionInput(s.slack))
+      setGitLab(s.gitlab)
+      setGitLabLabelsInput((s.gitlab.labels ?? []).join(', '))
+      setGitLabMentionsInput((s.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
     })
   }, [])
 
@@ -112,6 +121,33 @@ export function Home() {
       setSlackError(err instanceof Error ? err.message : String(err))
     } finally {
       setRefreshingSlackUsers(false)
+    }
+  }
+
+  function parseListInput(value: string): string[] {
+    return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
+  }
+
+  async function saveGitLabSettings() {
+    setSavingGitLab(true)
+    setGitLabSaved(false)
+    setGitLabError('')
+    try {
+      const settings = await api.settings.setGitLab({
+        ...gitlab,
+        baseUrl: gitlab.baseUrl.trim() || 'https://gitlab.com',
+        projectId: gitlab.projectId.trim(),
+        labels: parseListInput(gitlabLabelsInput),
+        mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
+      })
+      setGitLab(settings.gitlab)
+      setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
+      setGitLabMentionsInput((settings.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+      setGitLabSaved(true)
+    } catch (err) {
+      setGitLabError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingGitLab(false)
     }
   }
 
@@ -332,6 +368,91 @@ export function Home() {
             >
               {savingSlack ? 'Saving...' : 'Save publish settings'}
             </button>
+          </div>
+
+          <div className="mt-4 border-t border-zinc-800 pt-3">
+            <div className="mb-2 text-xs font-medium text-zinc-300">GitLab</div>
+            <div className="grid grid-cols-[1fr_180px] gap-2">
+              <label className="text-xs text-zinc-500">
+                GitLab base URL
+                <input
+                  value={gitlab.baseUrl}
+                  onChange={(e) => { setGitLab({ ...gitlab, baseUrl: e.target.value }); setGitLabSaved(false) }}
+                  placeholder="https://gitlab.com"
+                  className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </label>
+              <label className="text-xs text-zinc-500">
+                Project ID or path
+                <input
+                  value={gitlab.projectId}
+                  onChange={(e) => { setGitLab({ ...gitlab, projectId: e.target.value }); setGitLabSaved(false) }}
+                  placeholder="group/project"
+                  className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </label>
+            </div>
+            <label className="mt-2 block text-xs text-zinc-500">
+              GitLab token
+              <input
+                value={gitlab.token}
+                onChange={(e) => { setGitLab({ ...gitlab, token: e.target.value }); setGitLabSaved(false) }}
+                type="password"
+                placeholder="glpat-..."
+                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-xs text-zinc-500">
+                Labels
+                <input
+                  value={gitlabLabelsInput}
+                  onChange={(e) => { setGitLabLabelsInput(e.target.value); setGitLabSaved(false) }}
+                  placeholder="loupe, qa-evidence"
+                  className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </label>
+              <label className="text-xs text-zinc-500">
+                Mention usernames
+                <input
+                  value={gitlabMentionsInput}
+                  onChange={(e) => { setGitLabMentionsInput(e.target.value); setGitLabSaved(false) }}
+                  placeholder="@qa, @lead"
+                  className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </label>
+            </div>
+            <label className="mt-2 block text-xs text-zinc-500">
+              Default GitLab mode
+              <select
+                value={gitlab.mode}
+                onChange={(e) => { setGitLab({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] }); setGitLabSaved(false) }}
+                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                <option value="single-issue">Single issue</option>
+                <option value="per-marker-issue">Issue per marker</option>
+              </select>
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={Boolean(gitlab.confidential)}
+                onChange={(e) => { setGitLab({ ...gitlab, confidential: e.target.checked }); setGitLabSaved(false) }}
+                className="h-4 w-4 accent-blue-600"
+              />
+              Create confidential/internal GitLab issues and notes
+            </label>
+            {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
+            <div className="mt-2 flex items-center justify-end gap-2">
+              {gitlabSaved && <span className="text-xs text-emerald-300">Saved</span>}
+              <button
+                onClick={saveGitLabSettings}
+                disabled={savingGitLab}
+                className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+              >
+                {savingGitLab ? 'Saving...' : 'Save GitLab settings'}
+              </button>
+            </div>
           </div>
         </div>
       </main>

@@ -69,7 +69,7 @@ describe('export manifest', () => {
     })
 
     expect(manifest.reportPdfPath).toBe('/exports/QA_bug_report_1.0_2023-11-14.pdf')
-    expect(manifest.publish).toEqual({ target: 'slack', slackThreadMode: 'single-thread' })
+    expect(manifest.publish).toEqual({ target: 'slack', slackThreadMode: 'single-thread', gitlabMode: null })
     expect(manifest.session.buildVersion).toBe('1.0')
     expect(manifest.session.ramTotalGb).toBeNull()
     expect(manifest.session.graphicsDevice).toBeNull()
@@ -82,6 +82,18 @@ describe('export manifest', () => {
       previewPath: '/exports/b1.jpg',
       logcatPath: '/exports/b1.logcat.txt',
     })
+  })
+
+  it('builds GitLab publish metadata', () => {
+    const manifest = buildExportManifest({
+      session: session(),
+      bugs: [bug()],
+      files: [file()],
+      outDir: '/exports',
+      publish: { target: 'gitlab', gitlabMode: 'per-marker-issue' },
+    })
+
+    expect(manifest.publish).toEqual({ target: 'gitlab', slackThreadMode: null, gitlabMode: 'per-marker-issue' })
   })
 
   it('writes JSON, CSV, and Slack thread payload manifests', () => {

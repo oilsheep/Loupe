@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, PublishTarget, SeveritySettings, SlackMentionUser, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, PublishTarget, SeveritySettings, SlackMentionUser, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -157,6 +157,7 @@ interface ExportConfirmDialogProps {
   hasMarkerAudioNotes: boolean
   publishTarget: PublishTarget
   slackThreadMode: SlackThreadMode
+  gitlabMode: GitLabPublishMode
   busy: boolean
   error: string
   canceling: boolean
@@ -171,6 +172,7 @@ interface ExportConfirmDialogProps {
   onIncludeMicTrackChange(value: boolean): void
   onPublishTargetChange(value: PublishTarget): void
   onSlackThreadModeChange(value: SlackThreadMode): void
+  onGitLabModeChange(value: GitLabPublishMode): void
   onBrowseOutputRoot(): void
   onCancel(): void
   onConfirm(): void
@@ -189,6 +191,7 @@ function ExportConfirmDialog({
   hasMarkerAudioNotes,
   publishTarget,
   slackThreadMode,
+  gitlabMode,
   busy,
   error,
   canceling,
@@ -203,11 +206,13 @@ function ExportConfirmDialog({
   onIncludeMicTrackChange,
   onPublishTargetChange,
   onSlackThreadModeChange,
+  onGitLabModeChange,
   onBrowseOutputRoot,
   onCancel,
   onConfirm,
 }: ExportConfirmDialogProps) {
   const isSlack = publishTarget === 'slack'
+  const isGitLab = publishTarget === 'gitlab'
   const { t } = useI18n()
   const progressPct = progress && progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
@@ -311,7 +316,7 @@ function ExportConfirmDialog({
 
         <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3">
           <div className="text-xs font-medium text-zinc-300">Publish target</div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => onPublishTargetChange('local')}
@@ -325,6 +330,13 @@ function ExportConfirmDialog({
               className={`rounded px-3 py-2 text-sm ${isSlack ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
             >
               Slack
+            </button>
+            <button
+              type="button"
+              onClick={() => onPublishTargetChange('gitlab')}
+              className={`rounded px-3 py-2 text-sm ${isGitLab ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+            >
+              GitLab
             </button>
           </div>
 
@@ -349,6 +361,28 @@ function ExportConfirmDialog({
               </div>
               <div className="mt-2 text-xs text-zinc-500">
                 Loupe writes a Slack publish plan next to the manifest.
+              </div>
+            </div>
+          )}
+
+          {isGitLab && (
+            <div className="mt-3">
+              <div className="text-xs text-zinc-500">GitLab publish mode</div>
+              <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
+                <button
+                  type="button"
+                  onClick={() => onGitLabModeChange('single-issue')}
+                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                >
+                  Single issue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onGitLabModeChange('per-marker-issue')}
+                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                >
+                  Issue per marker
+                </button>
               </div>
             </div>
           )}
@@ -615,6 +649,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportIncludeMicTrack, setExportIncludeMicTrack] = useState(false)
   const [publishTarget, setPublishTarget] = useState<PublishTarget>('local')
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
+  const [gitlabMode, setGitLabMode] = useState<GitLabPublishMode>('single-issue')
   const [exportError, setExportError] = useState('')
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
@@ -733,6 +768,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportIncludeMicTrack(false)
     setPublishTarget('local')
     setSlackThreadMode('per-marker-thread')
+    setGitLabMode(settings.gitlab.mode)
     setExportError('')
     setExportProgress(null)
     setExportId(null)
@@ -774,7 +810,9 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         testNote: exportTestNote.trim(),
       })
       onMutated()
-      const publish = { target: publishTarget, slackThreadMode }
+      const publish = publishTarget === 'gitlab'
+        ? { target: publishTarget, gitlabMode }
+        : { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
         ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })].filter(Boolean) as string[])
         : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })
@@ -879,6 +917,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
           publishTarget={publishTarget}
           slackThreadMode={slackThreadMode}
+          gitlabMode={gitlabMode}
           busy={exporting}
           error={exportError}
           canceling={cancelingExport}
@@ -893,6 +932,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onIncludeMicTrackChange={setExportIncludeMicTrack}
           onPublishTargetChange={setPublishTarget}
           onSlackThreadModeChange={setSlackThreadMode}
+          onGitLabModeChange={setGitLabMode}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={cancelExport}
           onConfirm={confirmExport}

@@ -27,6 +27,7 @@ function settings(): AppSettings {
       custom4: { label: 'custom 4', color: '#eab308' },
     },
     slack: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+    gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
   }
 }
 
@@ -121,6 +122,46 @@ describe('remote publisher', () => {
 
       expect(result.target).toBe('slack')
       expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))).toHaveLength(1)
+    } finally {
+      vi.stubGlobal('fetch', originalFetch)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('routes GitLab exports through the GitLab publisher', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-remote-'))
+    const originalFetch = globalThis.fetch
+    try {
+      const files: ExportedMarkerFile[] = [{
+        bugId: 'b1',
+        videoPath: join(root, 'b1.mp4'),
+        previewPath: join(root, 'b1.jpg'),
+        logcatPath: null,
+      }]
+      writeFileSync(files[0].videoPath, 'x')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'gitlab', gitlabMode: 'single-issue' },
+      })
+      const fetchImpl = vi.fn(async (input: string) => {
+        if (input.endsWith('/uploads')) return response({ markdown: '[b1.mp4](/uploads/b1.mp4)' })
+        if (input.endsWith('/issues')) return response({ iid: 7, web_url: 'https://gitlab.example.com/group/project/-/issues/7' })
+        if (input.endsWith('/issues/7/notes')) return response({ id: 1 })
+        throw new Error(`unexpected URL ${input}`)
+      })
+      vi.stubGlobal('fetch', fetchImpl)
+
+      const result = await publishManifestToRemote({
+        manifest,
+        manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
+        settings: settings(),
+      })
+
+      expect(result.target).toBe('gitlab')
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/issues/7/notes'))).toBe(true)
     } finally {
       vi.stubGlobal('fetch', originalFetch)
       rmSync(root, { recursive: true, force: true })

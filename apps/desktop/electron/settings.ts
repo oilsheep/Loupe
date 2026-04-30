@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, HotkeySettings, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, BugSeverity, GitLabPublishSettings, HotkeySettings, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
@@ -82,6 +82,24 @@ function normalizeSlackMentionUsers(raw?: unknown): SlackMentionUser[] {
   return [...byId.values()].sort((a, b) => (a.displayName || a.realName || a.name || a.id).localeCompare(b.displayName || b.realName || b.name || b.id))
 }
 
+function normalizeCsvList(raw?: unknown): string[] {
+  const text = Array.isArray(raw) ? raw.join(',') : String(raw ?? '')
+  return Array.from(new Set(text.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean)))
+}
+
+function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
+  const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
+  return {
+    baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
+    token: raw?.token || '',
+    projectId: raw?.projectId?.trim() || '',
+    mode,
+    labels: normalizeCsvList(raw?.labels),
+    confidential: Boolean(raw?.confidential),
+    mentionUsernames: normalizeCsvList(raw?.mentionUsernames).map(value => value.replace(/^@/, '')),
+  }
+}
+
 function normalizeLocale(raw?: string): AppLocale {
   if (raw === 'system' || raw === 'en' || raw === 'zh-TW' || raw === 'zh-CN' || raw === 'ja' || raw === 'ko' || raw === 'es') return raw
   return 'system'
@@ -120,6 +138,7 @@ export class SettingsStore {
         locale: normalizeLocale(raw.locale),
         severities: normalizeSeverities(raw.severities),
         slack: normalizeSlack(raw.slack),
+        gitlab: normalizeGitLab(raw.gitlab),
       }
     } catch {
       return this.defaults
@@ -140,6 +159,12 @@ export class SettingsStore {
 
   setSlack(slack: SlackPublishSettings): AppSettings {
     const next = { ...this.get(), slack: normalizeSlack(slack) }
+    this.write(next)
+    return next
+  }
+
+  setGitLab(gitlab: GitLabPublishSettings): AppSettings {
+    const next = { ...this.get(), gitlab: normalizeGitLab(gitlab) }
     this.write(next)
     return next
   }
