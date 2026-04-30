@@ -445,6 +445,34 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
   )
 }
 
+interface SeveritySelectProps {
+  bugId: string
+  value: BugSeverity
+  severities: SeveritySettings
+  visibleSeverities: BugSeverity[]
+  onChange(severity: BugSeverity): void
+}
+
+function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange }: SeveritySelectProps) {
+  const color = severityColor(severities, value)
+  return (
+    <div className="flex items-center gap-2" data-row-click-ignore="true">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as BugSeverity)}
+        data-testid={`severity-select-${bugId}`}
+        aria-label="Marker severity"
+        className="max-w-40 rounded px-3 py-1.5 text-sm font-semibold text-black outline-none focus:ring-2 focus:ring-blue-600"
+        style={{ backgroundColor: color }}
+      >
+        {visibleSeverities.map(severity => (
+          <option key={severity} value={severity}>{severityLabel(severities, severity)}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 interface MentionPickerProps {
   users: SlackMentionUser[]
   selectedIds: string[]
@@ -454,8 +482,20 @@ interface MentionPickerProps {
 
 function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerProps) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
   const selected = new Set(selectedIds)
   const labels = selectedIds.map(id => aliases[id] || users.find(user => user.id === id)?.displayName || users.find(user => user.id === id)?.realName || users.find(user => user.id === id)?.name || id)
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredUsers = normalizedQuery
+    ? users.filter(user => [
+        slackUserLabel(user),
+        user.name,
+        user.realName,
+        user.displayName,
+        user.id,
+      ].some(value => value.toLowerCase().includes(normalizedQuery)))
+    : users
 
   function toggle(id: string) {
     const next = new Set(selected)
@@ -464,8 +504,26 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
     onChange([...next])
   }
 
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null
+      if (target && rootRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   return (
-    <div className="relative" data-row-click-ignore="true">
+    <div ref={rootRef} className="relative" data-row-click-ignore="true">
       <button
         type="button"
         onClick={() => setOpen(value => !value)}
@@ -475,9 +533,20 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
       </button>
       {open && (
         <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+          {users.length > 0 && (
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search people"
+              className="mb-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+              autoFocus
+            />
+          )}
           {users.length === 0 ? (
             <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack users in Publish settings.</div>
-          ) : users.map(user => (
+          ) : filteredUsers.length === 0 ? (
+            <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
+          ) : filteredUsers.map(user => (
             <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
               <input
                 type="checkbox"
@@ -948,25 +1017,30 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
           />
         )}
 
-        <div title={t('bug.type', { type: severityLabel(severities, bug.severity) })} data-testid={`severity-${bug.id}`} className="mt-1 shrink-0">
-          <div className="h-3 w-3 rounded-full" style={{ backgroundColor: severityColor(severities, bug.severity) }} />
+        <div className="flex shrink-0 flex-col gap-2">
+          <SeveritySelect
+            bugId={bug.id}
+            value={bug.severity}
+            severities={severities}
+            visibleSeverities={visibleSeverities}
+            onChange={(severity) => { if (severity !== bug.severity) save({ severity }) }}
+          />
+          <button onClick={() => onSelect(bug)} className="shrink-0" title={t('bug.screenshotTitle')}>
+            {thumbnailUrl
+              ? (
+                <img
+                  src={thumbnailUrl}
+                  alt=""
+                  data-testid={`thumb-${bug.id}`}
+                  className="h-24 w-28 rounded border border-zinc-800 bg-black object-contain"
+                />
+              )
+              : nowMs - bug.createdAt < THUMB_PENDING_MS
+                ? <ThumbnailWaiting label={t('bug.waitingScreenshot')} />
+                : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
+            }
+          </button>
         </div>
-
-        <button onClick={() => onSelect(bug)} className="shrink-0" title={t('bug.screenshotTitle')}>
-          {thumbnailUrl
-            ? (
-              <img
-                src={thumbnailUrl}
-                alt=""
-                data-testid={`thumb-${bug.id}`}
-                className="h-24 w-28 rounded border border-zinc-800 bg-black object-contain"
-              />
-            )
-            : nowMs - bug.createdAt < THUMB_PENDING_MS
-              ? <ThumbnailWaiting label={t('bug.waitingScreenshot')} />
-              : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
-          }
-        </button>
 
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
@@ -1003,36 +1077,6 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
                 <DeleteIcon />
               </button>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1">
-            {visibleSeverities.map(severity => {
-              const active = severity === bug.severity
-              return (
-                <button
-                  key={severity}
-                  type="button"
-                  onClick={() => { if (!active) save({ severity }) }}
-                  data-testid={`severity-${severity}-${bug.id}`}
-                  className={`rounded px-2 py-0.5 text-[11px] font-medium ${
-                    active ? 'text-black' : 'bg-zinc-800 text-zinc-400 hover:text-black'
-                  }`}
-                  style={active ? { backgroundColor: severityColor(severities, severity) } : undefined}
-                  onMouseEnter={(e) => {
-                    if (!active) {
-                      e.currentTarget.style.backgroundColor = severityColor(severities, severity)
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) {
-                      e.currentTarget.style.backgroundColor = ''
-                    }
-                  }}
-                >
-                  {severityLabel(severities, severity)}
-                </button>
-              )
-            })}
           </div>
 
           <textarea

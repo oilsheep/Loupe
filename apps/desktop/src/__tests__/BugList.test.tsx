@@ -127,19 +127,19 @@ describe('BugList', () => {
     await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ postSec: 20 })))
   })
 
-  it('clicking a severity label saves that type', async () => {
+  it('changing the severity select saves that type', async () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug({ severity: 'normal' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
-    fireEvent.click(screen.getByTestId('severity-minor-b1'))
+    fireEvent.change(screen.getByTestId('severity-select-b1'), { target: { value: 'minor' } })
     await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ severity: 'minor' })))
   })
 
   it('shows custom severity labels only after they are named', async () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug({ severity: 'normal' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
-    const custom = await screen.findByTestId('severity-custom1-b1')
-    expect(custom.textContent).toBe('network')
-    expect(screen.queryByTestId('severity-custom2-b1')).toBeNull()
+    const select = await screen.findByTestId('severity-select-b1')
+    expect(select.textContent).toContain('network')
+    expect(select.textContent).not.toContain('custom2')
   })
 
   it('export-clip calls api.bug.exportClip', async () => {
