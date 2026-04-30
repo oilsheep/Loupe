@@ -1,8 +1,24 @@
 # Loupe QA Recorder
 
-Loupe QA Recorder is a Windows desktop app for QA teams that need fast, repeatable bug evidence. It records long Android or PC test sessions, lets testers drop timestamped bug markers during testing, and exports short annotated clips plus contact-sheet images for each selected marker.
+Loupe QA Recorder is a Windows desktop app for QA teams that need fast, repeatable bug evidence. It records long Android or PC test sessions, lets testers drop timestamped markers during testing, and exports short annotated clips, evidence sheets, and QA reports for selected markers.
 
-The app is built around a simple loop: **record once, mark instantly, review later, export clean evidence**. Testers do not need to scrub through a full session manually after every bug.
+The app is built around a simple loop: **record once, mark instantly, review later, export clean evidence**.
+
+## Latest Version
+
+**Current version: 0.1.0**
+
+Version 0.1.0 turns Loupe into a broader QA evidence workflow: Android recording, PC full-screen recording, customizable marker labels, batch exports, and shareable reports are packaged together.
+
+## What's New in 0.1.0
+
+- **Custom marker labels**: rename labels, edit colors, keep four hotkey labels, and add up to four mouse-only labels.
+- **Cleaner recording panel**: collapsed colored label buttons can create markers directly, reducing screen obstruction during testing.
+- **Faster marker flow**: markers appear immediately while thumbnails are filled in asynchronously.
+- **PC full-screen recording**: select a monitor and record desktop or web test cases with visible selection/recording frames.
+- **Richer exports**: selected markers export MP4 clips, six-frame evidence sheets, PDF/HTML reports, and a compact `summery.txt`.
+- **Report workflow**: exports are organized into `records/` and `report/` folders, with a configurable report title.
+- **Safer long sessions**: large session loading and batch export progress provide clearer feedback and cancellation behavior.
 
 ## At a Glance
 
@@ -10,32 +26,18 @@ The app is built around a simple loop: **record once, mark instantly, review lat
 | --- | --- |
 | Android testing | Records Android devices through bundled `adb` and `scrcpy`, with USB and Wireless debugging support. |
 | PC testing | Records a selected full monitor for desktop or web test cases. |
-| Fast markers | Adds bug markers with configurable hotkeys or colored buttons while recording. |
+| Fast markers | Adds markers with configurable hotkeys or colored buttons while recording. |
 | Review | Replays each marker's export range directly from the review list. |
-| Export | Creates MP4 clips and 3x3 preview sheets with severity, note, build, OS, device/source, tester, and timestamp. |
+| Export | Creates MP4 clips, six-frame evidence sheets, PDF/HTML reports, and a short text summary. |
 | Session files | Saves work as `.loupe` projects so markers, notes, recordings, and voice notes can be reopened later. |
-
-## Latest Version
-
-**Current version: 0.0.2**
-
-This release adds PC full-screen recording as a major feature while keeping the Android QA workflow intact.
-
-## What's New in 0.0.2
-
-- **PC full-screen recording**: choose a monitor from the left panel and record the full display.
-- **Selection and recording frames**: selected PC screens show a thin green frame before recording and a thin red frame while recording.
-- **PC marker thumbnails**: PC markers receive source thumbnails immediately, then fall back to video extraction if needed.
-- **Landscape-aware exports**: 3x3 preview sheets preserve landscape recordings instead of forcing a phone portrait layout.
-- **Unified source picker**: Android devices and PC screens are selected from the same start screen.
-- **Updated documentation**: installation, Android pairing, PC recording, marker workflow, export behavior, and `.loupe` project files are documented in English and Chinese.
 
 ## Product Highlights
 
 - **Android QA recording**: control and record Android devices through bundled `adb` and `scrcpy`.
 - **PC screen recording**: record a selected full monitor for PC-based test cases.
 - **Instant markers**: add markers with hotkeys or the colored label buttons during recording.
-- **Default marker labels**: `Note`, `Polish`, `Bug`, and `Critical`, with up to four custom labels.
+- **Default marker labels**: `Note`, `Polish`, `Bug`, and `Critical`.
+- **Custom labels**: add up to four extra mouse-only labels, for a total of eight labels.
 - **Default recording hotkeys**:
   - `F6`: Note
   - `F7`: Polish
@@ -44,36 +46,33 @@ This release adds PC full-screen recording as a major feature while keeping the 
 - **Review timeline**: click a marker to replay the exact export window.
 - **Editable export range**: adjust clip start and end offsets per marker.
 - **Batch export**: select multiple markers and export all selected clips.
-- **Captioned clips**: exported videos include severity, note, build, OS, device/source, tester, and timestamp.
+- **Captioned clips**: exported videos include severity, note, build, OS, device/source, tester, timestamp, clip range, and sampled device status when available.
 - **Voice notes**: record audio notes per marker and embed them into exported clips.
-- **Preview sheet export**: every clip also exports a 3x3 contact sheet with matching metadata.
+- **Evidence sheets**: every clip also exports a six-frame image sheet with matching metadata.
+- **QA reports**: batch export generates HTML/PDF reports plus `summery.txt`.
 - **Session projects**: sessions are saved as `.loupe` files and can be reopened later.
-- **One-click Windows installer**: packaged builds include the required Android and export tooling.
 
 ## Download and Install
 
 The packaged Windows installer is generated as:
 
 ```text
-Loupe QA Recorder-0.0.2.exe
+Loupe QA Recorder-0.1.0.exe
 ```
 
 For a portable handoff, use the zip package:
 
 ```text
-Loupe QA Recorder-0.0.2.zip
+Loupe QA Recorder-0.1.0.zip
 ```
 
-The installer includes the required Windows builds of `adb`, `scrcpy`, and export tooling. QA users do not need to install Android Platform Tools separately.
+Packaged builds include the required Windows builds of `adb`, `scrcpy`, FFmpeg, and export tooling. QA users do not need to install Android Platform Tools separately.
 
 ## Installation
 
-### For QA Users
-
-1. Download `Loupe QA Recorder-0.0.2.exe` from the release package.
-2. Run the installer.
+1. Download `Loupe QA Recorder-0.1.0.exe` or the portable zip package.
+2. Run the installer, or unzip the portable build and launch `Loupe QA Recorder.exe`.
 3. If Windows SmartScreen warns about an unknown publisher, choose **More info** and then **Run anyway**.
-4. Launch **Loupe QA Recorder** from the desktop shortcut or Start menu.
 
 ## Recording Sources
 
@@ -134,14 +133,20 @@ If discovery does not find the phone, use the manual **Add Wi-Fi device** field 
 5. Stop the session.
 6. Review markers, add notes, adjust clip ranges, and optionally record voice notes.
 7. Select markers and export clips.
-8. Share the generated MP4 clips and 3x3 preview sheets.
+8. Share the generated MP4 clips, six-frame evidence sheets, reports, and summary file.
 
 ## Export Format
 
 Each selected marker exports:
 
 - one trimmed MP4 clip
-- one 3x3 preview image sheet
+- one six-frame preview image sheet
+
+Batch export also creates:
+
+- `records/`: exported MP4 clips and image sheets
+- `report/`: HTML and PDF QA report
+- `summery.txt`: compact text summary for quick sharing
 
 The caption area uses a light gray background with black text and includes:
 
@@ -149,9 +154,11 @@ The caption area uses a light gray background with black text and includes:
 Severity / Marker note
 Build / OS / Device or PC screen
 Tester / Computer timestamp
+Clip range
+Sampled device status, when available
 ```
 
-Long notes wrap automatically. Landscape recordings export landscape preview sheets; portrait recordings export portrait preview sheets.
+Long notes wrap automatically. Landscape recordings export landscape evidence sheets; portrait recordings export portrait evidence sheets.
 
 ## Session Files
 
@@ -160,23 +167,6 @@ Each session is saved as a `.loupe` project file. Reopening a `.loupe` file rest
 If the original recording is missing, Loupe prompts the user to locate the video manually.
 
 ## Developer Setup
-
-### macOS prerequisites for Android recording
-
-The bundled tool binaries are only shipped in packaged Windows builds. When you run the app in development mode on macOS, install the Android tools with Homebrew first:
-
-```bash
-brew install android-platform-tools scrcpy
-```
-
-Verify both tools are on your shell PATH before launching Loupe:
-
-```bash
-command -v adb
-command -v scrcpy
-```
-
-If you keep custom binaries outside your PATH, point Loupe at them with `LOUPE_TOOLS_DIR`.
 
 Install dependencies:
 
@@ -204,7 +194,7 @@ pnpm rebuild:electron
 pnpm rebuild:node
 ```
 
-## Build the Windows Installer
+## Build the Windows Package
 
 From the repository root:
 
@@ -214,7 +204,7 @@ pnpm rebuild:electron
 pnpm --filter desktop dist:win
 ```
 
-The installer is generated under:
+The installer and portable zip are generated under:
 
 ```text
 apps/desktop/dist/
@@ -226,64 +216,14 @@ apps/desktop/dist/
 
 - [User Guide](docs/user-guide.md)
 - [Chinese User Guide](docs/Loupe%20%E4%BD%BF%E7%94%A8%E8%AA%AA%E6%98%8E.md)
+- [Slack Setup](docs/slack-setup.md)
+- [Changelog](CHANGELOG.md)
 
-## 中文快速說明
+## 中文簡介
 
-Loupe QA Recorder 是給 QA 團隊使用的 Windows 桌面錄影工具。它可以錄製 Android 手機或 PC 螢幕，測試過程中用熱鍵快速打點，session 結束後再依照點位裁切影片、加入註記、輸出九宮格截圖，讓 bug 回報不用再手動翻找整段錄影。
+Loupe QA Recorder 是給 QA 測試使用的 Windows 錄影工具。它可以錄 Android 手機，也可以錄 PC 全螢幕；測試中用熱鍵或彩色標籤快速打點，停止後再補 note、調整裁切範圍、錄語音註記，最後輸出 bug 影片、六張圖證據圖、HTML/PDF 報告與 `summery.txt`。
 
-### 主要特色
-
-- **Android 錄製**：內建 `adb` 與 `scrcpy`，支援 USB 偵錯與 Wi-Fi 無線偵錯。
-- **PC 螢幕錄製**：0.0.2 起可選擇要錄製的螢幕，錄製前顯示綠框，錄製中顯示紅框。
-- **快速打點**：預設 `F6` Note、`F7` Polish、`F8` Bug、`F9` Critical，也可在 APP 內修改，並可增加自訂標籤。
-- **Review 後製**：點選右側 bug list 會播放該點位裁切範圍，可調整前後秒數。
-- **批次輸出**：勾選多個點位後一次輸出 MP4 與 3x3 預覽圖。
-- **輸出註記**：影片與圖片會包含重要程度、note、Build、OS、Device / PC screen、Tester、電腦時間。
-- **語系支援**：APP 預設跟隨作業系統語系，也可在設定中切換繁體中文、简体中文、English、日本語、한국어、Español。
-- **Session 存檔**：每次 session 會存成 `.loupe`，可重新開啟並保留點位、註記、語音與影片連結。
-
-### 安裝方式
-
-1. 下載 `Loupe QA Recorder-0.0.2.exe`。
-2. 執行安裝檔。
-3. 若 Windows SmartScreen 顯示未知發行者，選擇 **More info**，再按 **Run anyway**。
-4. 從桌面捷徑或開始選單開啟 **Loupe QA Recorder**。
-
-安裝包已包含錄製與輸出需要的工具，QA 使用者不需要另外安裝 Android Platform Tools。
-
-### Android 配對流程
-
-官方教學：
-
-- [開啟 Android 開發人員選項](https://developer.android.com/studio/debug/dev-options)
-- [使用 Wi-Fi 連接 Android 裝置](https://developer.android.com/studio/run/device#wireless)
-
-USB 測試：
-
-1. 在手機開啟 **Developer options / 開發人員選項**。
-2. 開啟 **USB debugging / USB 偵錯**。
-3. 用資料線連接手機與 PC。
-4. 在手機上允許 USB debugging 授權。
-5. 回到 Loupe 左側選擇該 Android 裝置。
-
-Wi-Fi 測試：
-
-1. PC 與手機連到同一個 Wi-Fi。
-2. 手機開啟 **Wireless debugging / 無線偵錯**。
-3. 選擇 **Pair device with pairing code / 使用配對碼配對裝置**。
-4. 在 Loupe 按 **Scan Wi-Fi devices**。
-5. 若出現 pairing 項目，按 **Pair** 並輸入六位數配對碼。
-6. 配對完成後重新掃描，按 **Connect** 連線。
-
-### 基本使用流程
-
-1. 在左側選擇 PC 螢幕或 Android 裝置。
-2. 填入 Build / 測試版本，可選填測試註記與測試人員。
-3. 開始 session。
-4. 測試時用 F6 / F7 / F8 / F9 或右側彩色按鈕打點。
-5. 停止 session 後進入 review。
-6. 補 note、調整裁切秒數、可選擇錄語音註記。
-7. 勾選要輸出的點位，確認路徑、Tester、Test note 後批次輸出。
+0.1.0 重點包含自訂標籤名稱與顏色、最多 8 種標籤、錄製中直接點標籤打點、批次輸出進度、報告輸出，以及更完整的 Android / PC 測試流程。
 
 ## License
 

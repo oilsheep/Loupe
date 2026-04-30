@@ -4,7 +4,7 @@ This guide explains how to install Loupe, record PC screens or Android devices, 
 
 ## 1. Install Loupe
 
-1. Run `Loupe QA Recorder-0.0.2.exe`.
+1. Run `Loupe QA Recorder-0.1.0.exe`.
 2. If Windows shows a SmartScreen warning, select **More info** and then **Run anyway**.
 3. Open **Loupe QA Recorder** from the desktop shortcut or Start menu.
 
@@ -119,7 +119,7 @@ Clicking a marker card seeks the video to the clip start, plays to the clip end,
 For each selected marker, Loupe creates:
 
 - an MP4 clip
-- a 3x3 preview image sheet
+- a six-frame preview image sheet
 
 The file name is based on the marker note, build version, and date.
 
@@ -137,8 +137,8 @@ The marker note is bold and wraps automatically when it is too long.
 
 Preview sheets preserve orientation:
 
-- landscape recordings export landscape 3x3 sheets
-- portrait recordings export portrait 3x3 sheets
+- landscape recordings export landscape evidence sheets
+- portrait recordings export portrait evidence sheets
 
 ## 9. Session Files
 
