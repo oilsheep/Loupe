@@ -31,6 +31,7 @@ const CLIP_MAX_SEC = 60
 const THUMB_PENDING_MS = 45_000
 const LOGCAT_COLLAPSED_LINES = 2
 const LOGCAT_EXPANDED_LINES = 10
+const ORIGINAL_FILES_WARNING_KEY = 'loupe.skipOriginalFilesWarning'
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
   note: { label: 'note', color: '#a1a1aa' },
@@ -149,6 +150,8 @@ interface ExportConfirmDialogProps {
   testNote: string
   includeLogcat: boolean
   includeMicTrack: boolean
+  includeOriginalFiles: boolean
+  mergeOriginalAudio: boolean
   hasSessionMicTrack: boolean
   hasMarkerAudioNotes: boolean
   publishTarget: PublishTarget
@@ -166,6 +169,8 @@ interface ExportConfirmDialogProps {
   onTestNoteChange(value: string): void
   onIncludeLogcatChange(value: boolean): void
   onIncludeMicTrackChange(value: boolean): void
+  onIncludeOriginalFilesChange(value: boolean): void
+  onMergeOriginalAudioChange(value: boolean): void
   onPublishTargetChange(value: PublishTarget): void
   onSlackThreadModeChange(value: SlackThreadMode): void
   onGitLabModeChange(value: GitLabPublishMode): void
@@ -183,6 +188,8 @@ function ExportConfirmDialog({
   testNote,
   includeLogcat,
   includeMicTrack,
+  includeOriginalFiles,
+  mergeOriginalAudio,
   hasSessionMicTrack,
   hasMarkerAudioNotes,
   publishTarget,
@@ -200,6 +207,8 @@ function ExportConfirmDialog({
   onTestNoteChange,
   onIncludeLogcatChange,
   onIncludeMicTrackChange,
+  onIncludeOriginalFilesChange,
+  onMergeOriginalAudioChange,
   onPublishTargetChange,
   onSlackThreadModeChange,
   onGitLabModeChange,
@@ -424,6 +433,39 @@ function ExportConfirmDialog({
             {error}
           </div>
         )}
+
+        <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
+          <input
+            type="checkbox"
+            aria-label="附加原始檔案"
+            checked={includeOriginalFiles}
+            onChange={(e) => {
+              onIncludeOriginalFilesChange(e.target.checked)
+              if (!e.target.checked) onMergeOriginalAudioChange(false)
+            }}
+            className="mt-0.5 h-4 w-4 accent-blue-600"
+          />
+          <span>
+            <span className="block text-zinc-300">附加原始檔案</span>
+            <span className="mt-1 block text-zinc-500">Copies the original recording video and session MIC track into the export folder.</span>
+          </span>
+        </label>
+
+        {includeOriginalFiles && hasSessionMicTrack && (
+          <label className="ml-6 mt-2 flex items-start gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              aria-label="合併音軌"
+              checked={mergeOriginalAudio}
+              onChange={(e) => onMergeOriginalAudioChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-blue-600"
+            />
+            <span>
+              <span className="block text-zinc-300">合併音軌</span>
+              <span className="mt-1 block text-zinc-500">MIC audio is mixed over the original video audio; it does not replace the original track.</span>
+            </span>
+          </label>
+        )}
         </div>
 
         <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
@@ -436,7 +478,7 @@ function ExportConfirmDialog({
             {canceling ? t('export.canceling') : t('common.cancel')}
           </button>
           <button
-            onClick={onConfirm}
+            onClick={() => onConfirm()}
             disabled={busy || !outputRoot.trim()}
             className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
           >
@@ -640,6 +682,51 @@ function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps
   )
 }
 
+interface OriginalFilesWarningDialogProps {
+  remember: boolean
+  onRememberChange(value: boolean): void
+  onCancel(): void
+  onConfirm(): void
+}
+
+function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onConfirm }: OriginalFilesWarningDialogProps) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" data-testid="original-files-warning">
+      <div className="w-full max-w-md rounded-lg border border-amber-700 bg-zinc-900 p-4 shadow-2xl">
+        <div className="text-sm font-semibold text-amber-200">附加原始檔案可能會很大</div>
+        <div className="mt-2 text-xs leading-5 text-zinc-400">
+          Loupe 會把原始錄製影片與 session MIC 音軌複製到輸出資料夾的 originals 目錄。若勾選合併音軌，MIC 會疊加到原始影片音軌上，不會取代原本音軌。這些檔案可能很大，輸出時間和磁碟空間用量都會增加。
+        </div>
+        <label className="mt-4 flex items-center gap-2 text-xs text-zinc-300">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => onRememberChange(e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          以後不再詢問
+        </label>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-500"
+          >
+            繼續輸出
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '', hasSessionMicTrack = false }: Props) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
@@ -657,6 +744,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
   const [exportIncludeMicTrack, setExportIncludeMicTrack] = useState(false)
+  const [exportIncludeOriginalFiles, setExportIncludeOriginalFiles] = useState(false)
+  const [exportMergeOriginalAudio, setExportMergeOriginalAudio] = useState(false)
+  const [showOriginalFilesWarning, setShowOriginalFilesWarning] = useState(false)
+  const [rememberOriginalFilesWarning, setRememberOriginalFilesWarning] = useState(false)
   const [publishTarget, setPublishTarget] = useState<PublishTarget>('local')
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
   const [gitlabMode, setGitLabMode] = useState<GitLabPublishMode>('single-issue')
@@ -769,6 +860,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
     setExportIncludeMicTrack(false)
+    setExportIncludeOriginalFiles(false)
+    setExportMergeOriginalAudio(false)
+    setShowOriginalFilesWarning(false)
+    setRememberOriginalFilesWarning(false)
     setPublishTarget('local')
     setSlackThreadMode('per-marker-thread')
     setGitLabMode(settings.gitlab.mode)
@@ -785,10 +880,15 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     await beginExport({ bugs: selectedBugs, bugIds: checkedIds })
   }
 
-  async function confirmExport() {
+  async function confirmExport(skipOriginalFilesWarning = false) {
     if (!exportRequest) return
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
+    if (exportIncludeOriginalFiles && !skipOriginalFilesWarning && localStorage.getItem(ORIGINAL_FILES_WARNING_KEY) !== '1') {
+      setRememberOriginalFilesWarning(false)
+      setShowOriginalFilesWarning(true)
+      return
+    }
     const nextExportId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
     setExportId(nextExportId)
     setExportProgress({
@@ -817,8 +917,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         ? { target: publishTarget, gitlabMode }
         : { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })
       if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length, t)
       setExportRequest(null)
     } catch (err) {
@@ -836,6 +936,12 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       setExporting(false)
       setCancelingExport(false)
     }
+  }
+
+  function confirmOriginalFilesWarning() {
+    if (rememberOriginalFilesWarning) localStorage.setItem(ORIGINAL_FILES_WARNING_KEY, '1')
+    setShowOriginalFilesWarning(false)
+    void confirmExport(true)
   }
 
   async function cancelExport() {
@@ -915,6 +1021,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           testNote={exportTestNote}
           includeLogcat={exportIncludeLogcat}
           includeMicTrack={exportIncludeMicTrack}
+          includeOriginalFiles={exportIncludeOriginalFiles}
+          mergeOriginalAudio={exportMergeOriginalAudio}
           hasSessionMicTrack={hasSessionMicTrack}
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
           publishTarget={publishTarget}
@@ -932,12 +1040,22 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onTestNoteChange={setExportTestNote}
           onIncludeLogcatChange={setExportIncludeLogcat}
           onIncludeMicTrackChange={setExportIncludeMicTrack}
+          onIncludeOriginalFilesChange={setExportIncludeOriginalFiles}
+          onMergeOriginalAudioChange={setExportMergeOriginalAudio}
           onPublishTargetChange={setPublishTarget}
           onSlackThreadModeChange={setSlackThreadMode}
           onGitLabModeChange={setGitLabMode}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={cancelExport}
           onConfirm={confirmExport}
+        />
+      )}
+      {showOriginalFilesWarning && (
+        <OriginalFilesWarningDialog
+          remember={rememberOriginalFilesWarning}
+          onRememberChange={setRememberOriginalFilesWarning}
+          onCancel={() => setShowOriginalFilesWarning(false)}
+          onConfirm={confirmOriginalFilesWarning}
         />
       )}
     </div>
