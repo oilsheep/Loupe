@@ -1277,6 +1277,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.doctor, async (): Promise<ToolCheck[]> => doctor(deps.runner))
   ipcMain.handle(CHANNEL.showItemInFolder, async (_e, path: string) => shell.showItemInFolder(path))
   ipcMain.handle(CHANNEL.openPath, async (_e, path: string) => {
+    if (/^https?:\/\//i.test(path)) {
+      await shell.openExternal(path)
+      return
+    }
     const error = await shell.openPath(path)
     if (error) throw new Error(error)
   })

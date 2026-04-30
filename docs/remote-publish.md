@@ -219,6 +219,8 @@ export interface GitLabPublishSettings {
 
 ## Google Drive Publish 實作
 
+Setup 步驟見 `docs/google-setup.md`。
+
 Google Drive publish 採「完整 local export folder + optional Google Sheet append」：
 
 1. Renderer 在匯出對話框選擇 `Google Drive`。

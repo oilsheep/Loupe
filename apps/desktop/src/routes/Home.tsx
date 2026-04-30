@@ -44,6 +44,46 @@ function identityIdFromName(value: string): string {
     .replace(/^-+|-+$/g, '') || `person-${Date.now()}`
 }
 
+function parseGoogleDriveFolderInput(value: string | undefined): string {
+  const text = value?.trim() ?? ''
+  if (!text) return ''
+  try {
+    const url = new URL(text)
+    const folderMatch = url.pathname.match(/\/folders\/([^/?#]+)/)
+    if (folderMatch?.[1]) return decodeURIComponent(folderMatch[1])
+    const id = url.searchParams.get('id')
+    if (id) return id
+  } catch {
+    // Plain Drive folder IDs are expected here.
+  }
+  return text
+}
+
+function parseGoogleSpreadsheetInput(value: string | undefined): string {
+  const text = value?.trim() ?? ''
+  if (!text) return ''
+  try {
+    const url = new URL(text)
+    const spreadsheetMatch = url.pathname.match(/\/spreadsheets\/d\/([^/?#]+)/)
+    if (spreadsheetMatch?.[1]) return decodeURIComponent(spreadsheetMatch[1])
+    const id = url.searchParams.get('id')
+    if (id) return id
+  } catch {
+    // Plain spreadsheet IDs are expected here.
+  }
+  return text
+}
+
+function googleDriveFolderUrl(value: string | undefined): string {
+  const id = parseGoogleDriveFolderInput(value)
+  return id ? `https://drive.google.com/drive/folders/${encodeURIComponent(id)}` : ''
+}
+
+function googleSpreadsheetUrl(value: string | undefined): string {
+  const id = parseGoogleSpreadsheetInput(value)
+  return id ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/edit` : ''
+}
+
 function sortIdentities(identities: MentionIdentity[]): MentionIdentity[] {
   return [...identities].sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
@@ -382,9 +422,9 @@ export function Home() {
       oauthClientId: google.oauthClientId?.trim() ?? '',
       oauthClientSecret: google.oauthClientSecret?.trim() ?? '',
       oauthRedirectUri: google.oauthRedirectUri?.trim() || 'http://127.0.0.1:38988/oauth/google/callback',
-      driveFolderId: google.driveFolderId?.trim() ?? '',
+      driveFolderId: parseGoogleDriveFolderInput(google.driveFolderId),
       driveFolderName: google.driveFolderName?.trim() ?? '',
-      spreadsheetId: google.spreadsheetId?.trim() ?? '',
+      spreadsheetId: parseGoogleSpreadsheetInput(google.spreadsheetId),
       spreadsheetName: google.spreadsheetName?.trim() ?? '',
       sheetName: google.sheetName?.trim() ?? '',
       updateSheet: Boolean(google.updateSheet),
@@ -439,7 +479,15 @@ export function Home() {
     try {
       const folders = await api.settings.listGoogleDriveFolders(input)
       setGoogleFolders(folders)
-      setGoogleStatus(folders.length === 0 ? 'No Drive folders found. Create a folder or paste a folder ID.' : `Loaded ${folders.length} Drive folder${folders.length === 1 ? '' : 's'}.`)
+      setGoogle(prev => {
+        const driveFolderId = parseGoogleDriveFolderInput(prev.driveFolderId)
+        const folder = folders.find(item => item.id === driveFolderId)
+        return { ...prev, driveFolderId, driveFolderName: folder?.name ?? prev.driveFolderName }
+      })
+      const browsingChildren = Boolean(input.driveFolderId?.trim())
+      setGoogleStatus(folders.length === 0
+        ? browsingChildren ? 'No child folders found in the selected Drive folder.' : 'No Drive folders found. Create a folder or paste a folder URL.'
+        : browsingChildren ? `Loaded ${folders.length} child folder${folders.length === 1 ? '' : 's'} in the selected Drive folder.` : `Loaded ${folders.length} Drive folder${folders.length === 1 ? '' : 's'}.`)
     } catch (err) {
       setGoogleError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -478,6 +526,11 @@ export function Home() {
     try {
       const sheets = await api.settings.listGoogleSpreadsheets(input)
       setGoogleSpreadsheets(sheets)
+      setGoogle(prev => {
+        const spreadsheetId = parseGoogleSpreadsheetInput(prev.spreadsheetId)
+        const spreadsheet = sheets.find(item => item.id === spreadsheetId)
+        return { ...prev, spreadsheetId, spreadsheetName: spreadsheet?.name ?? prev.spreadsheetName }
+      })
       setGoogleStatus(sheets.length === 0 ? 'No Google spreadsheets found. Paste a spreadsheet ID if needed.' : `Loaded ${sheets.length} spreadsheet${sheets.length === 1 ? '' : 's'}.`)
     } catch (err) {
       setGoogleError(err instanceof Error ? err.message : String(err))
@@ -493,12 +546,23 @@ export function Home() {
     try {
       const tabs = await api.settings.listGoogleSheetTabs(input)
       setGoogleSheetTabs(tabs)
+      setGoogle(prev => ({ ...prev, spreadsheetId: parseGoogleSpreadsheetInput(prev.spreadsheetId) }))
       setGoogleStatus(tabs.length === 0 ? 'No sheet tabs found.' : `Loaded ${tabs.length} sheet tab${tabs.length === 1 ? '' : 's'}.`)
     } catch (err) {
       setGoogleError(err instanceof Error ? err.message : String(err))
     } finally {
       setRefreshingGoogleSheetTabs(false)
     }
+  }
+
+  async function openGoogleDriveFolder() {
+    const url = googleDriveFolderUrl(google.driveFolderId)
+    if (url) await api.app.openPath(url)
+  }
+
+  async function openGoogleSpreadsheet() {
+    const url = googleSpreadsheetUrl(google.spreadsheetId)
+    if (url) await api.app.openPath(url)
   }
 
   async function saveMentionIdentities() {
@@ -849,38 +913,55 @@ export function Home() {
               <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-2">
                 <label className="text-xs text-zinc-500">
                   Drive folder
-                  {googleFolders.length > 0 ? (
+                  <input
+                    value={google.driveFolderId ?? ''}
+                    onChange={(e) => {
+                      const driveFolderId = parseGoogleDriveFolderInput(e.target.value)
+                      const folder = googleFolders.find(item => item.id === driveFolderId)
+                      setGoogle({ ...google, driveFolderId: e.target.value, driveFolderName: folder?.name ?? '' })
+                      setGoogleSaved(false)
+                    }}
+                    onBlur={() => {
+                      const driveFolderId = parseGoogleDriveFolderInput(google.driveFolderId)
+                      const folder = googleFolders.find(item => item.id === driveFolderId)
+                      setGoogle({ ...google, driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
+                    }}
+                    placeholder="Drive folder URL or ID"
+                    className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  {googleFolders.length > 0 && (
                     <select
-                      value={google.driveFolderId ?? ''}
+                      value={googleFolders.some(folder => folder.id === google.driveFolderId) ? google.driveFolderId : ''}
                       onChange={(e) => {
                         const folder = googleFolders.find(item => item.id === e.target.value)
-                        setGoogle({ ...google, driveFolderId: e.target.value, driveFolderName: folder?.name ?? google.driveFolderName })
+                        setGoogle({ ...google, driveFolderId: folder?.id ?? google.driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
                         setGoogleSaved(false)
                       }}
                       className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                     >
-                      {!googleFolders.some(folder => folder.id === google.driveFolderId) && (
-                        <option value={google.driveFolderId ?? ''}>{google.driveFolderName || google.driveFolderId || 'Select a folder'}</option>
-                      )}
+                      <option value="">Choose refreshed folder...</option>
                       {googleFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
                     </select>
-                  ) : (
-                    <input
-                      value={google.driveFolderId ?? ''}
-                      onChange={(e) => { setGoogle({ ...google, driveFolderId: e.target.value, driveFolderName: '' }); setGoogleSaved(false) }}
-                      placeholder="Drive folder ID"
-                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                    />
                   )}
                 </label>
-                <button
-                  type="button"
-                  onClick={() => loadGoogleFolders()}
-                  disabled={refreshingGoogleFolders || !google.token.trim()}
-                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-                >
-                  {refreshingGoogleFolders ? 'Refreshing...' : 'Refresh folders'}
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={openGoogleDriveFolder}
+                    disabled={!parseGoogleDriveFolderInput(google.driveFolderId)}
+                    className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadGoogleFolders()}
+                    disabled={refreshingGoogleFolders || !google.token.trim()}
+                    className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    {refreshingGoogleFolders ? 'Refreshing...' : 'Refresh folders'}
+                  </button>
+                </div>
               </div>
               <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
                 <label className="text-xs text-zinc-500">
@@ -916,61 +997,76 @@ export function Home() {
                   <div className="grid grid-cols-[1fr_auto] items-end gap-2">
                     <label className="text-xs text-zinc-500">
                       Spreadsheet
-                      {googleSpreadsheets.length > 0 ? (
+                      <input
+                        value={google.spreadsheetId ?? ''}
+                        onChange={(e) => {
+                          const spreadsheetId = parseGoogleSpreadsheetInput(e.target.value)
+                          const spreadsheet = googleSpreadsheets.find(item => item.id === spreadsheetId)
+                          setGoogle({ ...google, spreadsheetId: e.target.value, spreadsheetName: spreadsheet?.name ?? '', sheetName: '' })
+                          setGoogleSheetTabs([])
+                          setGoogleSaved(false)
+                        }}
+                        onBlur={() => {
+                          const spreadsheetId = parseGoogleSpreadsheetInput(google.spreadsheetId)
+                          const spreadsheet = googleSpreadsheets.find(item => item.id === spreadsheetId)
+                          setGoogle({ ...google, spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName })
+                        }}
+                        placeholder="Google Sheets URL or ID"
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                      {googleSpreadsheets.length > 0 && (
                         <select
-                          value={google.spreadsheetId ?? ''}
+                          value={googleSpreadsheets.some(sheet => sheet.id === google.spreadsheetId) ? google.spreadsheetId : ''}
                           onChange={(e) => {
                             const spreadsheet = googleSpreadsheets.find(item => item.id === e.target.value)
-                            setGoogle({ ...google, spreadsheetId: e.target.value, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName, sheetName: '' })
+                            setGoogle({ ...google, spreadsheetId: spreadsheet?.id ?? google.spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName, sheetName: '' })
                             setGoogleSheetTabs([])
                             setGoogleSaved(false)
                           }}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                         >
-                          {!googleSpreadsheets.some(sheet => sheet.id === google.spreadsheetId) && (
-                            <option value={google.spreadsheetId ?? ''}>{google.spreadsheetName || google.spreadsheetId || 'Select a spreadsheet'}</option>
-                          )}
+                          <option value="">Choose refreshed spreadsheet...</option>
                           {googleSpreadsheets.map(sheet => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}
                         </select>
-                      ) : (
-                        <input
-                          value={google.spreadsheetId ?? ''}
-                          onChange={(e) => { setGoogle({ ...google, spreadsheetId: e.target.value, spreadsheetName: '' }); setGoogleSaved(false) }}
-                          placeholder="Spreadsheet ID"
-                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                        />
                       )}
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => loadGoogleSpreadsheets()}
-                      disabled={refreshingGoogleSpreadsheets || !google.token.trim()}
-                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-                    >
-                      {refreshingGoogleSpreadsheets ? 'Refreshing...' : 'Refresh sheets'}
-                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={openGoogleSpreadsheet}
+                        disabled={!parseGoogleSpreadsheetInput(google.spreadsheetId)}
+                        className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => loadGoogleSpreadsheets()}
+                        disabled={refreshingGoogleSpreadsheets || !google.token.trim()}
+                        className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        {refreshingGoogleSpreadsheets ? 'Refreshing...' : 'Refresh sheets'}
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
                     <label className="text-xs text-zinc-500">
                       Sheet tab
-                      {googleSheetTabs.length > 0 ? (
+                      <input
+                        value={google.sheetName ?? ''}
+                        onChange={(e) => { setGoogle({ ...google, sheetName: e.target.value }); setGoogleSaved(false) }}
+                        placeholder="Sheet1"
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                      {googleSheetTabs.length > 0 && (
                         <select
-                          value={google.sheetName ?? ''}
+                          value={googleSheetTabs.some(tab => tab.title === google.sheetName) ? google.sheetName : ''}
                           onChange={(e) => { setGoogle({ ...google, sheetName: e.target.value }); setGoogleSaved(false) }}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                         >
-                          {!googleSheetTabs.some(tab => tab.title === google.sheetName) && (
-                            <option value={google.sheetName ?? ''}>{google.sheetName || 'Select a tab'}</option>
-                          )}
+                          <option value="">Choose refreshed tab...</option>
                           {googleSheetTabs.map(tab => <option key={tab.sheetId} value={tab.title}>{tab.title}</option>)}
                         </select>
-                      ) : (
-                        <input
-                          value={google.sheetName ?? ''}
-                          onChange={(e) => { setGoogle({ ...google, sheetName: e.target.value }); setGoogleSaved(false) }}
-                          placeholder="Sheet1"
-                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                        />
                       )}
                     </label>
                     <button

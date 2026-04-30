@@ -151,14 +151,25 @@ async function googleJson<T>(fetchImpl: GooglePublisherFetch, token: string, inp
   return payload
 }
 
+function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
 export async function listGoogleDriveFolders(settings: GooglePublishSettings, fetchImpl: GooglePublisherFetch = fetch): Promise<GoogleDriveFolder[]> {
   const refreshed = await refreshGoogleAccessToken(settings, fetchImpl)
+  const parentFolderId = settings.driveFolderId?.trim() ?? ''
+  const query = parentFolderId
+    ? `'${escapeDriveQueryValue(parentFolderId)}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+    : "mimeType='application/vnd.google-apps.folder' and trashed=false"
   const folders: GoogleDriveFolder[] = []
   let pageToken = ''
   do {
     const params = new URLSearchParams({
-      q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
+      q: query,
       fields: 'nextPageToken,files(id,name,webViewLink)',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+      corpora: 'allDrives',
       orderBy: 'modifiedTime desc',
       pageSize: '100',
     })
@@ -176,7 +187,7 @@ export async function createGoogleDriveFolder(settings: GooglePublishSettings, n
   const refreshed = await refreshGoogleAccessToken(settings, fetchImpl)
   const trimmedName = name.trim()
   if (!trimmedName) throw new Error('Google Drive folder name is missing')
-  const payload = await googleJson<GoogleFileResponse>(fetchImpl, refreshed.token, `${DRIVE_API}/files?fields=id,name,webViewLink`, {
+  const payload = await googleJson<GoogleFileResponse>(fetchImpl, refreshed.token, `${DRIVE_API}/files?fields=id,name,webViewLink&supportsAllDrives=true`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -197,6 +208,9 @@ export async function listGoogleSpreadsheets(settings: GooglePublishSettings, fe
     const params = new URLSearchParams({
       q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
       fields: 'nextPageToken,files(id,name,webViewLink)',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+      corpora: 'allDrives',
       orderBy: 'modifiedTime desc',
       pageSize: '100',
     })
@@ -267,7 +281,7 @@ function sessionFolderName(manifest: ExportManifest): string {
 }
 
 async function createChildFolder(fetchImpl: GooglePublisherFetch, token: string, parentId: string, name: string): Promise<GoogleDriveFolder> {
-  const payload = await googleJson<GoogleFileResponse>(fetchImpl, token, `${DRIVE_API}/files?fields=id,name,webViewLink`, {
+  const payload = await googleJson<GoogleFileResponse>(fetchImpl, token, `${DRIVE_API}/files?fields=id,name,webViewLink&supportsAllDrives=true`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -283,7 +297,7 @@ async function createChildFolder(fetchImpl: GooglePublisherFetch, token: string,
 async function uploadFile(fetchImpl: GooglePublisherFetch, token: string, parentId: string, filePath: string, displayName: string): Promise<{ id: string; url: string | null }> {
   const bytes = readFileSync(filePath)
   const mimeType = mimeTypeForPath(filePath)
-  const start = await fetchImpl(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,name,webViewLink`, {
+  const start = await fetchImpl(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,name,webViewLink&supportsAllDrives=true`, {
     method: 'POST',
     headers: {
       ...authHeader(token),
