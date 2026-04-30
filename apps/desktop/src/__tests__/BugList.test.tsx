@@ -25,7 +25,9 @@ const severities = {
 const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
 const mentionIdentities: MentionIdentity[] = []
 
-function fakeApi(): DesktopApi {
+function fakeApi(options: { slack?: any } = {}): DesktopApi {
+  const slack = options.slack ?? { botToken: '', channelId: '' }
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, mentionIdentities }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -49,10 +51,10 @@ function fakeApi(): DesktopApi {
     } as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     settings: {
-      get: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab, mentionIdentities }) as any,
-      setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' }, gitlab, mentionIdentities }) as any,
+      get: vi.fn().mockResolvedValue(settings) as any,
+      setExportRoot: vi.fn().mockResolvedValue(settings) as any,
       setHotkeys: vi.fn() as any,
-      setSlack: vi.fn() as any,
+      setSlack: vi.fn().mockResolvedValue(settings) as any,
       setGitLab: vi.fn() as any,
       connectGitLabOAuth: vi.fn() as any,
       cancelGitLabOAuth: vi.fn() as any,
@@ -61,9 +63,9 @@ function fakeApi(): DesktopApi {
       importMentionIdentities: vi.fn() as any,
       exportMentionIdentities: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,
-      refreshSlackChannels: vi.fn() as any,
-      startSlackUserOAuth: vi.fn() as any,
-      refreshGitLabUsers: vi.fn() as any,
+      refreshSlackChannels: vi.fn().mockResolvedValue(settings) as any,
+      startSlackUserOAuth: vi.fn().mockResolvedValue(settings) as any,
+      refreshGitLabUsers: vi.fn().mockResolvedValue(settings) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,
@@ -165,12 +167,12 @@ describe('BugList', () => {
     await screen.findByTestId('export-dialog')
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(false)
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
       bugId: 'b1',
       includeLogcat: false,
-      publish: { target: 'local', slackThreadMode: 'per-marker-thread' },
+      publish: expect.objectContaining({ target: 'local', slackThreadMode: 'per-marker-thread' }),
       exportId: expect.any(String),
     })))
     expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { buildVersion: '1.2.3', tester: 'Avery', testNote: 'smoke' })
@@ -187,24 +189,36 @@ describe('BugList', () => {
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(true)
     fireEvent.click(logcatToggle)
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
       bugId: 'b1',
       includeLogcat: false,
-      publish: { target: 'local', slackThreadMode: 'per-marker-thread' },
+      publish: expect.objectContaining({ target: 'local', slackThreadMode: 'per-marker-thread' }),
     })))
   })
 
-  it('passes Slack thread layout through publish options', async () => {
+  it('shows a connect button instead of a Slack checkbox when Slack is not connected', async () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    fireEvent.click(screen.getByText('Slack'))
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByText('Connect Slack'))
+    await waitFor(() => expect(api.settings.startSlackUserOAuth).toHaveBeenCalled())
+    expect(api.bug.exportClip).not.toHaveBeenCalled()
+  })
+
+  it('passes Slack thread layout through publish options', async () => {
+    const api = fakeApi({ slack: { botToken: 'xoxb-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    const publish = screen.getByLabelText('Publish') as HTMLInputElement
+    fireEvent.click(publish)
+    await waitFor(() => expect(publish.checked).toBe(true))
+    fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
-      publish: { target: 'slack', slackThreadMode: 'per-marker-thread' },
+      publish: expect.objectContaining({ target: 'slack', slackThreadMode: 'per-marker-thread' }),
     })))
   })
 
@@ -215,13 +229,13 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" hasSessionMicTrack />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    const includeOriginalFiles = screen.getByLabelText('附加原始檔案') as HTMLInputElement
+    const includeOriginalFiles = screen.getByTestId('include-original-files') as HTMLInputElement
     fireEvent.click(includeOriginalFiles)
     await waitFor(() => expect(includeOriginalFiles.checked).toBe(true))
-    const mergeOriginalAudio = await screen.findByLabelText('合併音軌') as HTMLInputElement
+    const mergeOriginalAudio = await screen.findByTestId('merge-original-audio') as HTMLInputElement
     fireEvent.click(mergeOriginalAudio)
     await waitFor(() => expect(mergeOriginalAudio.checked).toBe(true))
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByTestId('confirm-export'))
 
     await screen.findByTestId('original-files-warning')
     expect(api.bug.exportClip).not.toHaveBeenCalled()
@@ -235,13 +249,15 @@ describe('BugList', () => {
   })
 
   it('keeps the publish dialog open when Slack publish fails', async () => {
-    const api = fakeApi()
+    const api = fakeApi({ slack: { botToken: 'xoxb-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
     api.bug.exportClip = vi.fn().mockRejectedValue(new Error('Slack channel ID is missing')) as any
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    fireEvent.click(screen.getByText('Slack'))
-    fireEvent.click(screen.getByText('Export'))
+    const publish = screen.getByLabelText('Publish') as HTMLInputElement
+    fireEvent.click(publish)
+    await waitFor(() => expect(publish.checked).toBe(true))
+    fireEvent.click(screen.getByTestId('confirm-export'))
     await screen.findByText('Slack channel ID is missing')
     expect(screen.getByTestId('export-dialog')).toBeTruthy()
   })
@@ -252,7 +268,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    fireEvent.click(screen.getByText('Export'))
+    fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.app.openPath).toHaveBeenCalledWith('/path'))
   })
 

@@ -68,6 +68,17 @@ function slackChannelLabel(channel: SlackChannel): string {
   return `${channel.isPrivate ? 'private / ' : '#'}${channel.name}${channel.isMember === false ? ' (not joined)' : ''}`
 }
 
+function slackPublishToken(settings: SlackPublishSettings | null): string {
+  if (!settings) return ''
+  const userToken = settings.userToken?.trim() ?? ''
+  const botToken = settings.botToken.trim()
+  return settings.publishIdentity === 'bot' ? botToken : userToken || botToken
+}
+
+function isSlackConnected(settings: SlackPublishSettings | null): boolean {
+  return Boolean(slackPublishToken(settings))
+}
+
 function normalizeManualSlackMentions(value: string): string[] {
   return Array.from(new Set(value
     .split(/[\s,;]+/)
@@ -207,6 +218,8 @@ interface ExportConfirmDialogProps {
   mergeOriginalAudio: boolean
   hasSessionMicTrack: boolean
   hasMarkerAudioNotes: boolean
+  slackConnected: boolean
+  slackConnecting: boolean
   publishSlack: boolean
   publishGitLab: boolean
   slackThreadMode: SlackThreadMode
@@ -233,6 +246,7 @@ interface ExportConfirmDialogProps {
   onIncludeMicTrackChange(value: boolean): void
   onIncludeOriginalFilesChange(value: boolean): void
   onMergeOriginalAudioChange(value: boolean): void
+  onConnectSlack(): void
   onPublishSlackChange(value: boolean): void
   onPublishGitLabChange(value: boolean): void
   onSlackThreadModeChange(value: SlackThreadMode): void
@@ -259,6 +273,8 @@ function ExportConfirmDialog({
   mergeOriginalAudio,
   hasSessionMicTrack,
   hasMarkerAudioNotes,
+  slackConnected,
+  slackConnecting,
   publishSlack,
   publishGitLab,
   slackThreadMode,
@@ -285,6 +301,7 @@ function ExportConfirmDialog({
   onIncludeMicTrackChange,
   onIncludeOriginalFilesChange,
   onMergeOriginalAudioChange,
+  onConnectSlack,
   onPublishSlackChange,
   onPublishGitLabChange,
   onSlackThreadModeChange,
@@ -407,18 +424,32 @@ function ExportConfirmDialog({
           </div>
 
           <section className={`rounded border p-3 ${isSlack ? 'border-blue-700 bg-blue-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <label className="flex cursor-pointer items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Slack</span>
                 <span className="mt-1 block text-xs text-zinc-500">Post the summary, detailed PDF, and marker videos to Slack.</span>
               </span>
-              <input
-                type="checkbox"
-                checked={isSlack}
-                onChange={(e) => onPublishSlackChange(e.target.checked)}
-                className="h-4 w-4 shrink-0 accent-blue-600"
-              />
-            </label>
+              {slackConnected ? (
+                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
+                  <span>Publish</span>
+                  <input
+                    type="checkbox"
+                    checked={isSlack}
+                    onChange={(e) => onPublishSlackChange(e.target.checked)}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                </label>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onConnectSlack}
+                  disabled={busy || slackConnecting}
+                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {slackConnecting ? 'Connecting...' : 'Connect Slack'}
+                </button>
+              )}
+            </div>
 
             {isSlack && (
               <div className="mt-3 space-y-3 border-t border-blue-900/60 pt-3">
@@ -576,6 +607,7 @@ function ExportConfirmDialog({
           <input
             type="checkbox"
             aria-label="輸出全時長錄影"
+            data-testid="include-original-files"
             checked={includeOriginalFiles}
             onChange={(e) => {
               onIncludeOriginalFilesChange(e.target.checked)
@@ -594,6 +626,7 @@ function ExportConfirmDialog({
             <input
               type="checkbox"
               aria-label="合併音軌"
+              data-testid="merge-original-audio"
               checked={mergeOriginalAudio}
               onChange={(e) => onMergeOriginalAudioChange(e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-blue-600"
@@ -618,6 +651,7 @@ function ExportConfirmDialog({
           <button
             onClick={() => onConfirm()}
             disabled={busy || !outputRoot.trim()}
+            data-testid="confirm-export"
             className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
           >
             {busy ? t('common.exporting') : t('common.export')}
@@ -1120,6 +1154,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [rememberOriginalFilesWarning, setRememberOriginalFilesWarning] = useState(false)
   const [publishSlack, setPublishSlack] = useState(false)
   const [publishGitLab, setPublishGitLab] = useState(false)
+  const [slackSettings, setSlackSettings] = useState<SlackPublishSettings | null>(null)
+  const [slackConnecting, setSlackConnecting] = useState(false)
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
   const [slackChannelId, setSlackChannelId] = useState('')
   const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([])
@@ -1144,6 +1180,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   useEffect(() => {
     api.settings.get().then(settings => {
       setSeverities(settings.severities)
+      setSlackSettings(settings.slack)
       const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
       const fetchedIds = new Set(fetchedUsers.map(user => user.id))
       const fallbackUsers = (settings.slack.mentionUserIds ?? [])
@@ -1154,6 +1191,21 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
     }).catch(() => {})
   }, [api])
+
+  useEffect(() => api.onSlackOAuthCompleted((result) => {
+    setSlackConnecting(false)
+    if (result.ok && result.settings) {
+      setSlackSettings(result.settings.slack)
+      applySlackDirectory(result.settings)
+      setSlackChannelId(channelIdFromSettings(result.settings.slack))
+      setSlackMentionIds(result.settings.slack.mentionUserIds ?? [])
+      setSlackManualMentionInput(formatManualSlackMentions(result.settings.slack.mentionUserIds ?? []))
+      setPublishSlack(isSlackConnected(result.settings.slack))
+      setSlackDirectoryError('')
+    } else {
+      setSlackDirectoryError(result.error || 'Slack connection failed.')
+    }
+  }), [api])
 
   useEffect(() => {
     const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)
@@ -1258,6 +1310,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         15000,
         'Slack channel loading timed out. Try Refresh again in a minute.',
       )
+      setSlackSettings(settings.slack)
       applySlackDirectory(settings)
       setSlackChannelId(channelIdFromSettings(settings.slack))
       if ((settings.slack.channels ?? []).length === 0) {
@@ -1305,6 +1358,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setPublishSlack(false)
     setPublishGitLab(false)
     setSlackThreadMode('per-marker-thread')
+    setSlackSettings(settings.slack)
     setSlackChannelId(channelIdFromSettings(settings.slack))
     setSlackMentionIds(settings.slack.mentionUserIds ?? [])
     setSlackManualMentionInput(formatManualSlackMentions(settings.slack.mentionUserIds ?? []))
@@ -1317,6 +1371,29 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportRequest(request)
   }
 
+  async function connectSlackForExport() {
+    setSlackConnecting(true)
+    setSlackDirectoryError('')
+    setExportError('')
+    try {
+      const settings = await api.settings.get()
+      setSlackSettings(settings.slack)
+      const nextSettings = await api.settings.startSlackUserOAuth(settings.slack)
+      setSlackSettings(nextSettings.slack)
+      applySlackDirectory(nextSettings)
+      setSlackChannelId(channelIdFromSettings(nextSettings.slack))
+      setSlackMentionIds(nextSettings.slack.mentionUserIds ?? [])
+      setSlackManualMentionInput(formatManualSlackMentions(nextSettings.slack.mentionUserIds ?? []))
+      if (isSlackConnected(nextSettings.slack)) {
+        setPublishSlack(true)
+        setSlackConnecting(false)
+      }
+    } catch (err) {
+      setSlackConnecting(false)
+      setSlackDirectoryError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function exportSelected() {
     if (checkedIds.length === 0) return
     const selectedBugs = bugs.filter(b => checked.has(b.id))
@@ -1327,6 +1404,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     if (!exportRequest) return
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
+    if (publishSlack && !isSlackConnected(slackSettings)) {
+      setExportError('Connect Slack before exporting to Slack.')
+      return
+    }
     if (publishSlack && !slackChannelId.trim()) {
       setExportError('Select a Slack channel before exporting.')
       return
@@ -1497,6 +1578,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           mergeOriginalAudio={exportMergeOriginalAudio}
           hasSessionMicTrack={hasSessionMicTrack}
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
+          slackConnected={isSlackConnected(slackSettings)}
+          slackConnecting={slackConnecting}
           publishSlack={publishSlack}
           publishGitLab={publishGitLab}
           slackThreadMode={slackThreadMode}
@@ -1523,6 +1606,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onIncludeMicTrackChange={setExportIncludeMicTrack}
           onIncludeOriginalFilesChange={setExportIncludeOriginalFiles}
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
+          onConnectSlack={() => { void connectSlackForExport() }}
           onPublishSlackChange={setPublishSlack}
           onPublishGitLabChange={setPublishGitLab}
           onSlackThreadModeChange={setSlackThreadMode}
