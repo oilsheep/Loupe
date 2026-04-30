@@ -62,6 +62,25 @@ export function parsePackageListOutput(stdout: string): string[] {
     .sort((a, b) => a.localeCompare(b))
 }
 
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+export function parseMemTotalGb(stdout: string): number | null {
+  const match = stdout.match(/^MemTotal:\s*(\d+)\s+kB/im)
+  if (!match) return null
+  return round1(Number(match[1]) / 1024 / 1024)
+}
+
+export function parseGraphicsDevice(stdout: string): string | null {
+  const glesLine = stdout.split(/\r?\n/).map(line => line.trim()).find(line => /^GLES:/i.test(line))
+  if (!glesLine) return null
+  const value = glesLine.replace(/^GLES:\s*/i, '').trim()
+  if (!value) return null
+  const parts = value.split(',').map(part => part.trim()).filter(Boolean)
+  return parts.length >= 2 ? parts.slice(0, 2).join(' ') : value
+}
+
 export class Adb {
   constructor(private runner: IProcessRunner) {}
 
@@ -94,12 +113,19 @@ export class Adb {
     return r.stdout.trim()
   }
 
-  async getDeviceInfo(deviceId: string): Promise<{ model: string; androidVersion: string }> {
-    const [model, androidVersion] = await Promise.all([
+  async getDeviceInfo(deviceId: string): Promise<{ model: string; androidVersion: string; ramTotalGb?: number | null; graphicsDevice?: string | null }> {
+    const [model, androidVersion, memInfo, surfaceFlinger] = await Promise.allSettled([
       this.getProp(deviceId, 'ro.product.model'),
       this.getProp(deviceId, 'ro.build.version.release'),
+      this.shell(deviceId, ['cat', '/proc/meminfo']),
+      this.shell(deviceId, ['dumpsys', 'SurfaceFlinger']),
     ])
-    return { model, androidVersion }
+    return {
+      model: model.status === 'fulfilled' ? model.value : '',
+      androidVersion: androidVersion.status === 'fulfilled' ? androidVersion.value : '',
+      ramTotalGb: memInfo.status === 'fulfilled' ? parseMemTotalGb(memInfo.value) : null,
+      graphicsDevice: surfaceFlinger.status === 'fulfilled' ? parseGraphicsDevice(surfaceFlinger.value) : null,
+    }
   }
 
   async getUserDeviceName(deviceId: string): Promise<string | null> {

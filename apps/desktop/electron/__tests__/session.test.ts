@@ -15,7 +15,7 @@ const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0))
 
 function makeStubs() {
   const adb = {
-    getDeviceInfo: vi.fn().mockResolvedValue({ model: 'Pixel 7', androidVersion: '14' }),
+    getDeviceInfo: vi.fn().mockResolvedValue({ model: 'Pixel 7', androidVersion: '14', ramTotalGb: 8, graphicsDevice: 'Qualcomm Adreno 740' }),
   } as unknown as Adb
   const scrcpy = {
     start: vi.fn(),
@@ -73,6 +73,8 @@ describe('SessionManager', () => {
     })
     expect(s.id).toBe('sess-1')
     expect(s.deviceModel).toBe('Pixel 7')
+    expect(s.ramTotalGb).toBe(8)
+    expect(s.graphicsDevice).toBe('Qualcomm Adreno 740')
     expect(s.status).toBe('recording')
     expect(stubs.scrcpy.start).toHaveBeenCalledWith(expect.objectContaining({
       deviceId: 'ABC', recordPath: paths.videoFile('sess-1'),

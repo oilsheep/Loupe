@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Adb, parseDevicesOutput, parseMdnsOutput, parsePackageListOutput } from '../adb'
+import { Adb, parseDevicesOutput, parseGraphicsDevice, parseMdnsOutput, parseMemTotalGb, parsePackageListOutput } from '../adb'
 import type { IProcessRunner } from '../process-runner'
 
 describe('parseDevicesOutput', () => {
@@ -84,9 +84,21 @@ describe('Adb', () => {
     const adb = new Adb(fake({
       '-s ABC shell getprop ro.product.model':         'Pixel 7',
       '-s ABC shell getprop ro.build.version.release': '14',
+      '-s ABC shell cat /proc/meminfo':                'MemTotal:        7832152 kB\n',
+      '-s ABC shell dumpsys SurfaceFlinger':           'GLES: Qualcomm, Adreno (TM) 740, OpenGL ES 3.2\n',
     }))
     const info = await adb.getDeviceInfo('ABC')
-    expect(info).toEqual({ model: 'Pixel 7', androidVersion: '14' })
+    expect(info).toEqual({
+      model: 'Pixel 7',
+      androidVersion: '14',
+      ramTotalGb: 7.5,
+      graphicsDevice: 'Qualcomm Adreno (TM) 740',
+    })
+  })
+
+  it('parses memory and graphics details', () => {
+    expect(parseMemTotalGb('MemTotal:        8388608 kB\n')).toBe(8)
+    expect(parseGraphicsDevice('GLES: Qualcomm, Adreno (TM) 740, OpenGL ES 3.2\n')).toBe('Qualcomm Adreno (TM) 740')
   })
 
   it('listPackages returns sorted package names', async () => {

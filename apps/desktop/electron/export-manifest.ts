@@ -27,6 +27,8 @@ export interface ExportManifest {
     deviceId: string
     deviceModel: string
     androidVersion: string
+    ramTotalGb: number | null
+    graphicsDevice: string | null
     connectionMode: Session['connectionMode']
     startedAt: string
     endedAt: string | null
@@ -74,6 +76,8 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
       deviceId: args.session.deviceId,
       deviceModel: args.session.deviceModel,
       androidVersion: args.session.androidVersion,
+      ramTotalGb: args.session.ramTotalGb ?? null,
+      graphicsDevice: args.session.graphicsDevice ?? null,
       connectionMode: args.session.connectionMode,
       startedAt: new Date(args.session.startedAt).toISOString(),
       endedAt: isoOrNull(args.session.endedAt),

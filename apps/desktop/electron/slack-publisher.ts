@@ -120,6 +120,21 @@ function validateSettings(settings: SlackPublishSettings): void {
   if (!settings.channelId.trim()) throw new Error('Slack channel ID is missing')
 }
 
+function markerTitle(marker: ExportManifest['markers'][number]): string {
+  return `[${marker.severity}] ${marker.note.trim() || 'No note'}`
+}
+
+function deviceDetailLines(session: ExportManifest['session']): string[] {
+  const lines = [
+    `Build: ${session.buildVersion || '(none)'}`,
+    `Tester: ${session.tester || '(none)'}`,
+    `Device: ${session.deviceModel || '(none)'} / Android ${session.androidVersion || '(none)'}`,
+  ]
+  if (session.ramTotalGb != null) lines.push(`RAM: ${session.ramTotalGb.toFixed(1)}G`)
+  if (session.graphicsDevice) lines.push(`Graphic Device: ${session.graphicsDevice}`)
+  return lines
+}
+
 export async function publishManifestToSlack(args: {
   manifest: ExportManifest
   manifestPaths: ManifestPaths
@@ -140,7 +155,7 @@ export async function publishManifestToSlack(args: {
       const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
       for (let i = 0; i < files.length; i++) {
         const text = i === 0
-          ? [`[${marker.severity}] ${marker.note.trim() || 'No note'}`, '', 'Note:', marker.note.trim() || '(none)'].join('\n')
+          ? [markerTitle(marker), '', 'Note:', marker.note.trim() || '(none)'].join('\n')
           : undefined
         await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, files[i], rootTs, text)
       }
@@ -152,9 +167,9 @@ export async function publishManifestToSlack(args: {
   } else {
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
-      const markerText = [`[${marker.severity}] ${marker.note.trim() || 'No note'}`, '', `Build: ${args.manifest.session.buildVersion || '(none)'}`, `Tester: ${args.manifest.session.tester || '(none)'}`, `Device: ${args.manifest.session.deviceModel || '(none)'} / Android ${args.manifest.session.androidVersion || '(none)'}`].join('\n')
-      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerText)
+      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerTitle(marker))
       markerThreadTs[marker.id] = markerRootTs
+      await postMessage(fetchImpl, botToken, channelId, deviceDetailLines(args.manifest.session).join('\n'), markerRootTs)
       const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
       for (const file of files) {
         await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, file, markerRootTs)

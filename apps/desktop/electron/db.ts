@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   device_id TEXT NOT NULL,
   device_model TEXT NOT NULL,
   android_version TEXT NOT NULL,
+  ram_total_gb REAL,
+  graphics_device TEXT,
   connection_mode TEXT NOT NULL CHECK(connection_mode IN ('usb','wifi','pc')),
   status TEXT NOT NULL CHECK(status IN ('recording','draft')),
   duration_ms INTEGER,
@@ -46,6 +48,8 @@ function rowToSession(r: any): Session {
     id: r.id, buildVersion: r.build_version, testNote: r.test_note, deviceId: r.device_id,
     tester: r.tester ?? '',
     deviceModel: r.device_model, androidVersion: r.android_version,
+    ramTotalGb: r.ram_total_gb ?? null,
+    graphicsDevice: r.graphics_device ?? null,
     connectionMode: r.connection_mode, status: r.status,
     durationMs: r.duration_ms, startedAt: r.started_at, endedAt: r.ended_at,
     videoPath: r.video_path ?? null,
@@ -75,6 +79,8 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('tester')) db.exec(`ALTER TABLE sessions ADD COLUMN tester TEXT NOT NULL DEFAULT ''`)
   if (!sessionCols.includes('pc_recording_enabled')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_recording_enabled INTEGER NOT NULL DEFAULT 0`)
   if (!sessionCols.includes('pc_video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_video_path TEXT`)
+  if (!sessionCols.includes('ram_total_gb')) db.exec(`ALTER TABLE sessions ADD COLUMN ram_total_gb REAL`)
+  if (!sessionCols.includes('graphics_device')) db.exec(`ALTER TABLE sessions ADD COLUMN graphics_device TEXT`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -87,6 +93,8 @@ function migrate(db: Database.Database): void {
         device_id TEXT NOT NULL,
         device_model TEXT NOT NULL,
         android_version TEXT NOT NULL,
+        ram_total_gb REAL,
+        graphics_device TEXT,
         connection_mode TEXT NOT NULL CHECK(connection_mode IN ('usb','wifi','pc')),
         status TEXT NOT NULL CHECK(status IN ('recording','draft')),
         duration_ms INTEGER,
@@ -97,10 +105,10 @@ function migrate(db: Database.Database): void {
         pc_video_path TEXT
       );
       INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
-                                connection_mode, status, duration_ms, started_at, ended_at, video_path,
+                                ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
                                 pc_recording_enabled, pc_video_path)
       SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
-             connection_mode, status, duration_ms, started_at, ended_at, video_path,
+             ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
              pc_recording_enabled, pc_video_path FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
@@ -152,9 +160,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
-                          connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path)
+                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path)
     VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath)
+            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       test_note=excluded.test_note,
@@ -162,6 +170,8 @@ export function openDb(file: string) {
       device_id=excluded.device_id,
       device_model=excluded.device_model,
       android_version=excluded.android_version,
+      ram_total_gb=excluded.ram_total_gb,
+      graphics_device=excluded.graphics_device,
       connection_mode=excluded.connection_mode,
       status=excluded.status,
       duration_ms=excluded.duration_ms,
@@ -213,6 +223,8 @@ export function openDb(file: string) {
       insertSessionStmt.run({
         ...s,
         tester: s.tester ?? '',
+        ramTotalGb: s.ramTotalGb ?? null,
+        graphicsDevice: s.graphicsDevice ?? null,
         pcRecordingEnabled: s.pcRecordingEnabled ? 1 : 0,
       })
     },

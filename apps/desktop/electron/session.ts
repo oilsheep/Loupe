@@ -143,6 +143,8 @@ export class SessionManager {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
       tester: args.tester?.trim() ?? '',
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
+      ramTotalGb: 'ramTotalGb' in info ? info.ramTotalGb ?? null : null,
+      graphicsDevice: 'graphicsDevice' in info ? info.graphicsDevice ?? null : null,
       connectionMode: args.connectionMode, status: 'recording',
       durationMs: null, startedAt, endedAt: null,
       videoPath: isPcSession ? null : paths.videoFile(id),

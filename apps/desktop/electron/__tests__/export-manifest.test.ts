@@ -67,6 +67,8 @@ describe('export manifest', () => {
 
     expect(manifest.publish).toEqual({ target: 'slack', slackThreadMode: 'single-thread' })
     expect(manifest.session.buildVersion).toBe('1.0')
+    expect(manifest.session.ramTotalGb).toBeNull()
+    expect(manifest.session.graphicsDevice).toBeNull()
     expect(manifest.markers[0]).toMatchObject({
       id: 'b1',
       severity: 'major',

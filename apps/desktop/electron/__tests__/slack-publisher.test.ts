@@ -23,6 +23,8 @@ function session(): Session {
     deviceId: 'ABC',
     deviceModel: 'Pixel 7',
     androidVersion: '14',
+    ramTotalGb: 8,
+    graphicsDevice: 'Qualcomm Adreno 740',
     connectionMode: 'usb',
     status: 'draft',
     durationMs: 10_000,
@@ -135,7 +137,12 @@ describe('Slack publisher', () => {
 
       expect(result.rootTs).toBeNull()
       expect(result.markerThreadTs.b1).toBe('123.456')
-      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))).toHaveLength(1)
+      const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
+      expect(messageCalls).toHaveLength(2)
+      expect(formBody(messageCalls[0]?.[1]).get('text')).toBe('[major] login crash')
+      expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('RAM: 8.0G')
+      expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('Graphic Device: Qualcomm Adreno 740')
+      expect(formBody(messageCalls[1]?.[1]).get('thread_ts')).toBe('123.456')
       expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))).toHaveLength(3)
     } finally {
       rmSync(root, { recursive: true, force: true })

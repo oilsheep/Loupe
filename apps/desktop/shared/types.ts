@@ -51,6 +51,8 @@ export interface Session {
   deviceId: string
   deviceModel: string
   androidVersion: string
+  ramTotalGb?: number | null
+  graphicsDevice?: string | null
   connectionMode: 'usb' | 'wifi' | 'pc'
   status: SessionStatus
   durationMs: number | null
