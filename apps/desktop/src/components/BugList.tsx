@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import type { CSSProperties, MouseEvent } from 'react'
 import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
@@ -124,16 +124,6 @@ function normalizeManualSlackMentions(value: string): string[] {
 
 function formatManualSlackMentions(ids: string[]): string {
   return ids.filter(id => id.startsWith('!')).map(id => id.replace(/^!(here|channel|everyone)$/, '@$1')).join(', ')
-}
-
-function mentionLabel(id: string, users: SlackMentionUser[], aliases: Record<string, string>): string {
-  if (aliases[id]) return aliases[id]
-  if (id === '!here' || id === '!channel' || id === '!everyone') return `@${id.slice(1)}`
-  const user = users.find(candidate => candidate.id === id)
-  if (user) return `@${slackUserLabel(user)}`
-  const subteam = id.match(/^!subteam\^[^|]+(?:\|(.+))?$/)
-  if (subteam) return `@${subteam[1] || id.replace(/^!subteam\^/, '')}`
-  return id
 }
 
 function channelIdFromSettings(slack: Awaited<ReturnType<DesktopApi['settings']['get']>>['slack']): string {
@@ -271,7 +261,7 @@ interface ExportConfirmDialogProps {
   slackThreadMode: SlackThreadMode
   slackChannels: SlackChannel[]
   slackChannelId: string
-  slackUsers: SlackMentionUser[]
+  mentionOptions: MentionOption[]
   slackMentionIds: string[]
   slackMentionAliases: Record<string, string>
   slackManualMentionInput: string
@@ -328,7 +318,7 @@ function ExportConfirmDialog({
   slackThreadMode,
   slackChannels,
   slackChannelId,
-  slackUsers,
+  mentionOptions,
   slackMentionIds,
   slackMentionAliases,
   slackManualMentionInput,
@@ -536,10 +526,11 @@ function ExportConfirmDialog({
               <div>
                 <div className="text-xs text-zinc-500">Mentions</div>
                 <div className="mt-1">
-                  <SlackMentionComposer
-                    users={slackUsers}
+                  <MentionPicker
+                    options={mentionOptions}
                     selectedIds={slackMentionIds}
                     aliases={slackMentionAliases}
+                    dropdownMode="fixed"
                     onChange={(ids) => {
                       onSlackMentionIdsChange(ids)
                       onSlackManualMentionInputChange(formatManualSlackMentions(ids))
@@ -834,161 +825,8 @@ interface MentionPickerProps {
   options: MentionOption[]
   selectedIds: string[]
   aliases: Record<string, string>
+  dropdownMode?: 'absolute' | 'fixed'
   onChange(ids: string[]): void
-}
-
-interface SlackMentionComposerProps {
-  users: SlackMentionUser[]
-  selectedIds: string[]
-  aliases: Record<string, string>
-  onChange(ids: string[]): void
-}
-
-type MentionSuggestion = {
-  id: string
-  label: string
-  detail: string
-}
-
-const SPECIAL_MENTION_SUGGESTIONS: MentionSuggestion[] = [
-  { id: '!here', label: '@here', detail: 'notify active channel members' },
-  { id: '!channel', label: '@channel', detail: 'notify all channel members' },
-  { id: '!everyone', label: '@everyone', detail: 'workspace-wide alert' },
-]
-
-function normalizeMentionDraft(value: string): string {
-  const trimmed = value.trim().replace(/,$/, '').trim()
-  if (!trimmed) return ''
-  const subteam = trimmed.match(/^<!?(subteam\^[^>|]+)(?:\|([^>]+))?>$/)
-  if (subteam) return `!${subteam[1]}${subteam[2] ? `|${subteam[2]}` : ''}`
-  const special = normalizeManualSlackMentions(trimmed)
-  if (special.length > 0) return special[0]
-  return ''
-}
-
-function SlackMentionComposer({ users, selectedIds, aliases, onChange }: SlackMentionComposerProps) {
-  const [draft, setDraft] = useState('')
-  const [open, setOpen] = useState(false)
-  const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const selected = new Set(selectedIds)
-  const query = draft.trim().replace(/^@/, '').toLowerCase()
-  const userSuggestions: MentionSuggestion[] = users
-    .filter(user => !selected.has(user.id))
-    .filter(user => {
-      if (!query) return true
-      return [slackUserLabel(user), user.name, user.realName, user.displayName, user.id]
-        .some(text => text.toLowerCase().includes(query))
-    })
-    .slice(0, 8)
-    .map(user => ({ id: user.id, label: `@${slackUserLabel(user)}`, detail: user.id }))
-  const specialSuggestions = SPECIAL_MENTION_SUGGESTIONS
-    .filter(item => !selected.has(item.id))
-    .filter(item => !query || item.label.toLowerCase().includes(query) || item.id.toLowerCase().includes(query))
-  const suggestions = [...specialSuggestions, ...userSuggestions]
-  const showSuggestions = open && draft.trim().startsWith('@') && suggestions.length > 0
-  const activeSuggestion = suggestions[Math.min(activeIndex, Math.max(0, suggestions.length - 1))]
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(event: globalThis.MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  function addMention(id: string) {
-    const next = Array.from(new Set([...selectedIds, id]))
-    onChange(next)
-    setDraft('')
-    setOpen(false)
-    setActiveIndex(0)
-  }
-
-  function removeMention(id: string) {
-    onChange(selectedIds.filter(item => item !== id))
-  }
-
-  function commitDraft() {
-    if (activeSuggestion && draft.trim().startsWith('@')) {
-      addMention(activeSuggestion.id)
-      return
-    }
-    const normalized = normalizeMentionDraft(draft)
-    if (normalized) addMention(normalized)
-    else setDraft('')
-  }
-
-  return (
-    <div ref={rootRef} className="relative" data-row-click-ignore="true">
-      <div
-        className="flex min-h-10 w-full flex-wrap items-center gap-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-200 outline-none focus-within:ring-1 focus-within:ring-blue-600"
-        onClick={() => inputRef.current?.focus()}
-      >
-        {selectedIds.map(id => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => removeMention(id)}
-            className="max-w-40 truncate rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-red-900/70"
-            title="Remove mention"
-          >
-            {mentionLabel(id, users, aliases)} x
-          </button>
-        ))}
-        <input
-          ref={inputRef}
-          value={draft}
-          onFocus={() => setOpen(true)}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            setOpen(true)
-            setActiveIndex(0)
-          }}
-          onKeyDown={(event) => {
-            if ((event.key === ',' || event.key === ' ') && draft.trim()) {
-              event.preventDefault()
-              commitDraft()
-            } else if (event.key === 'Enter' && draft.trim()) {
-              event.preventDefault()
-              commitDraft()
-            } else if (event.key === 'ArrowDown' && showSuggestions) {
-              event.preventDefault()
-              setActiveIndex(index => Math.min(index + 1, suggestions.length - 1))
-            } else if (event.key === 'ArrowUp' && showSuggestions) {
-              event.preventDefault()
-              setActiveIndex(index => Math.max(index - 1, 0))
-            } else if (event.key === 'Backspace' && !draft && selectedIds.length > 0) {
-              removeMention(selectedIds[selectedIds.length - 1])
-            }
-          }}
-          onBlur={() => {
-            if (draft.trim()) commitDraft()
-          }}
-          placeholder={selectedIds.length === 0 ? '@name, @here, @channel, <!subteam^S123|qa-team>' : '@tag more'}
-          className="min-w-40 flex-1 bg-transparent px-1 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
-        />
-      </div>
-      {showSuggestions && (
-        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion.id}
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => addMention(suggestion.id)}
-              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${index === activeIndex ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
-            >
-              <span className="min-w-0 truncate">{suggestion.label}</span>
-              <span className="shrink-0 text-[11px] text-zinc-500">{suggestion.detail}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 interface SlackChannelPickerProps {
@@ -1083,9 +921,10 @@ function SlackChannelPicker({ channels, value, disabled = false, loading = false
   )
 }
 
-function MentionPicker({ options, selectedIds, aliases, onChange }: MentionPickerProps) {
+function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute', onChange }: MentionPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [fixedMenuStyle, setFixedMenuStyle] = useState<CSSProperties | undefined>(undefined)
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = new Set(selectedIds)
   const optionMap = new Map(options.map(option => [option.id, option]))
@@ -1120,6 +959,15 @@ function MentionPicker({ options, selectedIds, aliases, onChange }: MentionPicke
 
   useEffect(() => {
     if (!open) return
+    function updateFixedMenuStyle() {
+      if (dropdownMode !== 'fixed') return
+      const rect = rootRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = 320
+      const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+      setFixedMenuStyle({ position: 'fixed', top: rect.bottom + 4, left, width })
+    }
+    updateFixedMenuStyle()
     function onPointerDown(event: PointerEvent) {
       const target = event.target as Node | null
       if (target && rootRef.current?.contains(target)) return
@@ -1130,11 +978,15 @@ function MentionPicker({ options, selectedIds, aliases, onChange }: MentionPicke
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', updateFixedMenuStyle)
+    window.addEventListener('scroll', updateFixedMenuStyle, true)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', updateFixedMenuStyle)
+      window.removeEventListener('scroll', updateFixedMenuStyle, true)
     }
-  }, [open])
+  }, [dropdownMode, open])
 
   return (
     <div ref={rootRef} className="relative" data-row-click-ignore="true">
@@ -1146,7 +998,10 @@ function MentionPicker({ options, selectedIds, aliases, onChange }: MentionPicke
         {labels.length > 0 ? `Mention: ${labels.join(', ')}` : 'Mention people'}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 max-h-64 w-80 max-w-[calc(100vw-2rem)] overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+        <div
+          style={dropdownMode === 'fixed' ? fixedMenuStyle : undefined}
+          className={`${dropdownMode === 'fixed' ? 'fixed z-[70]' : 'absolute z-20 mt-1 w-80'} max-h-64 max-w-[calc(100vw-2rem)] overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl`}
+        >
           {options.length > 0 && (
             <input
               value={query}
@@ -1729,7 +1584,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           slackThreadMode={slackThreadMode}
           slackChannels={slackChannels}
           slackChannelId={slackChannelId}
-          slackUsers={slackUsers}
+          mentionOptions={mentionOptions}
           slackMentionIds={slackMentionIds}
           slackMentionAliases={slackAliases}
           slackManualMentionInput={slackManualMentionInput}
