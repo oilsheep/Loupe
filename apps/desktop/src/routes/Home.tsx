@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { AppLocale, AppSettings, GitLabPublishSettings, MentionIdentity, SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, AppSettings, GitLabProject, GitLabPublishSettings, MentionIdentity, SlackPublishSettings, ToolCheck } from '@shared/types'
 import type { Session } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
@@ -158,12 +158,15 @@ export function Home() {
   const [slackSaved, setSlackSaved] = useState(false)
   const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
   const [slackError, setSlackError] = useState('')
-  const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
+  const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38987/oauth/gitlab/callback', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
   const [gitlabLabelsInput, setGitLabLabelsInput] = useState('loupe, qa-evidence')
   const [gitlabMentionsInput, setGitLabMentionsInput] = useState('')
   const [savingGitLab, setSavingGitLab] = useState(false)
   const [gitlabSaved, setGitLabSaved] = useState(false)
   const [refreshingGitLabUsers, setRefreshingGitLabUsers] = useState(false)
+  const [gitlabProjects, setGitLabProjects] = useState<GitLabProject[]>([])
+  const [refreshingGitLabProjects, setRefreshingGitLabProjects] = useState(false)
+  const [connectingGitLabOAuth, setConnectingGitLabOAuth] = useState(false)
   const [gitlabError, setGitLabError] = useState('')
   const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
   const [savingMentionIdentities, setSavingMentionIdentities] = useState(false)
@@ -275,6 +278,10 @@ export function Home() {
     return {
       ...gitlab,
       baseUrl: gitlab.baseUrl.trim() || 'https://gitlab.com',
+      authType: gitlab.authType ?? 'pat',
+      oauthClientId: gitlab.oauthClientId?.trim() ?? '',
+      oauthClientSecret: gitlab.oauthClientSecret?.trim() ?? '',
+      oauthRedirectUri: gitlab.oauthRedirectUri?.trim() || 'http://127.0.0.1:38987/oauth/gitlab/callback',
       projectId: gitlab.projectId.trim(),
       labels: parseListInput(gitlabLabelsInput),
       mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
@@ -296,6 +303,43 @@ export function Home() {
       setGitLabError(err instanceof Error ? err.message : String(err))
     } finally {
       setSavingGitLab(false)
+    }
+  }
+
+  async function connectGitLabOAuth() {
+    setConnectingGitLabOAuth(true)
+    setGitLabSaved(false)
+    setGitLabError('')
+    try {
+      const settings = await api.settings.connectGitLabOAuth(gitLabSettingsInput())
+      applySettings(settings)
+      await loadGitLabProjects(settings.gitlab)
+      setGitLabSaved(true)
+    } catch (err) {
+      setGitLabError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setConnectingGitLabOAuth(false)
+    }
+  }
+
+  async function cancelGitLabOAuth() {
+    try {
+      await api.settings.cancelGitLabOAuth()
+    } finally {
+      setConnectingGitLabOAuth(false)
+    }
+  }
+
+  async function loadGitLabProjects(input = gitLabSettingsInput()) {
+    setRefreshingGitLabProjects(true)
+    setGitLabError('')
+    try {
+      const projects = await api.settings.listGitLabProjects(input)
+      setGitLabProjects(projects)
+    } catch (err) {
+      setGitLabError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingGitLabProjects(false)
     }
   }
 
@@ -632,36 +676,134 @@ export function Home() {
               <span className="text-[11px] font-normal text-zinc-500">Settings</span>
             </summary>
             <div className="mt-3">
-            <div className="grid grid-cols-[1fr_180px] gap-2">
-              <label className="text-xs text-zinc-500">
+            <label className="block text-xs text-zinc-500">
                 GitLab base URL
                 <input
                   value={gitlab.baseUrl}
-                  onChange={(e) => { setGitLab({ ...gitlab, baseUrl: e.target.value }); setGitLabSaved(false) }}
+                  onChange={(e) => { setGitLab({ ...gitlab, baseUrl: e.target.value }); setGitLabProjects([]); setGitLabSaved(false) }}
                   placeholder="https://gitlab.com"
                   className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                 />
               </label>
+            <div className="mt-2 grid grid-cols-[1fr_180px] gap-2">
+              <div>
+                {gitlab.authType !== 'oauth' && (
+                <label className="text-xs text-zinc-500">
+                  GitLab token
+                  <input
+                    value={gitlab.token}
+                    onChange={(e) => { setGitLab({ ...gitlab, token: e.target.value }); setGitLabProjects([]); setGitLabSaved(false) }}
+                    type="password"
+                    placeholder="glpat-..."
+                    className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </label>
+                )}
+              </div>
               <label className="text-xs text-zinc-500">
-                Project ID or path
-                <input
-                  value={gitlab.projectId}
-                  onChange={(e) => { setGitLab({ ...gitlab, projectId: e.target.value }); setGitLabSaved(false) }}
-                  placeholder="group/project"
+                GitLab auth
+                <select
+                  value={gitlab.authType ?? 'pat'}
+                  onChange={(e) => { setGitLab({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] }); setGitLabProjects([]); setGitLabSaved(false) }}
                   className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                />
+                >
+                  <option value="pat">Personal access token</option>
+                  <option value="oauth">OAuth</option>
+                </select>
               </label>
             </div>
-            <label className="mt-2 block text-xs text-zinc-500">
-              GitLab token
-              <input
-                value={gitlab.token}
-                onChange={(e) => { setGitLab({ ...gitlab, token: e.target.value }); setGitLabSaved(false) }}
-                type="password"
-                placeholder="glpat-..."
-                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-              />
-            </label>
+            {gitlab.authType === 'oauth' && (
+              <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-zinc-500">
+                    OAuth client ID
+                    <input
+                      value={gitlab.oauthClientId ?? ''}
+                      onChange={(e) => { setGitLab({ ...gitlab, oauthClientId: e.target.value }); setGitLabSaved(false) }}
+                      placeholder="Application ID"
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    OAuth client secret
+                    <input
+                      value={gitlab.oauthClientSecret ?? ''}
+                      onChange={(e) => { setGitLab({ ...gitlab, oauthClientSecret: e.target.value }); setGitLabSaved(false) }}
+                      type="password"
+                      placeholder="Optional for confidential apps"
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    Redirect URI
+                    <input
+                      value={gitlab.oauthRedirectUri ?? 'http://127.0.0.1:38987/oauth/gitlab/callback'}
+                      onChange={(e) => { setGitLab({ ...gitlab, oauthRedirectUri: e.target.value }); setGitLabSaved(false) }}
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  {gitlab.token.trim() && (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.65)]" />
+                      Connected
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={connectGitLabOAuth}
+                    disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || !gitlab.oauthClientId?.trim()}
+                    className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    {connectingGitLabOAuth ? 'Connecting...' : 'Connect OAuth'}
+                  </button>
+                  {connectingGitLabOAuth && (
+                    <button
+                      type="button"
+                      onClick={cancelGitLabOAuth}
+                      className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                      Cancel OAuth
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
+              <label className="text-xs text-zinc-500">
+                Project
+                {gitlabProjects.length > 0 ? (
+                  <select
+                    value={gitlab.projectId}
+                    onChange={(e) => { setGitLab({ ...gitlab, projectId: e.target.value }); setGitLabSaved(false) }}
+                    className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  >
+                    {!gitlabProjects.some(project => project.pathWithNamespace === gitlab.projectId) && (
+                      <option value={gitlab.projectId}>{gitlab.projectId || 'Select a project'}</option>
+                    )}
+                    {gitlabProjects.map(project => (
+                      <option key={project.id} value={project.pathWithNamespace}>{project.nameWithNamespace}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={gitlab.projectId}
+                    onChange={(e) => { setGitLab({ ...gitlab, projectId: e.target.value }); setGitLabSaved(false) }}
+                    placeholder="group/project"
+                    className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                )}
+              </label>
+              <button
+                type="button"
+                onClick={() => loadGitLabProjects()}
+                disabled={refreshingGitLabProjects || !gitlab.baseUrl.trim() || !gitlab.token.trim()}
+                className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+              >
+                {refreshingGitLabProjects ? 'Refreshing...' : 'Refresh projects'}
+              </button>
+            </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="text-xs text-zinc-500">
                 Labels

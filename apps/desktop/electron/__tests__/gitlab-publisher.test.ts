@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, publishManifestToGitLab } from '../gitlab-publisher'
+import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, publishManifestToGitLab } from '../gitlab-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function response(payload: unknown, ok = true, status = ok ? 200 : 400): Response {
@@ -54,6 +54,32 @@ function bug(over: Partial<Bug> = {}): Bug {
 }
 
 describe('GitLab publisher', () => {
+  it('fetches selectable GitLab projects with pagination', async () => {
+    const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+      expect((init?.headers as Record<string, string>)['PRIVATE-TOKEN']).toBe('glpat-test')
+      if (String(input).endsWith('page=1')) {
+        return new Response(JSON.stringify([{ id: 2, name: 'App', name_with_namespace: 'QA / App', path_with_namespace: 'qa/app', web_url: 'https://gitlab.example.com/qa/app' }]), {
+          status: 200,
+          headers: { 'x-next-page': '2', 'Content-Type': 'application/json' },
+        })
+      }
+      if (String(input).endsWith('page=2')) return response([{ id: 1, name: 'Archived', path_with_namespace: 'qa/old', archived: true }])
+      throw new Error(`unexpected URL ${input}`)
+    })
+
+    const projects = await fetchGitLabProjects({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'glpat-test',
+      projectId: '',
+      mode: 'single-issue',
+    }, fetchImpl)
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain('/projects?membership=true')
+    expect(projects).toEqual([
+      { id: 2, name: 'App', nameWithNamespace: 'QA / App', pathWithNamespace: 'qa/app', webUrl: 'https://gitlab.example.com/qa/app' },
+    ])
+  })
+
   it('fetches project members for mention identities with pagination', async () => {
     const fetchImpl = vi.fn(async (input: string) => {
       if (String(input).endsWith('/members/all?per_page=100&page=1')) {
@@ -93,6 +119,24 @@ describe('GitLab publisher', () => {
     const users = await fetchGitLabMentionUsers({
       baseUrl: 'https://gitlab.example.com',
       token: 'glpat-test',
+      projectId: 'group/project',
+      mode: 'single-issue',
+    }, fetchImpl)
+
+    expect(users.map(user => user.username)).toEqual(['miki'])
+  })
+
+  it('uses bearer auth for OAuth GitLab tokens', async () => {
+    const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
+      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer oauth-token')
+      expect((init?.headers as Record<string, string>)['PRIVATE-TOKEN']).toBeUndefined()
+      return response([{ id: 1, username: 'miki', name: 'Miki', state: 'active' }])
+    })
+
+    const users = await fetchGitLabMentionUsers({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'oauth-token',
+      authType: 'oauth',
       projectId: 'group/project',
       mode: 'single-issue',
     }, fetchImpl)

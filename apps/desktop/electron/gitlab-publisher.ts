@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import type { GitLabMentionUser, GitLabPublishSettings, MentionIdentity } from '@shared/types'
+import type { GitLabMentionUser, GitLabProject, GitLabPublishSettings, MentionIdentity } from '@shared/types'
 import type { ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
@@ -41,6 +41,15 @@ interface GitLabUserResponse {
   public_email?: string
 }
 
+interface GitLabProjectResponse {
+  id?: number
+  name?: string
+  name_with_namespace?: string
+  path_with_namespace?: string
+  web_url?: string
+  archived?: boolean
+}
+
 export interface GitLabPublishResult {
   projectId: string
   mode: 'single-issue' | 'per-marker-issue'
@@ -54,6 +63,65 @@ function validateSettings(settings: GitLabPublishSettings): void {
   if (!settings.projectId.trim()) throw new Error('GitLab project ID or path is missing')
 }
 
+function authHeaders(settings: GitLabPublishSettings): Record<string, string> {
+  const token = settings.token.trim()
+  return settings.authType === 'oauth'
+    ? { Authorization: `Bearer ${token}` }
+    : { 'PRIVATE-TOKEN': token }
+}
+
+function validateProjectListSettings(settings: GitLabPublishSettings): void {
+  if (!settings.baseUrl.trim()) throw new Error('GitLab base URL is missing')
+  if (!settings.token.trim()) throw new Error('GitLab token is missing')
+}
+
+export async function fetchGitLabProjects(settings: GitLabPublishSettings, fetchImpl: GitLabPublisherFetch = fetch): Promise<GitLabProject[]> {
+  validateProjectListSettings(settings)
+  const projects: GitLabProject[] = []
+  let page = 1
+  for (;;) {
+    const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects?membership=true&simple=true&archived=false&order_by=last_activity_at&sort=desc&per_page=100&page=${page}`, {
+      method: 'GET',
+      headers: authHeaders(settings),
+    })
+    const text = await response.text()
+    const payload = text ? JSON.parse(text) as GitLabProjectResponse[] | { message?: unknown; error?: unknown } : []
+    if (!response.ok) {
+      const message = !Array.isArray(payload) && typeof payload.message === 'string'
+        ? payload.message
+        : !Array.isArray(payload) && typeof payload.error === 'string'
+          ? payload.error
+          : response.statusText
+      throw new Error(`GitLab projects fetch failed: ${message}`)
+    }
+    if (!Array.isArray(payload)) throw new Error('GitLab projects fetch failed: unexpected response')
+    for (const project of payload) {
+      const id = typeof project.id === 'number' ? project.id : 0
+      const pathWithNamespace = project.path_with_namespace?.trim() || ''
+      if (!id || !pathWithNamespace || project.archived) continue
+      projects.push({
+        id,
+        name: project.name?.trim() || pathWithNamespace.split('/').pop() || pathWithNamespace,
+        nameWithNamespace: project.name_with_namespace?.trim() || pathWithNamespace,
+        pathWithNamespace,
+        webUrl: project.web_url?.trim(),
+      })
+    }
+    const nextPage = response.headers.get('x-next-page')?.trim()
+    if (nextPage) {
+      page = Number(nextPage)
+      if (Number.isFinite(page) && page > 0) continue
+    }
+    if (payload.length === 100) {
+      page += 1
+      continue
+    }
+    break
+  }
+  const byPath = new Map(projects.map(project => [project.pathWithNamespace, project]))
+  return [...byPath.values()].sort((a, b) => a.nameWithNamespace.localeCompare(b.nameWithNamespace))
+}
+
 export async function fetchGitLabMentionUsers(settings: GitLabPublishSettings, fetchImpl: GitLabPublisherFetch = fetch): Promise<GitLabMentionUser[]> {
   validateSettings(settings)
   const users: GitLabMentionUser[] = []
@@ -61,7 +129,7 @@ export async function fetchGitLabMentionUsers(settings: GitLabPublishSettings, f
   for (;;) {
     const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects/${projectPath(settings.projectId)}/members/all?per_page=100&page=${page}`, {
       method: 'GET',
-      headers: { 'PRIVATE-TOKEN': settings.token.trim() },
+      headers: authHeaders(settings),
     })
     const text = await response.text()
     const payload = text ? JSON.parse(text) as GitLabMemberResponse[] | { message?: unknown; error?: unknown } : []
@@ -126,7 +194,7 @@ export async function fetchGitLabMentionUsersWithEmailLookup(
       attemptedEmailLookup = true
       const response = await fetchImpl(`${apiBase(settings.baseUrl)}/users/${user.id}`, {
         method: 'GET',
-        headers: { 'PRIVATE-TOKEN': settings.token.trim() },
+        headers: authHeaders(settings),
       })
       const text = await response.text()
       if (response.status === 403) {
@@ -169,7 +237,7 @@ async function gitlabJson<T>(
   const response = await fetchImpl(`${apiBase(settings.baseUrl)}${path}`, {
     method: 'POST',
     headers: {
-      'PRIVATE-TOKEN': settings.token.trim(),
+      ...authHeaders(settings),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -193,7 +261,7 @@ async function uploadFile(fetchImpl: GitLabPublisherFetch, settings: GitLabPubli
   form.set('file', new Blob([bytes]), basename(filePath))
   const response = await fetchImpl(`${apiBase(settings.baseUrl)}/projects/${projectPath(settings.projectId)}/uploads`, {
     method: 'POST',
-    headers: { 'PRIVATE-TOKEN': settings.token.trim() },
+    headers: authHeaders(settings),
     body: form,
   })
   const text = await response.text()

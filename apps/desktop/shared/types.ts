@@ -62,6 +62,10 @@ export type GitLabPublishMode = 'single-issue' | 'per-marker-issue'
 export interface GitLabPublishSettings {
   baseUrl: string
   token: string
+  authType?: 'pat' | 'oauth'
+  oauthClientId?: string
+  oauthClientSecret?: string
+  oauthRedirectUri?: string
   projectId: string
   mode: GitLabPublishMode
   emailLookup?: 'off' | 'admin-users-api'
@@ -71,6 +75,14 @@ export interface GitLabPublishSettings {
   mentionUsers?: GitLabMentionUser[]
   usersFetchedAt?: string | null
   lastUserSyncWarning?: string | null
+}
+
+export interface GitLabProject {
+  id: number
+  name: string
+  nameWithNamespace: string
+  pathWithNamespace: string
+  webUrl?: string
 }
 
 export interface GitLabMentionUser {
@@ -243,6 +255,9 @@ export interface DesktopApi {
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
     setGitLab(settings: GitLabPublishSettings):                      Promise<AppSettings>
+    connectGitLabOAuth(settings: GitLabPublishSettings):              Promise<AppSettings>
+    cancelGitLabOAuth():                                             Promise<void>
+    listGitLabProjects(settings: GitLabPublishSettings):              Promise<GitLabProject[]>
     setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>

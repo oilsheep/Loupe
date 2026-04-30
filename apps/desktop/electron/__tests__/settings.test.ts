@@ -21,7 +21,7 @@ describe('SettingsStore', () => {
       })
 
       expect(store.get().slack).toEqual({ botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
-      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
+      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -92,6 +92,10 @@ describe('SettingsStore', () => {
       expect(settings.gitlab).toEqual({
         baseUrl: 'https://gitlab.example.com',
         token: ' glpat-test ',
+        authType: 'pat',
+        oauthClientId: '',
+        oauthClientSecret: '',
+        oauthRedirectUri: '',
         projectId: 'group/project',
         mode: 'per-marker-issue',
         emailLookup: 'off',

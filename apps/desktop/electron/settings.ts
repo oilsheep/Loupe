@@ -250,9 +250,14 @@ function normalizeCsvList(raw?: unknown): string[] {
 function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
+  const authType = raw?.authType === 'oauth' ? 'oauth' : 'pat'
   return {
     baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
+    authType,
+    oauthClientId: typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '',
+    oauthClientSecret: typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : '',
+    oauthRedirectUri: typeof raw?.oauthRedirectUri === 'string' ? raw.oauthRedirectUri.trim() : '',
     projectId: raw?.projectId?.trim() || '',
     mode,
     emailLookup,
