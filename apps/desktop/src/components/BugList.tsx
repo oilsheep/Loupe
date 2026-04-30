@@ -978,7 +978,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
           />
 
           {logcatPreview && (
-            <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`}>
+            <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`} data-row-click-ignore="true">
               <button
                 type="button"
                 onClick={onToggleLogcat}
