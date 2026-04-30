@@ -52,6 +52,16 @@ export function parseMdnsOutput(stdout: string): MdnsEntry[] {
   return entries
 }
 
+export function parsePackageListOutput(stdout: string): string[] {
+  return [...new Set(stdout
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line.startsWith('package:') ? line.slice('package:'.length) : line)
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
+}
+
 export class Adb {
   constructor(private runner: IProcessRunner) {}
 
@@ -104,6 +114,16 @@ export class Adb {
       if (r.code === 0 && value && value !== 'null') return value
     }
     return null
+  }
+
+  async listPackages(deviceId: string): Promise<string[]> {
+    try {
+      const thirdParty = parsePackageListOutput(await this.shell(deviceId, ['pm', 'list', 'packages', '-3']))
+      if (thirdParty.length > 0) return thirdParty
+    } catch {
+      // Older or restricted devices may reject -3; fall back to the full list.
+    }
+    return parsePackageListOutput(await this.shell(deviceId, ['pm', 'list', 'packages']))
   }
 
   async mdnsServices(): Promise<MdnsEntry[]> {

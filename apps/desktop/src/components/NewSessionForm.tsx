@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
 import type { DesktopApi } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
@@ -20,6 +20,8 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
   const [logcatPackageName, setLogcatPackageName] = useState('')
+  const [logcatPackageOptions, setLogcatPackageOptions] = useState<string[]>([])
+  const [logcatPackageMenuOpen, setLogcatPackageMenuOpen] = useState(false)
   const [logcatTagFilter, setLogcatTagFilter] = useState('Unity')
   const [logcatMinPriority, setLogcatMinPriority] = useState('V')
   const [logcatLineCount, setLogcatLineCount] = useState(50)
@@ -30,6 +32,28 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   useEffect(() => {
     setRecordPcScreen(connectionMode === 'pc')
   }, [connectionMode, deviceId])
+
+  useEffect(() => {
+    let cancelled = false
+    setLogcatPackageOptions([])
+    if (connectionMode === 'pc') return
+    api.device.listPackages(deviceId)
+      .then(packages => {
+        if (!cancelled) setLogcatPackageOptions(packages)
+      })
+      .catch(() => {
+        if (!cancelled) setLogcatPackageOptions([])
+      })
+    return () => { cancelled = true }
+  }, [api, connectionMode, deviceId])
+
+  const visibleLogcatPackageOptions = useMemo(() => {
+    const query = logcatPackageName.trim().toLowerCase()
+    const filtered = query
+      ? logcatPackageOptions.filter(name => name.toLowerCase().includes(query))
+      : logcatPackageOptions
+    return filtered.slice(0, 80)
+  }, [logcatPackageName, logcatPackageOptions])
 
   async function start() {
     setBusy(true)
@@ -113,13 +137,42 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         <div className="space-y-3">
           <div>
             <label className="text-xs text-zinc-400">{t('new.logcatPackage')}</label>
-            <input
-              value={logcatPackageName}
-              onChange={e => setLogcatPackageName(e.target.value)}
-              placeholder={t('new.logcatPackagePlaceholder')}
-              data-testid="logcat-package"
-              className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-            />
+            <div className="relative mt-1">
+              <input
+                value={logcatPackageName}
+                onChange={e => {
+                  setLogcatPackageName(e.target.value)
+                  setLogcatPackageMenuOpen(true)
+                }}
+                onFocus={() => setLogcatPackageMenuOpen(true)}
+                onBlur={() => window.setTimeout(() => setLogcatPackageMenuOpen(false), 100)}
+                placeholder={t('new.logcatPackagePlaceholder')}
+                data-testid="logcat-package"
+                className="w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              {logcatPackageMenuOpen && visibleLogcatPackageOptions.length > 0 && (
+                <div
+                  className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl"
+                  data-testid="logcat-package-options"
+                >
+                  {visibleLogcatPackageOptions.map(name => (
+                    <button
+                      key={name}
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setLogcatPackageName(name)
+                        setLogcatPackageMenuOpen(false)
+                      }}
+                      className="block w-full truncate px-3 py-1.5 text-left font-mono text-xs text-zinc-200 hover:bg-zinc-800"
+                      data-testid={`logcat-package-option-${name}`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.logcatPackageHelp')}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

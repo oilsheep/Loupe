@@ -18,6 +18,7 @@ const api: DesktopApi = {
     mdnsScan:    ()             => ipcRenderer.invoke(CHANNEL.deviceMdnsScan),
     pair:        (a)            => ipcRenderer.invoke(CHANNEL.devicePair, a),
     getUserName: (id)           => ipcRenderer.invoke(CHANNEL.deviceGetUserName, id),
+    listPackages:(id)           => ipcRenderer.invoke(CHANNEL.deviceListPackages, id),
   },
   session: {
     start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),

@@ -23,6 +23,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       mdnsScan: mdnsScanImpl ?? vi.fn().mockResolvedValue([]),
       pair: pairImpl ?? vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' }),
       getUserName: getUserNameImpl ?? vi.fn().mockResolvedValue(null),
+      listPackages: vi.fn().mockResolvedValue([]),
     },
     session: { updateMetadata: vi.fn() as any } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,

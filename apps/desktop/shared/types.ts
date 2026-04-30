@@ -148,6 +148,7 @@ export interface DesktopApi {
     pair(args: { ipPort: string; code: string }):                  Promise<{ ok: boolean; message: string }>
     /** Fetches the user-set device name (Android Settings → About → Device name). Null if unsupported / unset. */
     getUserName(id: string):                                       Promise<string | null>
+    listPackages(id: string):                                      Promise<string[]>
   }
   session: {
     start(args: {

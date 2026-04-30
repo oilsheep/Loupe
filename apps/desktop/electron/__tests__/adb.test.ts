@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Adb, parseDevicesOutput, parseMdnsOutput } from '../adb'
+import { Adb, parseDevicesOutput, parseMdnsOutput, parsePackageListOutput } from '../adb'
 import type { IProcessRunner } from '../process-runner'
 
 describe('parseDevicesOutput', () => {
@@ -89,6 +89,21 @@ describe('Adb', () => {
     expect(info).toEqual({ model: 'Pixel 7', androidVersion: '14' })
   })
 
+  it('listPackages returns sorted package names', async () => {
+    const adb = new Adb(fake({
+      '-s ABC shell pm list packages -3': 'package:com.zeta\npackage:com.example.app\n',
+    }))
+    await expect(adb.listPackages('ABC')).resolves.toEqual(['com.example.app', 'com.zeta'])
+  })
+
+  it('listPackages falls back to all packages when third-party list is empty', async () => {
+    const adb = new Adb(fake({
+      '-s ABC shell pm list packages -3': '',
+      '-s ABC shell pm list packages': 'package:android\npackage:com.example.app\n',
+    }))
+    await expect(adb.listPackages('ABC')).resolves.toEqual(['android', 'com.example.app'])
+  })
+
   it('mdnsServices calls adb mdns services and returns parsed list', async () => {
     const adb = new Adb(fake({
       'mdns services': [
@@ -118,6 +133,19 @@ describe('Adb', () => {
     const r = await adb.pair('192.168.1.42:39247', '000000')
     expect(r.ok).toBe(false)
     expect(r.message).toContain('incorrect code')
+  })
+})
+
+describe('parsePackageListOutput', () => {
+  it('parses package list output', () => {
+    expect(parsePackageListOutput('package:com.example.app\npackage:com.unity.game\n')).toEqual([
+      'com.example.app',
+      'com.unity.game',
+    ])
+  })
+
+  it('deduplicates and accepts raw package names', () => {
+    expect(parsePackageListOutput('com.example.app\npackage:com.example.app\n')).toEqual(['com.example.app'])
   })
 })
 
