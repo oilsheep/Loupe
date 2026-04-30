@@ -1,5 +1,6 @@
 import type { SlackPublishSettings } from '@shared/types'
 import { createHash, randomBytes } from 'node:crypto'
+import { SLACK_OAUTH_CONFIG } from './slack-oauth-config'
 
 export const SLACK_USER_OAUTH_SCOPES = ['chat:write', 'files:write', 'users:read', 'channels:read', 'groups:read']
 export const DEFAULT_SLACK_OAUTH_CLIENT_ID = '2178062560.11055652367536'
@@ -7,9 +8,9 @@ export const DEFAULT_SLACK_OAUTH_REDIRECT_URI = 'loupe://slack-oauth'
 
 function slackOAuthConfig(settings: SlackPublishSettings): { clientId: string; clientSecret: string; redirectUri: string } {
   return {
-    clientId: settings.oauthClientId?.trim() || process.env.LOUPE_SLACK_OAUTH_CLIENT_ID?.trim() || DEFAULT_SLACK_OAUTH_CLIENT_ID,
-    clientSecret: settings.oauthClientSecret?.trim() || process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET?.trim() || '',
-    redirectUri: settings.oauthRedirectUri?.trim() || process.env.LOUPE_SLACK_OAUTH_REDIRECT_URI?.trim() || DEFAULT_SLACK_OAUTH_REDIRECT_URI,
+    clientId: settings.oauthClientId?.trim() || SLACK_OAUTH_CONFIG.clientId || process.env.LOUPE_SLACK_OAUTH_CLIENT_ID?.trim() || DEFAULT_SLACK_OAUTH_CLIENT_ID,
+    clientSecret: settings.oauthClientSecret?.trim() || SLACK_OAUTH_CONFIG.clientSecret || process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET?.trim() || '',
+    redirectUri: settings.oauthRedirectUri?.trim() || SLACK_OAUTH_CONFIG.redirectUri || process.env.LOUPE_SLACK_OAUTH_REDIRECT_URI?.trim() || DEFAULT_SLACK_OAUTH_REDIRECT_URI,
   }
 }
 

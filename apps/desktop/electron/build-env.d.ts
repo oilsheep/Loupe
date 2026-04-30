@@ -1,3 +1,6 @@
+declare const __LOUPE_SLACK_OAUTH_CLIENT_ID__: string
+declare const __LOUPE_SLACK_OAUTH_CLIENT_SECRET__: string
+declare const __LOUPE_SLACK_OAUTH_REDIRECT_URI__: string
 declare const __LOUPE_GOOGLE_OAUTH_CLIENT_ID__: string
 declare const __LOUPE_GOOGLE_OAUTH_CLIENT_SECRET__: string
 declare const __LOUPE_GOOGLE_OAUTH_REDIRECT_URI__: string
