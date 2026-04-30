@@ -187,8 +187,20 @@ function notifyExported(api: DesktopApi, firstPath: string, count: number, t: (k
   }
 }
 
+function notifyFullRecordingExported(api: DesktopApi, firstPath: string, t: (key: string, params?: Record<string, string | number>) => string): void {
+  const recordsPath = containingFolderFromOutputPath(firstPath)
+  if (askConfirm(t('export.done.noMarkers', { path: recordsPath }))) {
+    void api.app.openPath(recordsPath)
+  }
+}
+
 function askConfirm(message: string): boolean {
   return typeof window.confirm === 'function' ? window.confirm(message) : true
+}
+
+function containingFolderFromOutputPath(filePath: string): string {
+  const parts = filePath.split(/[\\/]/)
+  return parts.slice(0, -1).join(filePath.includes('\\') ? '\\' : '/') || filePath
 }
 
 function exportRootFromOutputPath(filePath: string): string {
@@ -324,7 +336,7 @@ function ExportConfirmDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="export-dialog">
       <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
         <div className="shrink-0 px-4 pt-4">
-          <div className="text-sm font-medium text-zinc-100">{count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
+          <div className="text-sm font-medium text-zinc-100">{count === 0 ? t('export.title.noMarkers') : count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
           <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
         </div>
 
@@ -565,6 +577,12 @@ function ExportConfirmDialog({
         {hasMissingNotes && (
           <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
             {t('export.missingNotes')}
+          </div>
+        )}
+
+        {count === 0 && (
+          <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+            {t('export.noMarkersBody')}
           </div>
         )}
 
@@ -1395,7 +1413,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   }
 
   async function exportSelected() {
-    if (checkedIds.length === 0) return
+    if (bugs.length > 0 && checkedIds.length === 0) return
     const selectedBugs = bugs.filter(b => checked.has(b.id))
     await beginExport({ bugs: selectedBugs, bugIds: checkedIds })
   }
@@ -1471,7 +1489,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       const paths = exportRequest.bugIds.length === 1
         ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })].filter(Boolean) as string[])
         : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })
-      if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length, t)
+      if (paths && paths.length > 0) {
+        if (exportRequest.bugIds.length === 0) notifyFullRecordingExported(api, paths[0], t)
+        else notifyExported(api, paths[0], paths.length, t)
+      }
       setExportRequest(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1515,18 +1536,22 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
 
   return (
     <div className="min-h-full">
-      {allowExport && bugs.length > 0 && (
+      {allowExport && (
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2 backdrop-blur">
-          <label className="flex items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 accent-blue-600" />
-            {t('bug.selectAll')}
-          </label>
+          {bugs.length > 0 ? (
+            <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 accent-blue-600" />
+              {t('bug.selectAll')}
+            </label>
+          ) : (
+            <span className="text-xs text-zinc-500">{t('bug.noMarkers')}</span>
+          )}
           <button
             onClick={exportSelected}
-            disabled={checkedIds.length === 0 || exporting}
+            disabled={(bugs.length > 0 && checkedIds.length === 0) || exporting}
             className="ml-auto rounded bg-blue-700 px-2.5 py-1 text-xs text-white hover:bg-blue-600 disabled:opacity-50"
           >
-            {exporting ? t('common.exporting') : t('bug.exportCount', { count: checkedIds.length || '' })}
+            {exporting ? t('common.exporting') : bugs.length === 0 ? t('bug.exportRecording') : t('bug.exportCount', { count: checkedIds.length || '' })}
           </button>
         </div>
       )}

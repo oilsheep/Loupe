@@ -279,6 +279,22 @@ describe('BugList', () => {
     await waitFor(() => expect(api.app.openPath).toHaveBeenCalledWith('/path'))
   })
 
+  it('exports the full recording when there are no markers', async () => {
+    const api = fakeApi()
+    api.bug.exportClips = vi.fn().mockResolvedValue(['/path/records/full-recording.mp4', '/path/records/session-mic.webm']) as any
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<BugList api={api} sessionId="s1" bugs={[]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByText('Export recording'))
+    await screen.findByTestId('export-dialog')
+    expect(screen.getByText('Export full recording')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('confirm-export'))
+    await waitFor(() => expect(api.bug.exportClips).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 's1',
+      bugIds: [],
+    })))
+    expect(api.app.openPath).toHaveBeenCalledWith('/path/records')
+  })
+
   it('does not export when export dialog is cancelled', async () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug({ note: '' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
