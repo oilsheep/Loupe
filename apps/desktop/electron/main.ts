@@ -11,6 +11,7 @@ import { openDb } from './db'
 import { createPaths, defaultRoot } from './paths'
 import { registerIpc, emitBugMarkRequested } from './ipc'
 import { DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from './settings'
+import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import type { HotkeySettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -170,6 +171,7 @@ app.whenReady().then(async () => {
     severities: DEFAULT_SEVERITIES,
     slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38987/oauth/gitlab/callback', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     mentionIdentities: [],
   })
   const db = openDb(paths.dbFile())

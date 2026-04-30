@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { AppLocale, AppSettings, GitLabProject, GitLabPublishSettings, MentionIdentity, SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, AppSettings, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, MentionIdentity, SlackPublishSettings, ToolCheck } from '@shared/types'
 import type { Session } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
@@ -168,6 +168,20 @@ export function Home() {
   const [refreshingGitLabProjects, setRefreshingGitLabProjects] = useState(false)
   const [connectingGitLabOAuth, setConnectingGitLabOAuth] = useState(false)
   const [gitlabError, setGitLabError] = useState('')
+  const [google, setGoogle] = useState<GooglePublishSettings>({ token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' })
+  const [savingGoogle, setSavingGoogle] = useState(false)
+  const [googleSaved, setGoogleSaved] = useState(false)
+  const [connectingGoogleOAuth, setConnectingGoogleOAuth] = useState(false)
+  const [googleFolders, setGoogleFolders] = useState<GoogleDriveFolder[]>([])
+  const [refreshingGoogleFolders, setRefreshingGoogleFolders] = useState(false)
+  const [newGoogleFolderName, setNewGoogleFolderName] = useState('')
+  const [creatingGoogleFolder, setCreatingGoogleFolder] = useState(false)
+  const [googleSpreadsheets, setGoogleSpreadsheets] = useState<GoogleSpreadsheet[]>([])
+  const [refreshingGoogleSpreadsheets, setRefreshingGoogleSpreadsheets] = useState(false)
+  const [googleSheetTabs, setGoogleSheetTabs] = useState<GoogleSheetTab[]>([])
+  const [refreshingGoogleSheetTabs, setRefreshingGoogleSheetTabs] = useState(false)
+  const [googleError, setGoogleError] = useState('')
+  const [googleStatus, setGoogleStatus] = useState('')
   const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
   const [savingMentionIdentities, setSavingMentionIdentities] = useState(false)
   const [mentionIdentitiesSaved, setMentionIdentitiesSaved] = useState(false)
@@ -181,6 +195,7 @@ export function Home() {
     setGitLab(settings.gitlab)
     setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
     setGitLabMentionsInput((settings.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+    setGoogle(settings.google)
     setMentionIdentities(settings.mentionIdentities ?? [])
     setMentionIdentitiesSaved(false)
     setMentionIdentitiesStatus('')
@@ -361,6 +376,131 @@ export function Home() {
     }
   }
 
+  function googleSettingsInput(): GooglePublishSettings {
+    return {
+      ...google,
+      oauthClientId: google.oauthClientId?.trim() ?? '',
+      oauthClientSecret: google.oauthClientSecret?.trim() ?? '',
+      oauthRedirectUri: google.oauthRedirectUri?.trim() || 'http://127.0.0.1:38988/oauth/google/callback',
+      driveFolderId: google.driveFolderId?.trim() ?? '',
+      driveFolderName: google.driveFolderName?.trim() ?? '',
+      spreadsheetId: google.spreadsheetId?.trim() ?? '',
+      spreadsheetName: google.spreadsheetName?.trim() ?? '',
+      sheetName: google.sheetName?.trim() ?? '',
+      updateSheet: Boolean(google.updateSheet),
+    }
+  }
+
+  async function saveGoogleSettings() {
+    setSavingGoogle(true)
+    setGoogleSaved(false)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const settings = await api.settings.setGoogle(googleSettingsInput())
+      applySettings(settings)
+      setGoogleSaved(true)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingGoogle(false)
+    }
+  }
+
+  async function connectGoogleOAuth() {
+    setConnectingGoogleOAuth(true)
+    setGoogleSaved(false)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const settings = await api.settings.connectGoogleOAuth(googleSettingsInput())
+      applySettings(settings)
+      setGoogleStatus('Connected. Refresh folders to load Drive destinations.')
+      setGoogleSaved(true)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setConnectingGoogleOAuth(false)
+    }
+  }
+
+  async function cancelGoogleOAuth() {
+    try {
+      await api.settings.cancelGoogleOAuth()
+    } finally {
+      setConnectingGoogleOAuth(false)
+    }
+  }
+
+  async function loadGoogleFolders(input = googleSettingsInput()) {
+    setRefreshingGoogleFolders(true)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const folders = await api.settings.listGoogleDriveFolders(input)
+      setGoogleFolders(folders)
+      setGoogleStatus(folders.length === 0 ? 'No Drive folders found. Create a folder or paste a folder ID.' : `Loaded ${folders.length} Drive folder${folders.length === 1 ? '' : 's'}.`)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingGoogleFolders(false)
+    }
+  }
+
+  async function createGoogleFolder() {
+    const name = newGoogleFolderName.trim()
+    if (!name) return
+    setCreatingGoogleFolder(true)
+    setGoogleSaved(false)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const folder = await api.settings.createGoogleDriveFolder(googleSettingsInput(), name)
+      setGoogle(prev => ({ ...prev, driveFolderId: folder.id, driveFolderName: folder.name }))
+      setGoogleFolders(prev => sortGoogleFolders([...prev.filter(item => item.id !== folder.id), folder]))
+      setNewGoogleFolderName('')
+      setGoogleStatus(`Created folder: ${folder.name}`)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreatingGoogleFolder(false)
+    }
+  }
+
+  function sortGoogleFolders(folders: GoogleDriveFolder[]): GoogleDriveFolder[] {
+    return [...folders].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  async function loadGoogleSpreadsheets(input = googleSettingsInput()) {
+    setRefreshingGoogleSpreadsheets(true)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const sheets = await api.settings.listGoogleSpreadsheets(input)
+      setGoogleSpreadsheets(sheets)
+      setGoogleStatus(sheets.length === 0 ? 'No Google spreadsheets found. Paste a spreadsheet ID if needed.' : `Loaded ${sheets.length} spreadsheet${sheets.length === 1 ? '' : 's'}.`)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingGoogleSpreadsheets(false)
+    }
+  }
+
+  async function loadGoogleSheetTabs(input = googleSettingsInput()) {
+    setRefreshingGoogleSheetTabs(true)
+    setGoogleError('')
+    setGoogleStatus('')
+    try {
+      const tabs = await api.settings.listGoogleSheetTabs(input)
+      setGoogleSheetTabs(tabs)
+      setGoogleStatus(tabs.length === 0 ? 'No sheet tabs found.' : `Loaded ${tabs.length} sheet tab${tabs.length === 1 ? '' : 's'}.`)
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingGoogleSheetTabs(false)
+    }
+  }
+
   async function saveMentionIdentities() {
     setSavingMentionIdentities(true)
     setMentionIdentitiesSaved(false)
@@ -414,11 +554,12 @@ export function Home() {
   function addMentionIdentity(seed?: Partial<MentionIdentity>) {
     setMentionIdentitiesSaved(false)
     setMentionIdentitiesStatus('')
-    const displayName = seed?.displayName?.trim() || seed?.email?.trim() || seed?.gitlabUsername?.trim().replace(/^@/, '') || seed?.slackUserId || 'New person'
+    const displayName = seed?.displayName?.trim() || seed?.email?.trim() || seed?.googleEmail?.trim() || seed?.gitlabUsername?.trim().replace(/^@/, '') || seed?.slackUserId || 'New person'
     const identity: MentionIdentity = {
       id: seed?.id?.trim() || identityIdFromName(displayName),
       displayName,
       ...(seed?.email ? { email: seed.email.trim().toLowerCase() } : {}),
+      ...(seed?.googleEmail ? { googleEmail: seed.googleEmail.trim().toLowerCase() } : {}),
       ...(seed?.slackUserId ? { slackUserId: seed.slackUserId } : {}),
       ...(seed?.gitlabUsername ? { gitlabUsername: seed.gitlabUsername.replace(/^@/, '') } : {}),
     }
@@ -672,6 +813,194 @@ export function Home() {
 
           <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
             <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
+              <span>Google Drive</span>
+              <span className="text-[11px] font-normal text-zinc-500">{google.accountEmail || 'OAuth'}</span>
+            </summary>
+            <div className="mt-3">
+              <div className="rounded border border-zinc-800 bg-zinc-950/50 px-2 py-2 text-xs text-zinc-500">
+                Google OAuth credentials are bundled with Loupe. Redirect URI: {google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback'}
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                {google.token.trim() && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.65)]" />
+                    Connected{google.accountEmail ? ` as ${google.accountEmail}` : ''}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={connectGoogleOAuth}
+                  disabled={connectingGoogleOAuth}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {connectingGoogleOAuth ? 'Connecting...' : 'Connect Google'}
+                </button>
+                {connectingGoogleOAuth && (
+                  <button
+                    type="button"
+                    onClick={cancelGoogleOAuth}
+                    className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  >
+                    Cancel OAuth
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-2">
+                <label className="text-xs text-zinc-500">
+                  Drive folder
+                  {googleFolders.length > 0 ? (
+                    <select
+                      value={google.driveFolderId ?? ''}
+                      onChange={(e) => {
+                        const folder = googleFolders.find(item => item.id === e.target.value)
+                        setGoogle({ ...google, driveFolderId: e.target.value, driveFolderName: folder?.name ?? google.driveFolderName })
+                        setGoogleSaved(false)
+                      }}
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    >
+                      {!googleFolders.some(folder => folder.id === google.driveFolderId) && (
+                        <option value={google.driveFolderId ?? ''}>{google.driveFolderName || google.driveFolderId || 'Select a folder'}</option>
+                      )}
+                      {googleFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      value={google.driveFolderId ?? ''}
+                      onChange={(e) => { setGoogle({ ...google, driveFolderId: e.target.value, driveFolderName: '' }); setGoogleSaved(false) }}
+                      placeholder="Drive folder ID"
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  )}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => loadGoogleFolders()}
+                  disabled={refreshingGoogleFolders || !google.token.trim()}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {refreshingGoogleFolders ? 'Refreshing...' : 'Refresh folders'}
+                </button>
+              </div>
+              <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
+                <label className="text-xs text-zinc-500">
+                  New folder
+                  <input
+                    value={newGoogleFolderName}
+                    onChange={(e) => setNewGoogleFolderName(e.target.value)}
+                    placeholder="Loupe QA Evidence"
+                    className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={createGoogleFolder}
+                  disabled={creatingGoogleFolder || !google.token.trim() || !newGoogleFolderName.trim()}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {creatingGoogleFolder ? 'Creating...' : 'Create folder'}
+                </button>
+              </div>
+
+              <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={Boolean(google.updateSheet)}
+                  onChange={(e) => { setGoogle({ ...google, updateSheet: e.target.checked }); setGoogleSaved(false) }}
+                  className="h-4 w-4 accent-blue-600"
+                />
+                Append every marker to Google Sheet
+              </label>
+              {google.updateSheet && (
+                <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                  <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                    <label className="text-xs text-zinc-500">
+                      Spreadsheet
+                      {googleSpreadsheets.length > 0 ? (
+                        <select
+                          value={google.spreadsheetId ?? ''}
+                          onChange={(e) => {
+                            const spreadsheet = googleSpreadsheets.find(item => item.id === e.target.value)
+                            setGoogle({ ...google, spreadsheetId: e.target.value, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName, sheetName: '' })
+                            setGoogleSheetTabs([])
+                            setGoogleSaved(false)
+                          }}
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        >
+                          {!googleSpreadsheets.some(sheet => sheet.id === google.spreadsheetId) && (
+                            <option value={google.spreadsheetId ?? ''}>{google.spreadsheetName || google.spreadsheetId || 'Select a spreadsheet'}</option>
+                          )}
+                          {googleSpreadsheets.map(sheet => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          value={google.spreadsheetId ?? ''}
+                          onChange={(e) => { setGoogle({ ...google, spreadsheetId: e.target.value, spreadsheetName: '' }); setGoogleSaved(false) }}
+                          placeholder="Spreadsheet ID"
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        />
+                      )}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => loadGoogleSpreadsheets()}
+                      disabled={refreshingGoogleSpreadsheets || !google.token.trim()}
+                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {refreshingGoogleSpreadsheets ? 'Refreshing...' : 'Refresh sheets'}
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
+                    <label className="text-xs text-zinc-500">
+                      Sheet tab
+                      {googleSheetTabs.length > 0 ? (
+                        <select
+                          value={google.sheetName ?? ''}
+                          onChange={(e) => { setGoogle({ ...google, sheetName: e.target.value }); setGoogleSaved(false) }}
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        >
+                          {!googleSheetTabs.some(tab => tab.title === google.sheetName) && (
+                            <option value={google.sheetName ?? ''}>{google.sheetName || 'Select a tab'}</option>
+                          )}
+                          {googleSheetTabs.map(tab => <option key={tab.sheetId} value={tab.title}>{tab.title}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          value={google.sheetName ?? ''}
+                          onChange={(e) => { setGoogle({ ...google, sheetName: e.target.value }); setGoogleSaved(false) }}
+                          placeholder="Sheet1"
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        />
+                      )}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => loadGoogleSheetTabs()}
+                      disabled={refreshingGoogleSheetTabs || !google.token.trim() || !google.spreadsheetId?.trim()}
+                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {refreshingGoogleSheetTabs ? 'Refreshing...' : 'Refresh tabs'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {googleError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{googleError}</div>}
+              {googleStatus && <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 px-2 py-1.5 text-xs text-zinc-400">{googleStatus}</div>}
+              <div className="mt-2 flex items-center justify-end gap-2">
+                {googleSaved && <span className="text-xs text-emerald-300">Saved</span>}
+                <button
+                  onClick={saveGoogleSettings}
+                  disabled={savingGoogle}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {savingGoogle ? 'Saving...' : 'Save Google settings'}
+                </button>
+              </div>
+            </div>
+          </details>
+
+          <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
+            <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
               <span>GitLab</span>
               <span className="text-[11px] font-normal text-zinc-500">Settings</span>
             </summary>
@@ -902,32 +1231,33 @@ export function Home() {
 
           <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
             <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
-              <span>Mention identities</span>
-              <span className="text-[11px] font-normal text-zinc-500">Shared Slack / GitLab mapping</span>
+              <span>{t('settings.mentionIdentities.title')}</span>
+              <span className="text-[11px] font-normal text-zinc-500">{t('settings.mentionIdentities.subtitle')}</span>
             </summary>
             <div className="mt-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-[11px] text-zinc-500">One display name can map to Slack and GitLab identities.</div>
+                <div className="text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
                 <button
                   type="button"
                   onClick={() => addMentionIdentity()}
                   className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
                 >
-                  Add person
+                  {t('settings.mentionIdentities.addPerson')}
                 </button>
               </div>
               <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
-                <div className="grid min-w-[760px] grid-cols-[1.1fr_1.2fr_1fr_1fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
-                  <div>Display name</div>
-                  <div>Email</div>
-                  <div>Slack user ID</div>
-                  <div>GitLab username</div>
+                <div className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
+                  <div>{t('settings.mentionIdentities.displayName')}</div>
+                  <div>{t('settings.mentionIdentities.email')}</div>
+                  <div>{t('settings.mentionIdentities.slackUserId')}</div>
+                  <div>{t('settings.mentionIdentities.gitlabUsername')}</div>
+                  <div>Google email</div>
                   <div />
                 </div>
                 {mentionIdentities.length === 0 ? (
-                  <div className="px-2 py-3 text-xs text-zinc-500">Refresh Slack users or add people manually.</div>
+                  <div className="px-2 py-3 text-xs text-zinc-500">{t('settings.mentionIdentities.empty')}</div>
                 ) : mentionIdentities.map((identity, index) => (
-                  <div key={`${identity.id}-${index}`} className="grid min-w-[760px] grid-cols-[1.1fr_1.2fr_1fr_1fr_72px] gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                  <div key={`${identity.id}-${index}`} className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
                     <input
                       value={identity.displayName}
                       onChange={(e) => updateMentionIdentity(index, { displayName: e.target.value })}
@@ -951,12 +1281,18 @@ export function Home() {
                       placeholder="@username"
                       className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
                     />
+                    <input
+                      value={identity.googleEmail ?? ''}
+                      onChange={(e) => updateMentionIdentity(index, { googleEmail: e.target.value.trim().toLowerCase() || undefined })}
+                      placeholder="name@example.com"
+                      className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
                     <button
                       type="button"
                       onClick={() => removeMentionIdentity(index)}
                       className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:bg-red-950 hover:text-red-100"
                     >
-                      Remove
+                      {t('common.remove')}
                     </button>
                   </div>
                 ))}
@@ -975,7 +1311,7 @@ export function Home() {
                           onClick={() => addMentionIdentity({ displayName: label, email: user.email, slackUserId: user.id })}
                           className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                         >
-                          Add {label}
+                          {t('settings.mentionIdentities.addSlack', { name: label })}
                         </button>
                       )
                     })}
@@ -993,7 +1329,7 @@ export function Home() {
                         onClick={() => addMentionIdentity({ displayName: user.name || user.username, email: user.email, gitlabUsername: user.username })}
                         className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                       >
-                        Add @{user.username}
+                        {t('settings.mentionIdentities.addGitLab', { username: user.username })}
                       </button>
                     ))}
                 </div>
@@ -1001,20 +1337,20 @@ export function Home() {
               {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}
               {mentionIdentitiesStatus && <div className="mt-2 truncate text-xs text-emerald-300">{mentionIdentitiesStatus}</div>}
               <div className="mt-2 flex items-center justify-end gap-2">
-                {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">Saved</span>}
+                {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
                 <button
                   type="button"
                   onClick={importMentionIdentities}
                   className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
                 >
-                  Import
+                  {t('common.import')}
                 </button>
                 <button
                   type="button"
                   onClick={exportMentionIdentities}
                   className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
                 >
-                  Export
+                  {t('common.export')}
                 </button>
                 <button
                   type="button"
@@ -1022,7 +1358,7 @@ export function Home() {
                   disabled={savingMentionIdentities}
                   className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
                 >
-                  {savingMentionIdentities ? 'Saving...' : 'Save mention identities'}
+                  {savingMentionIdentities ? t('common.saving') : t('settings.mentionIdentities.save')}
                 </button>
               </div>
             </div>

@@ -216,3 +216,83 @@ export interface GitLabPublishSettings {
 - 加 `gitlab-publish-plan.json` 或 provider-neutral `remote-publish-plan.json`。
 - 補 GitLab username search picker，讓大型 project 不必整批瀏覽 members。
 - 視團隊需求改用 package registry 或 object storage 保存大型 evidence。
+
+## Google Drive Publish 實作
+
+Google Drive publish 採「完整 local export folder + optional Google Sheet append」：
+
+1. Renderer 在匯出對話框選擇 `Google Drive`。
+2. IPC 照常先完成 local export，產生影片、預覽圖、logcat sidecar、PDF report、summary text、manifest JSON/CSV。
+3. `publishManifestToRemote()` 依 `manifest.publish.target === 'google-drive'` 分派到 `publishManifestToGoogleDrive()`。
+4. Google publisher 在指定 Drive folder 底下建立一個 session subfolder，例如 `Loupe QA - 1.0 - 2026-04-30-12-00`。
+5. Publisher 遞迴讀取 local export dir，並在 Drive session subfolder 中重建 `records/`、`report/`、`originals/` 等子資料夾，再以 resumable upload 上傳所有檔案。
+6. 成功後在 local export dir 寫 `google-drive-publish-plan.json`，記錄 Drive folder link、uploaded files、Sheet append 結果、warnings、upload errors。
+
+OAuth 使用 authorization code + PKCE：
+
+- Redirect URI 預設 `http://127.0.0.1:38988/oauth/google/callback`。
+- Scopes:
+  - `openid email profile`
+  - `https://www.googleapis.com/auth/drive.file`
+  - `https://www.googleapis.com/auth/drive.metadata.readonly`
+  - `https://www.googleapis.com/auth/spreadsheets`
+- `drive.file` 讓 Loupe 管理自己建立或由使用者透過 app 選到的檔案。
+- `drive.metadata.readonly` 用來列出既有 Drive folders/spreadsheets 給 UI picker。若 token 是舊 scope 登入取得，新增這個 scope 後需要重新 Connect Google。
+
+Google OAuth client ID / secret 不由使用者手動填寫，也不要 commit 到 git。Loupe 用 build-time env injection：
+
+- 檔案：`apps/desktop/electron/google-oauth-config.ts`
+- `electron.vite.config.ts` 會把下列環境變數編進 main process bundle：
+  - `LOUPE_GOOGLE_OAUTH_CLIENT_ID`
+  - `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`
+  - `LOUPE_GOOGLE_OAUTH_REDIRECT_URI`，可省略，預設 `http://127.0.0.1:38988/oauth/google/callback`
+- local 打包可建立 `apps/desktop/.env.local`，格式可參考 `apps/desktop/.env.example`。`.env.local` / `.env.*.local` 已被 `.gitignore` 排除。
+- CI 打包時把上述值放在 secret variables，再執行 `pnpm --dir apps/desktop build`。
+- `SettingsStore` 會在 `normalizeGoogle()` 時自動補上 bundled `clientId`、`clientSecret`、`redirectUri`。
+- `main.ts` 的 default settings 也使用同一份 config。
+- Home UI 只顯示「OAuth credentials are bundled with Loupe」，不再露出輸入欄位。
+- 若 build 時沒有提供 `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`，Google OAuth token exchange 會失敗並提示 `client_secret is missing`。
+- 注意：secret 不在 source repo，但會存在打包後的 app bundle 中；這只適合團隊內部分發，不適合公開散布 confidential OAuth client secret。
+
+Home 的 Publish settings 新增 Google Drive 區塊：
+
+- Connect Google / Cancel OAuth。
+- 顯示登入帳號 email。
+- Refresh folders / Create folder。
+- 可手動填 Drive folder ID。
+- 可選擇是否 append markers 到 Google Sheet。
+- Refresh spreadsheets / Refresh tabs，也可手動填 spreadsheet ID 與 sheet tab name。
+
+Google Sheet 欄位目前 append 到 `A:P`，每個 marker 一列：
+
+Publish 前會先讀取 `{sheetName}!A1:P1`。如果第一列不是 Loupe 的欄位名：
+
+- 空表：Loupe 直接用 `values.update` 寫入 header。
+- 已有資料：Loupe 先用 `batchUpdate.insertDimension` 在最上方插入一列，再寫入 header，避免覆蓋原本第一列。
+
+Marker rows 不使用 `values.append`，因為 Google Sheets 的 table detection 遇到中間空欄時可能把第二次寫入錯位。Loupe 會讀取 `A:P` 找最後一列，再用 `spreadsheets.batchUpdate.updateCells` 明確指定 `rowIndex` 與 `columnIndex: 0`，確保每次都從 A 欄開始寫。
+
+`Mention Emails` 欄位會用 Sheets smart chips 寫入 people chips。Loupe 寫入 `@` placeholder，並在同一個 cell 的 `chipRuns.personProperties.email` 指定 mention identity 的 Google/email mapping；沒有 email mapping 的 mention 會保留 warning。
+
+1. export created at
+2. build version
+3. device model
+4. Android version
+5. tester
+6. marker index
+7. severity label
+8. note
+9. marker time seconds
+10. mention emails
+11. Drive folder link
+12. video link
+13. preview link
+14. logcat link
+15. report PDF link
+16. manifest link
+
+Mention identity table 新增 `googleEmail` 欄位。Sheet append resolve marker mentions 時使用：
+
+- `MentionIdentity.googleEmail`
+- fallback `MentionIdentity.email`
+- 找不到 email 時收集 warning，不會把 Slack user id 或 GitLab username 寫進 Google Sheet。

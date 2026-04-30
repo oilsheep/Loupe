@@ -19,7 +19,7 @@ export interface ExportManifest {
   exportDir: string
   reportPdfPath: string | null
   publish: {
-    target: 'local' | 'slack' | 'gitlab'
+    target: 'local' | 'slack' | 'gitlab' | 'google-drive'
     slackThreadMode: 'single-thread' | 'per-marker-thread' | null
     gitlabMode: 'single-issue' | 'per-marker-issue' | null
   }

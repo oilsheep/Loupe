@@ -7,6 +7,8 @@ export interface ScrcpyOptions {
   onUnexpectedExit?: (code: number | null) => void
 }
 
+const GRACEFUL_STOP_TIMEOUT_MS = 20_000
+
 export class Scrcpy {
   private process?: SpawnedProcess
   private startTime?: number
@@ -65,7 +67,7 @@ export class Scrcpy {
     this.process = undefined
     this.stopping = true
     return new Promise<void>((resolve) => {
-      const hardKill = setTimeout(() => { this.forceKill(proc).catch(() => {}) }, 5000).unref()
+      const hardKill = setTimeout(() => { this.forceKill(proc).catch(() => {}) }, GRACEFUL_STOP_TIMEOUT_MS).unref()
       proc.onExit(() => {
         clearTimeout(hardKill)
         this.startTime = undefined

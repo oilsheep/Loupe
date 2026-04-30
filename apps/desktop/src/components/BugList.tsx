@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { MouseEvent } from 'react'
 import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, MentionIdentity, PublishTarget, SeveritySettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
@@ -218,6 +219,7 @@ function ExportConfirmDialog({
 }: ExportConfirmDialogProps) {
   const isSlack = publishTarget === 'slack'
   const isGitLab = publishTarget === 'gitlab'
+  const isGoogleDrive = publishTarget === 'google-drive'
   const { t } = useI18n()
   const progressPct = progress && progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
@@ -321,7 +323,7 @@ function ExportConfirmDialog({
 
         <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3">
           <div className="text-xs font-medium text-zinc-300">Publish target</div>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-4 gap-2">
             <button
               type="button"
               onClick={() => onPublishTargetChange('local')}
@@ -342,6 +344,13 @@ function ExportConfirmDialog({
               className={`rounded px-3 py-2 text-sm ${isGitLab ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
             >
               GitLab
+            </button>
+            <button
+              type="button"
+              onClick={() => onPublishTargetChange('google-drive')}
+              className={`rounded px-3 py-2 text-sm ${isGoogleDrive ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+            >
+              Drive
             </button>
           </div>
 
@@ -389,6 +398,11 @@ function ExportConfirmDialog({
                   Issue per marker
                 </button>
               </div>
+            </div>
+          )}
+          {isGoogleDrive && (
+            <div className="mt-3 text-xs leading-5 text-zinc-500">
+              Loupe uploads the full local export folder to Google Drive and appends marker rows to the configured Google Sheet when enabled.
             </div>
           )}
         </div>
@@ -586,7 +600,9 @@ interface MentionPickerProps {
 function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const selected = new Set(selectedIds)
   const labels = selectedIds.map(id => identities.find(identity => identity.id === id)?.displayName || id)
   const normalizedQuery = query.trim().toLowerCase()
@@ -596,6 +612,7 @@ function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps
         identity.id,
         identity.slackUserId ?? '',
         identity.gitlabUsername ?? '',
+        identity.googleEmail ?? '',
       ].some(value => value.toLowerCase().includes(normalizedQuery)))
     : identities
 
@@ -611,6 +628,7 @@ function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps
     function onPointerDown(event: PointerEvent) {
       const target = event.target as Node | null
       if (target && rootRef.current?.contains(target)) return
+      if (target && menuRef.current?.contains(target)) return
       setOpen(false)
     }
     function onKeyDown(event: KeyboardEvent) {
@@ -624,6 +642,86 @@ function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    function updateMenuPosition() {
+      const rect = rootRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = 288
+      const margin = 8
+      const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin)
+      const below = rect.bottom + 4
+      const maxMenuHeight = 224
+      const top = below + maxMenuHeight > window.innerHeight - margin
+        ? Math.max(margin, rect.top - maxMenuHeight - 4)
+        : below
+      setMenuPosition({ top, left })
+    }
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
+  }, [open])
+
+  const menu = (
+    <div
+      ref={menuRef}
+      className="fixed z-50 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl"
+      style={{ top: menuPosition.top, left: menuPosition.left }}
+      data-row-click-ignore="true"
+    >
+      {identities.length > 0 && (
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search people"
+          className="mb-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+          autoFocus
+        />
+      )}
+      {identities.length === 0 ? (
+        <div className="px-2 py-2 text-xs text-zinc-500">Add people in Publish settings.</div>
+      ) : filteredIdentities.length === 0 ? (
+        <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
+      ) : filteredIdentities.map(identity => (
+        <label key={identity.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
+          <input
+            type="checkbox"
+            checked={selected.has(identity.id)}
+            onChange={() => toggle(identity.id)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          <span className="min-w-0 flex-1 truncate">{identity.displayName}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            {identity.slackUserId && (
+              <span className="rounded-full border border-sky-900/70 bg-sky-950/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                Slack
+              </span>
+            )}
+            {identity.gitlabUsername && (
+              <span className="rounded-full border border-orange-900/70 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
+                GitLab
+              </span>
+            )}
+            {identity.googleEmail && (
+              <span className="rounded-full border border-emerald-900/70 bg-emerald-950/50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                Google
+              </span>
+            )}
+            {!identity.slackUserId && !identity.gitlabUsername && !identity.googleEmail && (
+              <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                Local
+              </span>
+            )}
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+
   return (
     <div ref={rootRef} className="relative" data-row-click-ignore="true">
       <button
@@ -633,51 +731,7 @@ function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps
       >
         {labels.length > 0 ? `Mention: ${labels.join(', ')}` : 'Mention people'}
       </button>
-      {open && (
-        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
-          {identities.length > 0 && (
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search people"
-              className="mb-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-              autoFocus
-            />
-          )}
-          {identities.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">Add people in Publish settings.</div>
-          ) : filteredIdentities.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
-          ) : filteredIdentities.map(identity => (
-            <label key={identity.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
-              <input
-                type="checkbox"
-                checked={selected.has(identity.id)}
-                onChange={() => toggle(identity.id)}
-                className="h-4 w-4 accent-blue-600"
-              />
-              <span className="min-w-0 flex-1 truncate">{identity.displayName}</span>
-              <span className="flex shrink-0 items-center gap-1">
-                {identity.slackUserId && (
-                  <span className="rounded-full border border-sky-900/70 bg-sky-950/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
-                    Slack
-                  </span>
-                )}
-                {identity.gitlabUsername && (
-                  <span className="rounded-full border border-orange-900/70 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
-                    GitLab
-                  </span>
-                )}
-                {!identity.slackUserId && !identity.gitlabUsername && (
-                  <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-                    Local
-                  </span>
-                )}
-              </span>
-            </label>
-          ))}
-        </div>
-      )}
+      {open && createPortal(menu, document.body)}
     </div>
   )
 }
@@ -915,7 +969,11 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       onMutated()
       const publish = publishTarget === 'gitlab'
         ? { target: publishTarget, gitlabMode }
-        : { target: publishTarget, slackThreadMode }
+        : publishTarget === 'slack'
+          ? { target: publishTarget, slackThreadMode }
+          : publishTarget === 'google-drive'
+            ? { target: publishTarget }
+            : { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
         ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })].filter(Boolean) as string[])
         : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })

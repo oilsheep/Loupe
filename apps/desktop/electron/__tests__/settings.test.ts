@@ -17,6 +17,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
       })
 
@@ -39,6 +40,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
       })
 
@@ -75,6 +77,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
       })
 
@@ -122,6 +125,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
       })
 
@@ -156,6 +160,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [{ id: 'miki-slack', displayName: 'Miki Slack', email: 'miki@example.com', slackUserId: 'U123' }],
       })
 
@@ -192,6 +197,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [
           { id: 'miki-gitlab', displayName: 'Miki GitLab', gitlabUsername: 'miki' },
           { id: 'miki-slack', displayName: 'Miki Slack', slackUserId: 'U123' },
@@ -230,6 +236,7 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
       })
 

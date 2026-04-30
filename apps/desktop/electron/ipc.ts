@@ -13,12 +13,13 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackMentionUsers } from './slack-publisher'
 import { publishManifestToRemote } from './remote-publisher'
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
+import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
@@ -69,6 +70,13 @@ export const CHANNEL = {
   settingsConnectGitLabOAuth:'settings:connectGitLabOAuth',
   settingsCancelGitLabOAuth:'settings:cancelGitLabOAuth',
   settingsListGitLabProjects:'settings:listGitLabProjects',
+  settingsSetGoogle:       'settings:setGoogle',
+  settingsConnectGoogleOAuth:'settings:connectGoogleOAuth',
+  settingsCancelGoogleOAuth:'settings:cancelGoogleOAuth',
+  settingsListGoogleDriveFolders:'settings:listGoogleDriveFolders',
+  settingsCreateGoogleDriveFolder:'settings:createGoogleDriveFolder',
+  settingsListGoogleSpreadsheets:'settings:listGoogleSpreadsheets',
+  settingsListGoogleSheetTabs:'settings:listGoogleSheetTabs',
   settingsSetMentionIdentities:'settings:setMentionIdentities',
   settingsImportMentionIdentities:'settings:importMentionIdentities',
   settingsExportMentionIdentities:'settings:exportMentionIdentities',
@@ -85,6 +93,7 @@ let pcRecordingProcess: ChildProcessByStdio<Writable, null, Readable> | null = n
 let pcRecordingStderr = ''
 const exportControllers = new Map<string, AbortController>()
 let gitlabOAuthCancel: (() => void) | null = null
+let googleOAuthCancel: (() => void) | null = null
 
 export interface IpcDeps {
   adb: Adb
@@ -206,6 +215,114 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
     throw new Error(`GitLab OAuth token exchange failed: ${reason}${hint}`)
   }
   return payload.access_token
+}
+
+async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<GooglePublishSettings> {
+  googleOAuthCancel?.()
+  const clientId = settings.oauthClientId?.trim() || ''
+  const clientSecret = settings.oauthClientSecret?.trim() || ''
+  const redirectUri = settings.oauthRedirectUri?.trim() || 'http://127.0.0.1:38988/oauth/google/callback'
+  if (!clientId) throw new Error('Google OAuth client ID is missing')
+
+  const redirect = new URL(redirectUri)
+  if (redirect.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(redirect.hostname)) {
+    throw new Error('Google OAuth redirect URI must be a localhost HTTP URL')
+  }
+  const port = Number(redirect.port || 80)
+  const state = base64Url(randomBytes(24))
+  const verifier = base64Url(randomBytes(48))
+  const challenge = base64Url(createHash('sha256').update(verifier).digest())
+
+  const code = await new Promise<string>((resolve, reject) => {
+    let settled = false
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      googleOAuthCancel = null
+      server.close()
+      fn()
+    }
+    const timeout = setTimeout(() => {
+      finish(() => reject(new Error('Google OAuth timed out')))
+    }, 60_000)
+    timeout.unref?.()
+    const server = createServer((req, res) => {
+      try {
+        const url = new URL(req.url || '/', redirect.origin)
+        if (url.pathname !== redirect.pathname) {
+          res.writeHead(404).end('Not found')
+          return
+        }
+        const error = url.searchParams.get('error')
+        if (error) throw new Error(url.searchParams.get('error_description') || error)
+        if (url.searchParams.get('state') !== state) throw new Error('Google OAuth state mismatch')
+        const receivedCode = url.searchParams.get('code')
+        if (!receivedCode) throw new Error('Google OAuth code is missing')
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end('<!doctype html><meta charset="utf-8"><title>Loupe</title><p>Google OAuth connected. You can return to Loupe.</p>')
+        finish(() => resolve(receivedCode))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(err instanceof Error ? err.message : String(err))
+        finish(() => reject(err))
+      }
+    })
+    server.on('error', error => finish(() => reject(error)))
+    server.listen(port, redirect.hostname, () => {
+      googleOAuthCancel = () => finish(() => reject(new Error('Google OAuth cancelled')))
+      const authorize = new URL('https://accounts.google.com/o/oauth2/v2/auth')
+      authorize.searchParams.set('client_id', clientId)
+      authorize.searchParams.set('redirect_uri', redirectUri)
+      authorize.searchParams.set('response_type', 'code')
+      authorize.searchParams.set('scope', [
+        'openid',
+        'email',
+        'profile',
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/drive.metadata.readonly',
+        'https://www.googleapis.com/auth/spreadsheets',
+      ].join(' '))
+      authorize.searchParams.set('access_type', 'offline')
+      authorize.searchParams.set('prompt', 'consent')
+      authorize.searchParams.set('state', state)
+      authorize.searchParams.set('code_challenge', challenge)
+      authorize.searchParams.set('code_challenge_method', 'S256')
+      void shell.openExternal(authorize.toString())
+    })
+  })
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    code,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri,
+    code_verifier: verifier,
+  })
+  if (clientSecret) body.set('client_secret', clientSecret)
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+  const text = await response.text()
+  const payload = text ? JSON.parse(text) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string } : {}
+  if (!response.ok || !payload.access_token) {
+    throw new Error(`Google OAuth token exchange failed: ${payload.error_description || payload.error || response.statusText}`)
+  }
+
+  const userInfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${payload.access_token}` },
+  })
+  const userInfoText = await userInfoResponse.text()
+  const userInfo = userInfoText ? JSON.parse(userInfoText) as { email?: string } : {}
+  return {
+    ...settings,
+    token: payload.access_token,
+    refreshToken: payload.refresh_token || settings.refreshToken,
+    tokenExpiresAt: Date.now() + Math.max(1, payload.expires_in ?? 3600) * 1000,
+    accountEmail: userInfo.email?.trim().toLowerCase() || settings.accountEmail,
+  }
 }
 
 function exportDirForSession(root: string, session: Session): string {
@@ -1335,6 +1452,40 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, gitlab: GitLabPublishSettings) => {
     return fetchGitLabProjects(gitlab)
+  })
+  ipcMain.handle(CHANNEL.settingsSetGoogle, async (_e, google: GooglePublishSettings) => deps.settings.setGoogle(google))
+  ipcMain.handle(CHANNEL.settingsConnectGoogleOAuth, async (_e, google: GooglePublishSettings) => {
+    const saved = deps.settings.setGoogle(google)
+    const connected = await connectGoogleOAuth(saved.google)
+    return deps.settings.setGoogle(connected)
+  })
+  ipcMain.handle(CHANNEL.settingsCancelGoogleOAuth, async () => {
+    googleOAuthCancel?.()
+    googleOAuthCancel = null
+  })
+  ipcMain.handle(CHANNEL.settingsListGoogleDriveFolders, async (_e, google: GooglePublishSettings) => {
+    const refreshed = await refreshGoogleAccessToken(google)
+    const folders = await listGoogleDriveFolders(refreshed)
+    deps.settings.setGoogle({ ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt })
+    return folders
+  })
+  ipcMain.handle(CHANNEL.settingsCreateGoogleDriveFolder, async (_e, google: GooglePublishSettings, name: string) => {
+    const refreshed = await refreshGoogleAccessToken(google)
+    const folder = await createGoogleDriveFolder(refreshed, name)
+    deps.settings.setGoogle({ ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt, driveFolderId: folder.id, driveFolderName: folder.name })
+    return folder
+  })
+  ipcMain.handle(CHANNEL.settingsListGoogleSpreadsheets, async (_e, google: GooglePublishSettings) => {
+    const refreshed = await refreshGoogleAccessToken(google)
+    const sheets = await listGoogleSpreadsheets(refreshed)
+    deps.settings.setGoogle({ ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt })
+    return sheets
+  })
+  ipcMain.handle(CHANNEL.settingsListGoogleSheetTabs, async (_e, google: GooglePublishSettings) => {
+    const refreshed = await refreshGoogleAccessToken(google)
+    const tabs = await listGoogleSheetTabs(refreshed)
+    deps.settings.setGoogle({ ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt })
+    return tabs
   })
   ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
   ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {

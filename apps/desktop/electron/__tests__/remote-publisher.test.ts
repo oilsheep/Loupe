@@ -28,6 +28,7 @@ function settings(): AppSettings {
     },
     slack: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
     gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
+    google: { token: 'ya29-test', refreshToken: '', tokenExpiresAt: Date.now() + 3600_000, accountEmail: 'qa@example.com', oauthClientId: 'google-client', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: 'folder-root', driveFolderName: 'Loupe', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     mentionIdentities: [],
   }
 }
@@ -163,6 +164,55 @@ describe('remote publisher', () => {
 
       expect(result.target).toBe('gitlab')
       expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/issues/7/notes'))).toBe(true)
+    } finally {
+      vi.stubGlobal('fetch', originalFetch)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('routes Google Drive exports through the Google publisher', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-remote-'))
+    const originalFetch = globalThis.fetch
+    try {
+      const files: ExportedMarkerFile[] = [{
+        bugId: 'b1',
+        videoPath: join(root, 'b1.mp4'),
+        previewPath: join(root, 'b1.jpg'),
+        logcatPath: null,
+      }]
+      writeFileSync(files[0].videoPath, 'x')
+      writeFileSync(files[0].previewPath, 'x')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'google-drive' },
+      })
+      const jsonPath = join(root, 'export-manifest.json')
+      const csvPath = join(root, 'export-manifest.csv')
+      writeFileSync(jsonPath, JSON.stringify(manifest))
+      writeFileSync(csvPath, 'csv')
+      let uploadIndex = 0
+      const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.includes('/upload/drive/v3/files') && init?.method === 'POST') {
+          uploadIndex += 1
+          return new Response('', { status: 200, headers: { location: `https://upload.test/${uploadIndex}` } })
+        }
+        if (input.startsWith('https://upload.test/')) return response({ id: `file-${uploadIndex}`, webViewLink: `https://drive/file-${uploadIndex}` })
+        if (input.includes('/drive/v3/files')) return response({ id: 'folder-session', name: 'Loupe QA', webViewLink: 'https://drive/folder' })
+        throw new Error(`unexpected URL ${input}`)
+      })
+      vi.stubGlobal('fetch', fetchImpl)
+
+      const result = await publishManifestToRemote({
+        manifest,
+        manifestPaths: { jsonPath, csvPath },
+        settings: settings(),
+      })
+
+      expect(result.target).toBe('google-drive')
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/upload/drive/v3/files'))).toBe(true)
     } finally {
       vi.stubGlobal('fetch', originalFetch)
       rmSync(root, { recursive: true, force: true })

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
@@ -36,6 +36,7 @@ export interface SessionDeps {
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const DEFAULT_MARKER_LOGCAT_LINES = 50
+const VIDEO_FINALIZE_RETRY_DELAYS_MS = [250, 500, 1000, 1500, 2000, 3000]
 
 function scrcpyWindowTitle(model: string): string {
   return `Loupe - ${model}`
@@ -60,6 +61,28 @@ function pcPlatformLabel(): string {
 function sanitizeLogcatLineCount(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_MARKER_LOGCAT_LINES
   return Math.max(10, Math.min(500, Math.round(value as number)))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isIncompleteMp4Error(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /moov atom not found|Invalid data found when processing input|ffmpeg faststart failed/i.test(message)
+}
+
+async function waitForStableFile(filePath: string, quietMs = 300): Promise<void> {
+  if (!existsSync(filePath)) return
+  let previous = statSync(filePath).size
+  await sleep(quietMs)
+  for (let i = 0; i < 4; i++) {
+    if (!existsSync(filePath)) return
+    const current = statSync(filePath).size
+    if (current === previous) return
+    previous = current
+    await sleep(quietMs)
+  }
 }
 
 /**
@@ -480,7 +503,24 @@ export class SessionManager {
   private async defaultPrepareVideoForPlayback(inputPath: string): Promise<void> {
     const outputPath = `${inputPath}.faststart.mp4`
     const backupPath = `${inputPath}.raw.mp4`
-    await remuxForHtml5Playback(this.deps.runner, resolveBundledFfmpegPath(), { inputPath, outputPath })
+    const ffmpegPath = resolveBundledFfmpegPath()
+    let lastError: unknown = null
+    for (let attempt = 0; attempt <= VIDEO_FINALIZE_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        await waitForStableFile(inputPath)
+        rmSync(outputPath, { force: true })
+        await remuxForHtml5Playback(this.deps.runner, ffmpegPath, { inputPath, outputPath })
+        lastError = null
+        break
+      } catch (err) {
+        lastError = err
+        rmSync(outputPath, { force: true })
+        const delay = VIDEO_FINALIZE_RETRY_DELAYS_MS[attempt]
+        if (delay === undefined || !isIncompleteMp4Error(err)) break
+        await sleep(delay)
+      }
+    }
+    if (lastError) throw lastError
     rmSync(backupPath, { force: true })
     renameSync(inputPath, backupPath)
     try {

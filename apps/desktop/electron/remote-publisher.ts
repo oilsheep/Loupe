@@ -1,6 +1,7 @@
 import type { AppSettings } from '@shared/types'
 import type { ExportManifest } from './export-manifest'
 import { publishManifestToGitLab, type GitLabPublishResult } from './gitlab-publisher'
+import { publishManifestToGoogleDrive, type GooglePublishResult } from './google-publisher'
 import { publishManifestToSlack, type SlackPublishResult } from './slack-publisher'
 
 interface ManifestPaths {
@@ -14,6 +15,7 @@ export type RemotePublishResult =
   | { target: 'local'; skipped: true }
   | ({ target: 'slack' } & SlackPublishResult)
   | ({ target: 'gitlab' } & GitLabPublishResult)
+  | ({ target: 'google-drive' } & GooglePublishResult)
 
 export async function publishManifestToRemote(args: {
   manifest: ExportManifest
@@ -42,6 +44,16 @@ export async function publishManifestToRemote(args: {
       mentionIdentities: args.settings.mentionIdentities,
     })
     return { target: 'gitlab', ...result }
+  }
+
+  if (args.manifest.publish.target === 'google-drive') {
+    const result = await publishManifestToGoogleDrive({
+      manifest: args.manifest,
+      manifestPaths: args.manifestPaths,
+      settings: args.settings.google,
+      mentionIdentities: args.settings.mentionIdentities,
+    })
+    return { target: 'google-drive', ...result }
   }
 
   const target: never = args.manifest.publish.target

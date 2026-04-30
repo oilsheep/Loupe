@@ -55,6 +55,7 @@ export interface MentionIdentity {
   email?: string
   slackUserId?: string
   gitlabUsername?: string
+  googleEmail?: string
 }
 
 export type GitLabPublishMode = 'single-issue' | 'per-marker-issue'
@@ -95,6 +96,39 @@ export interface GitLabMentionUser {
   webUrl?: string
 }
 
+export interface GooglePublishSettings {
+  token: string
+  refreshToken?: string
+  tokenExpiresAt?: number | null
+  accountEmail?: string
+  oauthClientId?: string
+  oauthClientSecret?: string
+  oauthRedirectUri?: string
+  driveFolderId?: string
+  driveFolderName?: string
+  updateSheet?: boolean
+  spreadsheetId?: string
+  spreadsheetName?: string
+  sheetName?: string
+}
+
+export interface GoogleDriveFolder {
+  id: string
+  name: string
+  webViewLink?: string
+}
+
+export interface GoogleSpreadsheet {
+  id: string
+  name: string
+  webViewLink?: string
+}
+
+export interface GoogleSheetTab {
+  sheetId: number
+  title: string
+}
+
 export interface AppSettings {
   exportRoot: string
   hotkeys: HotkeySettings
@@ -102,6 +136,7 @@ export interface AppSettings {
   severities: SeveritySettings
   slack: SlackPublishSettings
   gitlab: GitLabPublishSettings
+  google: GooglePublishSettings
   mentionIdentities: MentionIdentity[]
 }
 
@@ -146,7 +181,7 @@ export interface Bug {
   mentionUserIds?: string[]
 }
 
-export type PublishTarget = 'local' | 'slack' | 'gitlab'
+export type PublishTarget = 'local' | 'slack' | 'gitlab' | 'google-drive'
 export type SlackThreadMode = 'single-thread' | 'per-marker-thread'
 
 export interface ExportPublishOptions {
@@ -258,6 +293,13 @@ export interface DesktopApi {
     connectGitLabOAuth(settings: GitLabPublishSettings):              Promise<AppSettings>
     cancelGitLabOAuth():                                             Promise<void>
     listGitLabProjects(settings: GitLabPublishSettings):              Promise<GitLabProject[]>
+    setGoogle(settings: GooglePublishSettings):                       Promise<AppSettings>
+    connectGoogleOAuth(settings: GooglePublishSettings):              Promise<AppSettings>
+    cancelGoogleOAuth():                                             Promise<void>
+    listGoogleDriveFolders(settings: GooglePublishSettings):          Promise<GoogleDriveFolder[]>
+    createGoogleDriveFolder(settings: GooglePublishSettings, name: string): Promise<GoogleDriveFolder>
+    listGoogleSpreadsheets(settings: GooglePublishSettings):          Promise<GoogleSpreadsheet[]>
+    listGoogleSheetTabs(settings: GooglePublishSettings):             Promise<GoogleSheetTab[]>
     setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>

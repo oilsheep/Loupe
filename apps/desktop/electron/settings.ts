@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
+import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
   improvement: 'F6',
@@ -131,7 +132,7 @@ function normalizeGitLabMentionUsers(raw?: unknown): GitLabMentionUser[] {
 }
 
 function identityCompleteness(identity: MentionIdentity): number {
-  return (identity.email ? 4 : 0) + (identity.slackUserId ? 2 : 0) + (identity.gitlabUsername ? 2 : 0)
+  return (identity.email ? 4 : 0) + (identity.slackUserId ? 2 : 0) + (identity.gitlabUsername ? 2 : 0) + (identity.googleEmail ? 2 : 0)
 }
 
 function mergeIdentity(primary: MentionIdentity, secondary: MentionIdentity): MentionIdentity {
@@ -141,6 +142,7 @@ function mergeIdentity(primary: MentionIdentity, secondary: MentionIdentity): Me
     ...(primary.email || secondary.email ? { email: primary.email || secondary.email } : {}),
     ...(primary.slackUserId || secondary.slackUserId ? { slackUserId: primary.slackUserId || secondary.slackUserId } : {}),
     ...(primary.gitlabUsername || secondary.gitlabUsername ? { gitlabUsername: primary.gitlabUsername || secondary.gitlabUsername } : {}),
+    ...(primary.googleEmail || secondary.googleEmail ? { googleEmail: primary.googleEmail || secondary.googleEmail } : {}),
   }
 }
 
@@ -148,7 +150,8 @@ function identitiesMatch(a: MentionIdentity, b: MentionIdentity): boolean {
   return Boolean(
     (a.email && b.email && normalizeEmail(a.email) === normalizeEmail(b.email)) ||
     (a.slackUserId && b.slackUserId && a.slackUserId === b.slackUserId) ||
-    (a.gitlabUsername && b.gitlabUsername && a.gitlabUsername === b.gitlabUsername),
+    (a.gitlabUsername && b.gitlabUsername && a.gitlabUsername === b.gitlabUsername) ||
+    (a.googleEmail && b.googleEmail && normalizeEmail(a.googleEmail) === normalizeEmail(b.googleEmail)),
   )
 }
 
@@ -178,17 +181,19 @@ function normalizeMentionIdentities(raw?: unknown, slack?: SlackPublishSettings,
       const value = identity as Partial<MentionIdentity>
       const displayName = typeof value.displayName === 'string' ? value.displayName.trim() : ''
       const email = normalizeEmail(value.email)
+      const googleEmail = normalizeEmail(value.googleEmail)
       const slackUserId = typeof value.slackUserId === 'string' ? normalizeSlackMentionIds([value.slackUserId])[0] : ''
       const gitlabUsername = normalizeGitLabUsername(value.gitlabUsername)
       const id = typeof value.id === 'string' ? value.id.trim() : ''
-      const normalizedId = id || identityIdFromLabel(displayName || email || gitlabUsername || slackUserId)
-      if (!normalizedId || (!displayName && !email && !slackUserId && !gitlabUsername)) return null
+      const normalizedId = id || identityIdFromLabel(displayName || email || googleEmail || gitlabUsername || slackUserId)
+      if (!normalizedId || (!displayName && !email && !googleEmail && !slackUserId && !gitlabUsername)) return null
       return {
         id: normalizedId,
-        displayName: displayName || email || gitlabUsername || slackUserId,
+        displayName: displayName || email || googleEmail || gitlabUsername || slackUserId,
         ...(email ? { email } : {}),
         ...(slackUserId ? { slackUserId } : {}),
         ...(gitlabUsername ? { gitlabUsername } : {}),
+        ...(googleEmail ? { googleEmail } : {}),
       }
     })
     .filter(Boolean) as MentionIdentity[]
@@ -270,6 +275,24 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
   }
 }
 
+function normalizeGoogle(raw?: Partial<GooglePublishSettings>): GooglePublishSettings {
+  return {
+    token: typeof raw?.token === 'string' ? raw.token : '',
+    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
+    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
+    accountEmail: normalizeEmail(raw?.accountEmail) || undefined,
+    oauthClientId: (typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '') || GOOGLE_OAUTH_CONFIG.clientId,
+    oauthClientSecret: (typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : '') || GOOGLE_OAUTH_CONFIG.clientSecret,
+    oauthRedirectUri: (typeof raw?.oauthRedirectUri === 'string' ? raw.oauthRedirectUri.trim() : '') || GOOGLE_OAUTH_CONFIG.redirectUri,
+    driveFolderId: typeof raw?.driveFolderId === 'string' ? raw.driveFolderId.trim() : '',
+    driveFolderName: typeof raw?.driveFolderName === 'string' ? raw.driveFolderName.trim() : '',
+    updateSheet: Boolean(raw?.updateSheet),
+    spreadsheetId: typeof raw?.spreadsheetId === 'string' ? raw.spreadsheetId.trim() : '',
+    spreadsheetName: typeof raw?.spreadsheetName === 'string' ? raw.spreadsheetName.trim() : '',
+    sheetName: typeof raw?.sheetName === 'string' ? raw.sheetName.trim() : '',
+  }
+}
+
 function normalizeLocale(raw?: string): AppLocale {
   if (raw === 'system' || raw === 'en' || raw === 'zh-TW' || raw === 'zh-CN' || raw === 'ja' || raw === 'ko' || raw === 'es') return raw
   return 'system'
@@ -304,6 +327,7 @@ export class SettingsStore {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings>
       const slack = normalizeSlack(raw.slack)
       const gitlab = normalizeGitLab(raw.gitlab)
+      const google = normalizeGoogle(raw.google)
       return {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
@@ -311,6 +335,7 @@ export class SettingsStore {
         severities: normalizeSeverities(raw.severities),
         slack,
         gitlab,
+        google,
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
       }
     } catch {
@@ -338,6 +363,12 @@ export class SettingsStore {
 
   setGitLab(gitlab: GitLabPublishSettings): AppSettings {
     const next = { ...this.get(), gitlab: normalizeGitLab(gitlab) }
+    this.write(next)
+    return next
+  }
+
+  setGoogle(google: GooglePublishSettings): AppSettings {
+    const next = { ...this.get(), google: normalizeGoogle(google) }
     this.write(next)
     return next
   }
