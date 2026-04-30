@@ -117,6 +117,7 @@ export function Home() {
   const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
   const [slackSaved, setSlackSaved] = useState(false)
   const [startingSlackOAuth, setStartingSlackOAuth] = useState(false)
+  const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
   const [slackError, setSlackError] = useState('')
   const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] })
   const [gitlabLabelsInput, setGitLabLabelsInput] = useState('loupe, qa-evidence')
@@ -266,6 +267,21 @@ export function Home() {
     } catch (err) {
       setStartingSlackOAuth(false)
       setSlackError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function refreshSlackUsers() {
+    setRefreshingSlackUsers(true)
+    setSlackSaved(false)
+    setSlackError('')
+    try {
+      const settings = await api.settings.refreshSlackUsers()
+      applySettings(settings)
+      setSlackSaved(true)
+    } catch (err) {
+      setSlackError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingSlackUsers(false)
     }
   }
 
@@ -612,6 +628,7 @@ export function Home() {
             slack={slack}
             slackSaved={slackSaved}
             startingSlackOAuth={startingSlackOAuth}
+            refreshingSlackUsers={refreshingSlackUsers}
             slackError={slackError}
             activeSlackUsers={activeSlackUsers}
             gitlab={gitlab}
@@ -654,6 +671,7 @@ export function Home() {
             onSaveSeverities={saveSeverities}
             onResetLabels={resetDefaultLabels}
             onStartSlackOAuth={startSlackUserOAuth}
+            onRefreshSlackUsers={() => { void refreshSlackUsers() }}
             onGitLabChange={(next) => { setGitLab(next); setGitLabSaved(false) }}
             onGitLabLabelsInputChange={(value) => { setGitLabLabelsInput(value); setGitLabSaved(false) }}
             onGitLabMentionsInputChange={(value) => { setGitLabMentionsInput(value); setGitLabSaved(false) }}

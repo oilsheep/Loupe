@@ -100,6 +100,7 @@ interface PreferencesDialogProps {
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
+  refreshingSlackUsers: boolean
   slackError: string
   activeSlackUsers: SlackMentionUser[]
   gitlab: GitLabPublishSettings
@@ -142,6 +143,7 @@ interface PreferencesDialogProps {
   onSaveSeverities(value: SeveritySettings): void
   onResetLabels(): void
   onStartSlackOAuth(): void
+  onRefreshSlackUsers(): void
   onGitLabChange(value: GitLabPublishSettings): void
   onGitLabLabelsInputChange(value: string): void
   onGitLabMentionsInputChange(value: string): void
@@ -179,6 +181,7 @@ export function PreferencesDialog({
   slack,
   slackSaved,
   startingSlackOAuth,
+  refreshingSlackUsers,
   slackError,
   activeSlackUsers,
   gitlab,
@@ -221,6 +224,7 @@ export function PreferencesDialog({
   onSaveSeverities,
   onResetLabels,
   onStartSlackOAuth,
+  onRefreshSlackUsers,
   onGitLabChange,
   onGitLabLabelsInputChange,
   onGitLabMentionsInputChange,
@@ -449,23 +453,44 @@ export function PreferencesDialog({
                     )}
                     {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
                   </div>
-                  <button type="button" onClick={onStartSlackOAuth} disabled={startingSlackOAuth} className="shrink-0 rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-50">
-                    {startingSlackOAuth ? 'Waiting...' : slack.oauthUserId ? 'Reconnect Slack' : 'Connect Slack'}
-                  </button>
-                </div>
-                {activeSlackUsers.length > 0 && (
-                  <div className="mt-2 max-h-28 overflow-auto rounded border border-zinc-800 bg-zinc-950">
-                    {activeSlackUsers.map(user => {
-                      const label = user.displayName || user.realName || user.name || user.id
-                      return (
-                        <div key={user.id} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
-                          <div className="truncate text-xs text-zinc-200">{label}</div>
-                          <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` / @${user.name}` : ''}{user.email ? ` / ${user.email}` : ''}</div>
-                        </div>
-                      )
-                    })}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {(slack.oauthUserId || slack.userToken?.trim()) && (
+                      <span className="text-xs text-emerald-300">Connected</span>
+                    )}
+                    <button type="button" onClick={onStartSlackOAuth} disabled={startingSlackOAuth} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-50">
+                      {startingSlackOAuth ? 'Waiting...' : slack.oauthUserId ? 'Reconnect Slack' : 'Connect Slack'}
+                    </button>
                   </div>
-                )}
+                </div>
+                <div className="mt-3 rounded border border-zinc-800 bg-zinc-950">
+                  <div className="flex items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-300">Slack users</div>
+                      <div className="text-[11px] text-zinc-500">{slack.usersFetchedAt ? `Updated ${new Date(slack.usersFetchedAt).toLocaleString()}` : 'Not synced yet'}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onRefreshSlackUsers}
+                      disabled={refreshingSlackUsers || !slack.userToken?.trim()}
+                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {refreshingSlackUsers ? 'Refreshing...' : 'Refresh users'}
+                    </button>
+                  </div>
+                  <div className="max-h-28 overflow-auto">
+                    {activeSlackUsers.length === 0 ? (
+                      <div className="px-2 py-3 text-xs text-zinc-500">Refresh users after connecting Slack.</div>
+                    ) : activeSlackUsers.map(user => {
+                        const label = user.displayName || user.realName || user.name || user.id
+                        return (
+                          <div key={user.id} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                            <div className="truncate text-xs text-zinc-200">{label}</div>
+                            <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` / @${user.name}` : ''}{user.email ? ` / ${user.email}` : ''}</div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
               </details>
 
               <details className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
