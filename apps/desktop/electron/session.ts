@@ -56,10 +56,6 @@ function pcPlatformLabel(): string {
   return process.platform
 }
 
-function shouldDeferPcThumbnailCapture(session: Session): boolean {
-  return session.androidVersion === 'macOS' || session.deviceId.startsWith('window:')
-}
-
 /**
  * Default session id generator. Returns e.g. `2026-04-29_14-30-45_1.4.2-RC3`.
  * Folder name is human-readable (date + build) so QA can find recordings without
@@ -389,7 +385,7 @@ export class SessionManager {
     }
 
     try {
-      if (session.connectionMode === 'pc' && this.capturePcThumbnail && !shouldDeferPcThumbnailCapture(session)) {
+      if (session.connectionMode === 'pc' && this.capturePcThumbnail) {
         await this.capturePcThumbnail(session.deviceId, screenshotPath)
         screenshotRel = `screenshots/${bugId}.png`
       } else if (session.connectionMode !== 'pc' && this.capturePcThumbnail) {

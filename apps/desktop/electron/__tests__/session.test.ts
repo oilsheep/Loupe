@@ -193,12 +193,14 @@ describe('SessionManager', () => {
     expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
   })
 
-  it('defers PC window thumbnails until the recording file is saved', async () => {
+  it('captures PC window thumbnails immediately while recording', async () => {
     const runner = {
       run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
       spawn: vi.fn() as any,
     }
-    const capturePcThumbnail = vi.fn()
+    const capturePcThumbnail = vi.fn().mockImplementation(async (_sourceId: string, out: string) => {
+      writeFileSync(out, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    })
     mgr = new SessionManager({
       db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
       runner,
@@ -222,13 +224,8 @@ describe('SessionManager', () => {
     const bug = await mgr.markBug()
     await flushPromises()
 
-    expect(capturePcThumbnail).not.toHaveBeenCalled()
-    expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
-
-    mgr.savePcRecording('sess-1', Buffer.from('webm'))
-    await mgr.stop()
-
-    expect(runner.run).toHaveBeenCalled()
+    expect(capturePcThumbnail).toHaveBeenCalledWith('window:123:0', paths.screenshotFile('sess-1', bug.id))
+    expect(runner.run).not.toHaveBeenCalled()
     expect(db.listBugs('sess-1')[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
   })
 
