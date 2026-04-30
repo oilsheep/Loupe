@@ -38,7 +38,7 @@ function session(): Session {
   }
 }
 
-function bug(): Bug {
+function bug(over: Partial<Bug> = {}): Bug {
   return {
     id: 'b1',
     sessionId: 's1',
@@ -53,6 +53,7 @@ function bug(): Bug {
     preSec: 5,
     postSec: 8,
     mentionUserIds: [],
+    ...over,
   }
 }
 
@@ -129,7 +130,7 @@ describe('Slack publisher', () => {
       writeFileSync(reportPdfPath, 'pdf')
       const manifest = buildExportManifest({
         session: session(),
-        bugs: [bug()],
+        bugs: [bug({ mentionUserIds: ['miki'] })],
         files,
         outDir: root,
         reportPdfPath,
@@ -150,6 +151,7 @@ describe('Slack publisher', () => {
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv'), reportPdfPath },
         settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: ['U123'], mentionAliases: { U123: 'Miki' } },
+        mentionIdentities: [{ id: 'miki', displayName: 'Miki', slackUserId: 'U999', gitlabUsername: 'miki' }],
         fetchImpl,
       })
 
@@ -158,7 +160,7 @@ describe('Slack publisher', () => {
       const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
       expect(messageCalls).toHaveLength(3)
       expect(formBody(messageCalls[0]?.[1]).get('text')).toContain('Loupe QA Export')
-      expect(formBody(messageCalls[1]?.[1]).get('text')).toBe('<@U123>\n[Critical] login crash')
+      expect(formBody(messageCalls[1]?.[1]).get('text')).toBe('<@U999>\n[Critical] login crash')
       const infoText = formBody(messageCalls[2]?.[1]).get('text') ?? ''
       expect(infoText).toContain('Build: 1.0')
       expect(infoText).toContain('Device: Pixel 7 / Android 14')

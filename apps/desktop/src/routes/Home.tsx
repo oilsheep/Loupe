@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { AppLocale, GitLabPublishSettings, SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, AppSettings, GitLabPublishSettings, MentionIdentity, SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 
@@ -34,6 +34,19 @@ function parseMentionInput(value: string): { mentionUserIds: string[]; mentionAl
   return { mentionUserIds, mentionAliases }
 }
 
+function identityIdFromName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `person-${Date.now()}`
+}
+
+function sortIdentities(identities: MentionIdentity[]): MentionIdentity[] {
+  return [...identities].sort((a, b) => a.displayName.localeCompare(b.displayName))
+}
+
 export function Home() {
   const { t, locale, localeOptions, setLocale } = useI18n()
   const goDraft = useApp(s => s.goDraft)
@@ -47,27 +60,39 @@ export function Home() {
   const [slackSaved, setSlackSaved] = useState(false)
   const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
   const [slackError, setSlackError] = useState('')
-  const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] })
+  const [gitlab, setGitLab] = useState<GitLabPublishSettings>({ baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
   const [gitlabLabelsInput, setGitLabLabelsInput] = useState('loupe, qa-evidence')
   const [gitlabMentionsInput, setGitLabMentionsInput] = useState('')
   const [savingGitLab, setSavingGitLab] = useState(false)
   const [gitlabSaved, setGitLabSaved] = useState(false)
+  const [refreshingGitLabUsers, setRefreshingGitLabUsers] = useState(false)
   const [gitlabError, setGitLabError] = useState('')
+  const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
+  const [savingMentionIdentities, setSavingMentionIdentities] = useState(false)
+  const [mentionIdentitiesSaved, setMentionIdentitiesSaved] = useState(false)
+  const [mentionIdentitiesError, setMentionIdentitiesError] = useState('')
+  const [mentionIdentitiesStatus, setMentionIdentitiesStatus] = useState('')
+
+  function applySettings(settings: AppSettings) {
+    setExportRoot(settings.exportRoot)
+    setSlack(settings.slack)
+    setSlackMentionInput(formatMentionInput(settings.slack))
+    setGitLab(settings.gitlab)
+    setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
+    setGitLabMentionsInput((settings.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+    setMentionIdentities(settings.mentionIdentities ?? [])
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesStatus('')
+  }
 
   useEffect(() => { api.doctor().then(setChecks) }, [])
   useEffect(() => {
-    api.settings.get().then(s => {
-      setExportRoot(s.exportRoot)
-      setSlack(s.slack)
-      setSlackMentionInput(formatMentionInput(s.slack))
-      setGitLab(s.gitlab)
-      setGitLabLabelsInput((s.gitlab.labels ?? []).join(', '))
-      setGitLabMentionsInput((s.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
-    })
+    api.settings.get().then(applySettings)
   }, [])
 
   const missing = checks.filter(c => !c.ok)
   const activeSlackUsers = useMemo(() => (slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot), [slack.mentionUsers])
+  const activeGitLabUsers = useMemo(() => (gitlab.mentionUsers ?? []).filter(user => !user.state || user.state === 'active'), [gitlab.mentionUsers])
 
   async function openSavedSession() {
     setOpening(true)
@@ -98,8 +123,7 @@ export function Home() {
         mentionUsers: slack.mentionUsers ?? [],
         usersFetchedAt: slack.usersFetchedAt ?? null,
       })
-      setSlack(settings.slack)
-      setSlackMentionInput(formatMentionInput(settings.slack))
+      applySettings(settings)
       setSlackSaved(true)
     } catch (err) {
       setSlackError(err instanceof Error ? err.message : String(err))
@@ -109,13 +133,13 @@ export function Home() {
   }
 
   async function refreshSlackUsers() {
+    if (!window.confirm('Refresh Slack users may update the mention identity table. Continue?')) return
     setRefreshingSlackUsers(true)
     setSlackSaved(false)
     setSlackError('')
     try {
       const settings = await api.settings.refreshSlackUsers()
-      setSlack(settings.slack)
-      setSlackMentionInput(formatMentionInput(settings.slack))
+      applySettings(settings)
       setSlackSaved(true)
     } catch (err) {
       setSlackError(err instanceof Error ? err.message : String(err))
@@ -128,27 +152,120 @@ export function Home() {
     return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
   }
 
+  function gitLabSettingsInput(): GitLabPublishSettings {
+    return {
+      ...gitlab,
+      baseUrl: gitlab.baseUrl.trim() || 'https://gitlab.com',
+      projectId: gitlab.projectId.trim(),
+      labels: parseListInput(gitlabLabelsInput),
+      mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
+      mentionUsers: gitlab.mentionUsers ?? [],
+      usersFetchedAt: gitlab.usersFetchedAt ?? null,
+      lastUserSyncWarning: gitlab.lastUserSyncWarning ?? null,
+    }
+  }
+
   async function saveGitLabSettings() {
     setSavingGitLab(true)
     setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.setGitLab({
-        ...gitlab,
-        baseUrl: gitlab.baseUrl.trim() || 'https://gitlab.com',
-        projectId: gitlab.projectId.trim(),
-        labels: parseListInput(gitlabLabelsInput),
-        mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
-      })
-      setGitLab(settings.gitlab)
-      setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
-      setGitLabMentionsInput((settings.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+      const settings = await api.settings.setGitLab(gitLabSettingsInput())
+      applySettings(settings)
       setGitLabSaved(true)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
     } finally {
       setSavingGitLab(false)
     }
+  }
+
+  async function refreshGitLabUsers() {
+    if (!window.confirm('Refresh GitLab users may update the mention identity table. If this token cannot read email, mapping may be less complete. Continue?')) return
+    setRefreshingGitLabUsers(true)
+    setGitLabSaved(false)
+    setGitLabError('')
+    try {
+      const savedSettings = await api.settings.setGitLab(gitLabSettingsInput())
+      applySettings(savedSettings)
+      const settings = await api.settings.refreshGitLabUsers()
+      applySettings(settings)
+      setGitLabSaved(true)
+    } catch (err) {
+      setGitLabError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingGitLabUsers(false)
+    }
+  }
+
+  async function saveMentionIdentities() {
+    setSavingMentionIdentities(true)
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesError('')
+    setMentionIdentitiesStatus('')
+    try {
+      const settings = await api.settings.setMentionIdentities(mentionIdentities)
+      applySettings(settings)
+      setMentionIdentitiesSaved(true)
+    } catch (err) {
+      setMentionIdentitiesError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingMentionIdentities(false)
+    }
+  }
+
+  async function importMentionIdentities() {
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesError('')
+    setMentionIdentitiesStatus('')
+    try {
+      const settings = await api.settings.importMentionIdentities()
+      if (!settings) return
+      applySettings(settings)
+      setMentionIdentitiesSaved(true)
+      setMentionIdentitiesStatus('Imported')
+    } catch (err) {
+      setMentionIdentitiesError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function exportMentionIdentities() {
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesError('')
+    setMentionIdentitiesStatus('')
+    try {
+      const path = await api.settings.exportMentionIdentities()
+      if (!path) return
+      setMentionIdentitiesStatus(`Exported ${path}`)
+    } catch (err) {
+      setMentionIdentitiesError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function updateMentionIdentity(index: number, patch: Partial<MentionIdentity>) {
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesStatus('')
+    setMentionIdentities(prev => prev.map((identity, i) => i === index ? { ...identity, ...patch } : identity))
+  }
+
+  function addMentionIdentity(seed?: Partial<MentionIdentity>) {
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesStatus('')
+    const displayName = seed?.displayName?.trim() || seed?.email?.trim() || seed?.gitlabUsername?.trim().replace(/^@/, '') || seed?.slackUserId || 'New person'
+    const identity: MentionIdentity = {
+      id: seed?.id?.trim() || identityIdFromName(displayName),
+      displayName,
+      ...(seed?.email ? { email: seed.email.trim().toLowerCase() } : {}),
+      ...(seed?.slackUserId ? { slackUserId: seed.slackUserId } : {}),
+      ...(seed?.gitlabUsername ? { gitlabUsername: seed.gitlabUsername.replace(/^@/, '') } : {}),
+    }
+    setMentionIdentities(prev => sortIdentities([...prev.filter(item => item.id !== identity.id), identity]))
+  }
+
+  function removeMentionIdentity(index: number) {
+    setMentionIdentitiesSaved(false)
+    setMentionIdentitiesStatus('')
+    setMentionIdentities(prev => prev.filter((_, i) => i !== index))
   }
 
   return (
@@ -293,8 +410,15 @@ export function Home() {
           </label>
         </div>
 
-        <div className="mb-6 border border-zinc-800 bg-zinc-900/40 p-3">
+        <section className="mb-6">
           <div className="mb-2 text-xs font-medium text-zinc-300">Publish</div>
+          <div className="space-y-3">
+          <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
+          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
+            <span>Slack</span>
+            <span className="text-[11px] font-normal text-zinc-500">Settings</span>
+          </summary>
+          <div className="mt-3">
           <div className="grid grid-cols-[1fr_180px] gap-2">
             <label className="text-xs text-zinc-500">
               Slack bot token
@@ -351,7 +475,7 @@ export function Home() {
                   <div key={user.id} className="flex items-center justify-between gap-3 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
                     <div className="min-w-0">
                       <div className="truncate text-xs text-zinc-200">{label}</div>
-                      <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` · @${user.name}` : ''}</div>
+                      <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` · @${user.name}` : ''}{user.email ? ` · ${user.email}` : ''}</div>
                     </div>
                   </div>
                 )
@@ -366,12 +490,19 @@ export function Home() {
               disabled={savingSlack}
               className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
             >
-              {savingSlack ? 'Saving...' : 'Save publish settings'}
+              {savingSlack ? 'Saving...' : 'Save Slack settings'}
             </button>
           </div>
 
-          <div className="mt-4 border-t border-zinc-800 pt-3">
-            <div className="mb-2 text-xs font-medium text-zinc-300">GitLab</div>
+          </div>
+          </details>
+
+          <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
+            <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
+              <span>GitLab</span>
+              <span className="text-[11px] font-normal text-zinc-500">Settings</span>
+            </summary>
+            <div className="mt-3">
             <div className="grid grid-cols-[1fr_180px] gap-2">
               <label className="text-xs text-zinc-500">
                 GitLab base URL
@@ -413,7 +544,7 @@ export function Home() {
                 />
               </label>
               <label className="text-xs text-zinc-500">
-                Mention usernames
+                GitLab fallback usernames
                 <input
                   value={gitlabMentionsInput}
                   onChange={(e) => { setGitLabMentionsInput(e.target.value); setGitLabSaved(false) }}
@@ -433,6 +564,17 @@ export function Home() {
                 <option value="per-marker-issue">Issue per marker</option>
               </select>
             </label>
+            <label className="mt-2 block text-xs text-zinc-500">
+              GitLab email lookup
+              <select
+                value={gitlab.emailLookup ?? 'off'}
+                onChange={(e) => { setGitLab({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] }); setGitLabSaved(false) }}
+                className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                <option value="off">Off</option>
+                <option value="admin-users-api">Admin users API</option>
+              </select>
+            </label>
             <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
               <input
                 type="checkbox"
@@ -442,7 +584,38 @@ export function Home() {
               />
               Create confidential/internal GitLab issues and notes
             </label>
+            <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-medium text-zinc-300">GitLab users</div>
+                  <div className="text-[11px] text-zinc-500">
+                    {gitlab.usersFetchedAt ? `Updated ${new Date(gitlab.usersFetchedAt).toLocaleString()}` : 'Not synced yet'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshGitLabUsers}
+                  disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {refreshingGitLabUsers ? 'Refreshing...' : 'Refresh users'}
+                </button>
+              </div>
+              <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800 bg-zinc-950">
+                {activeGitLabUsers.length === 0 ? (
+                  <div className="px-2 py-3 text-xs text-zinc-500">Refresh users after setting a GitLab token and project.</div>
+                ) : activeGitLabUsers.map(user => (
+                  <div key={user.username} className="flex items-center justify-between gap-3 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs text-zinc-200">{user.name || user.username}</div>
+                      <div className="truncate text-[11px] text-zinc-600">@{user.username}{user.email ? ` · ${user.email}` : ''}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
+            {gitlab.lastUserSyncWarning && <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 px-2 py-1.5 text-xs text-yellow-200">{gitlab.lastUserSyncWarning}</div>}
             <div className="mt-2 flex items-center justify-end gap-2">
               {gitlabSaved && <span className="text-xs text-emerald-300">Saved</span>}
               <button
@@ -454,7 +627,137 @@ export function Home() {
               </button>
             </div>
           </div>
-        </div>
+          </details>
+
+          <details className="border border-zinc-800 bg-zinc-900/40 p-3" open>
+            <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
+              <span>Mention identities</span>
+              <span className="text-[11px] font-normal text-zinc-500">Shared Slack / GitLab mapping</span>
+            </summary>
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-[11px] text-zinc-500">One display name can map to Slack and GitLab identities.</div>
+                <button
+                  type="button"
+                  onClick={() => addMentionIdentity()}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
+                >
+                  Add person
+                </button>
+              </div>
+              <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
+                <div className="grid min-w-[760px] grid-cols-[1.1fr_1.2fr_1fr_1fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
+                  <div>Display name</div>
+                  <div>Email</div>
+                  <div>Slack user ID</div>
+                  <div>GitLab username</div>
+                  <div />
+                </div>
+                {mentionIdentities.length === 0 ? (
+                  <div className="px-2 py-3 text-xs text-zinc-500">Refresh Slack users or add people manually.</div>
+                ) : mentionIdentities.map((identity, index) => (
+                  <div key={`${identity.id}-${index}`} className="grid min-w-[760px] grid-cols-[1.1fr_1.2fr_1fr_1fr_72px] gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                    <input
+                      value={identity.displayName}
+                      onChange={(e) => updateMentionIdentity(index, { displayName: e.target.value })}
+                      className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    <input
+                      value={identity.email ?? ''}
+                      onChange={(e) => updateMentionIdentity(index, { email: e.target.value.trim().toLowerCase() || undefined })}
+                      placeholder="name@example.com"
+                      className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    <input
+                      value={identity.slackUserId ?? ''}
+                      onChange={(e) => updateMentionIdentity(index, { slackUserId: e.target.value.trim() || undefined })}
+                      placeholder="U123..."
+                      className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    <input
+                      value={identity.gitlabUsername ? `@${identity.gitlabUsername}` : ''}
+                      onChange={(e) => updateMentionIdentity(index, { gitlabUsername: e.target.value.trim().replace(/^@/, '') || undefined })}
+                      placeholder="@username"
+                      className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeMentionIdentity(index)}
+                      className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:bg-red-950 hover:text-red-100"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {activeSlackUsers.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeSlackUsers
+                    .filter(user => !mentionIdentities.some(identity => identity.slackUserId === user.id))
+                    .slice(0, 12)
+                    .map(user => {
+                      const label = user.displayName || user.realName || user.name || user.id
+                      return (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => addMentionIdentity({ displayName: label, email: user.email, slackUserId: user.id })}
+                          className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                        >
+                          Add {label}
+                        </button>
+                      )
+                    })}
+                </div>
+              )}
+              {activeGitLabUsers.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeGitLabUsers
+                    .filter(user => !mentionIdentities.some(identity => identity.gitlabUsername === user.username))
+                    .slice(0, 12)
+                    .map(user => (
+                      <button
+                        key={user.username}
+                        type="button"
+                        onClick={() => addMentionIdentity({ displayName: user.name || user.username, email: user.email, gitlabUsername: user.username })}
+                        className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      >
+                        Add @{user.username}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}
+              {mentionIdentitiesStatus && <div className="mt-2 truncate text-xs text-emerald-300">{mentionIdentitiesStatus}</div>}
+              <div className="mt-2 flex items-center justify-end gap-2">
+                {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">Saved</span>}
+                <button
+                  type="button"
+                  onClick={importMentionIdentities}
+                  className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                >
+                  Import
+                </button>
+                <button
+                  type="button"
+                  onClick={exportMentionIdentities}
+                  className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                >
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={saveMentionIdentities}
+                  disabled={savingMentionIdentities}
+                  className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {savingMentionIdentities ? 'Saving...' : 'Save mention identities'}
+                </button>
+              </div>
+            </div>
+          </details>
+          </div>
+        </section>
       </main>
     </div>
   )

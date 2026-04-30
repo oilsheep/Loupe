@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, GitLabPublishSettings, HotkeySettings, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
@@ -73,6 +73,7 @@ function normalizeSlackMentionUsers(raw?: unknown): SlackMentionUser[] {
         name: typeof value.name === 'string' ? value.name.trim() : '',
         displayName: typeof value.displayName === 'string' ? value.displayName.trim() : '',
         realName: typeof value.realName === 'string' ? value.realName.trim() : '',
+        email: typeof value.email === 'string' ? value.email.trim().toLowerCase() || undefined : undefined,
         deleted: Boolean(value.deleted),
         isBot: Boolean(value.isBot),
       }
@@ -82,6 +83,165 @@ function normalizeSlackMentionUsers(raw?: unknown): SlackMentionUser[] {
   return [...byId.values()].sort((a, b) => (a.displayName || a.realName || a.name || a.id).localeCompare(b.displayName || b.realName || b.name || b.id))
 }
 
+function identityLabelFromSlackUser(user: SlackMentionUser): string {
+  return user.displayName || user.realName || user.name || user.id
+}
+
+function identityIdFromLabel(label: string): string {
+  const id = label
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return id || `person-${Date.now()}`
+}
+
+function normalizeGitLabUsername(value: unknown): string {
+  return typeof value === 'string' ? value.trim().replace(/^@/, '') : ''
+}
+
+function normalizeEmail(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function normalizeGitLabMentionUsers(raw?: unknown): GitLabMentionUser[] {
+  if (!Array.isArray(raw)) return []
+  const users = raw
+    .map((user): GitLabMentionUser | null => {
+      if (!user || typeof user !== 'object') return null
+      const value = user as Partial<GitLabMentionUser>
+      const id = typeof value.id === 'number' && Number.isFinite(value.id) ? value.id : 0
+      const username = typeof value.username === 'string' ? value.username.trim().replace(/^@/, '') : ''
+      const name = typeof value.name === 'string' ? value.name.trim() : ''
+      if (!id || !username) return null
+      return {
+        id,
+        username,
+        name: name || username,
+        email: normalizeEmail((value as { email?: unknown; publicEmail?: unknown }).email ?? (value as { publicEmail?: unknown }).publicEmail) || undefined,
+        state: typeof value.state === 'string' ? value.state.trim() : undefined,
+        avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl.trim() : undefined,
+        webUrl: typeof value.webUrl === 'string' ? value.webUrl.trim() : undefined,
+      }
+    })
+    .filter(Boolean) as GitLabMentionUser[]
+  const byUsername = new Map(users.map(user => [user.username, user]))
+  return [...byUsername.values()].sort((a, b) => (a.name || a.username).localeCompare(b.name || b.username))
+}
+
+function identityCompleteness(identity: MentionIdentity): number {
+  return (identity.email ? 4 : 0) + (identity.slackUserId ? 2 : 0) + (identity.gitlabUsername ? 2 : 0)
+}
+
+function mergeIdentity(primary: MentionIdentity, secondary: MentionIdentity): MentionIdentity {
+  return {
+    id: primary.id,
+    displayName: primary.displayName || secondary.displayName,
+    ...(primary.email || secondary.email ? { email: primary.email || secondary.email } : {}),
+    ...(primary.slackUserId || secondary.slackUserId ? { slackUserId: primary.slackUserId || secondary.slackUserId } : {}),
+    ...(primary.gitlabUsername || secondary.gitlabUsername ? { gitlabUsername: primary.gitlabUsername || secondary.gitlabUsername } : {}),
+  }
+}
+
+function identitiesMatch(a: MentionIdentity, b: MentionIdentity): boolean {
+  return Boolean(
+    (a.email && b.email && normalizeEmail(a.email) === normalizeEmail(b.email)) ||
+    (a.slackUserId && b.slackUserId && a.slackUserId === b.slackUserId) ||
+    (a.gitlabUsername && b.gitlabUsername && a.gitlabUsername === b.gitlabUsername),
+  )
+}
+
+function consolidateMentionIdentities(identities: MentionIdentity[]): MentionIdentity[] {
+  const consolidated: MentionIdentity[] = []
+  for (const identity of identities) {
+    const index = consolidated.findIndex(existing => identitiesMatch(existing, identity))
+    if (index < 0) {
+      consolidated.push(identity)
+      continue
+    }
+    const existing = consolidated[index]
+    const identityScore = identityCompleteness(identity)
+    const existingScore = identityCompleteness(existing)
+    consolidated[index] = identityScore > existingScore
+      ? mergeIdentity(identity, existing)
+      : mergeIdentity(existing, identity)
+  }
+  return consolidated
+}
+
+function normalizeMentionIdentities(raw?: unknown, slack?: SlackPublishSettings, gitlab?: GitLabPublishSettings): MentionIdentity[] {
+  const input = Array.isArray(raw) ? raw : []
+  const identities = input
+    .map((identity): MentionIdentity | null => {
+      if (!identity || typeof identity !== 'object') return null
+      const value = identity as Partial<MentionIdentity>
+      const displayName = typeof value.displayName === 'string' ? value.displayName.trim() : ''
+      const email = normalizeEmail(value.email)
+      const slackUserId = typeof value.slackUserId === 'string' ? normalizeSlackMentionIds([value.slackUserId])[0] : ''
+      const gitlabUsername = normalizeGitLabUsername(value.gitlabUsername)
+      const id = typeof value.id === 'string' ? value.id.trim() : ''
+      const normalizedId = id || identityIdFromLabel(displayName || email || gitlabUsername || slackUserId)
+      if (!normalizedId || (!displayName && !email && !slackUserId && !gitlabUsername)) return null
+      return {
+        id: normalizedId,
+        displayName: displayName || email || gitlabUsername || slackUserId,
+        ...(email ? { email } : {}),
+        ...(slackUserId ? { slackUserId } : {}),
+        ...(gitlabUsername ? { gitlabUsername } : {}),
+      }
+    })
+    .filter(Boolean) as MentionIdentity[]
+  const byId = new Map(identities.map(identity => [identity.id, identity]))
+
+  for (const user of slack?.mentionUsers ?? []) {
+    if (user.deleted || user.isBot) continue
+    const displayName = identityLabelFromSlackUser(user)
+    const email = normalizeEmail(user.email)
+    const existingByEmail = email ? [...byId.values()].find(identity => normalizeEmail(identity.email) === email) : undefined
+    if (existingByEmail) {
+      byId.set(existingByEmail.id, { ...existingByEmail, displayName: existingByEmail.displayName || displayName, email: existingByEmail.email || email, slackUserId: user.id })
+      continue
+    }
+    const existing = [...byId.values()].find(identity => identity.slackUserId === user.id)
+    if (existing) {
+      byId.set(existing.id, { ...existing, displayName: existing.displayName || displayName, email: existing.email || email || undefined, slackUserId: user.id })
+      continue
+    }
+    const id = identityIdFromLabel(displayName)
+    byId.set(id, { id, displayName, ...(email ? { email } : {}), slackUserId: user.id })
+  }
+
+  for (const user of gitlab?.mentionUsers ?? []) {
+    if (user.state && user.state !== 'active') continue
+    const displayName = user.name || user.username
+    const email = normalizeEmail(user.email)
+    const existingByEmail = email ? [...byId.values()].find(identity => normalizeEmail(identity.email) === email) : undefined
+    if (existingByEmail) {
+      byId.set(existingByEmail.id, { ...existingByEmail, displayName: existingByEmail.displayName || displayName, email: existingByEmail.email || email, gitlabUsername: user.username })
+      continue
+    }
+    const existingByUsername = [...byId.values()].find(identity => identity.gitlabUsername === user.username)
+    if (existingByUsername) {
+      byId.set(existingByUsername.id, { ...existingByUsername, displayName: existingByUsername.displayName || displayName, email: existingByUsername.email || email || undefined, gitlabUsername: user.username })
+      continue
+    }
+    const existingByName = [...byId.values()].find(identity => identity.displayName.trim().toLowerCase() === displayName.trim().toLowerCase())
+    if (existingByName && !existingByName.gitlabUsername) {
+      byId.set(existingByName.id, { ...existingByName, email: existingByName.email || email || undefined, gitlabUsername: user.username })
+      continue
+    }
+    const id = identityIdFromLabel(displayName)
+    if (!byId.has(id)) byId.set(id, { id, displayName, ...(email ? { email } : {}), gitlabUsername: user.username })
+  }
+
+  return consolidateMentionIdentities([...byId.values()]).sort((a, b) => a.displayName.localeCompare(b.displayName))
+}
+
+function normalizeManualMentionIdentities(raw?: unknown): MentionIdentity[] {
+  return normalizeMentionIdentities(raw)
+}
+
 function normalizeCsvList(raw?: unknown): string[] {
   const text = Array.isArray(raw) ? raw.join(',') : String(raw ?? '')
   return Array.from(new Set(text.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean)))
@@ -89,14 +249,19 @@ function normalizeCsvList(raw?: unknown): string[] {
 
 function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
+  const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
   return {
     baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
     projectId: raw?.projectId?.trim() || '',
     mode,
+    emailLookup,
     labels: normalizeCsvList(raw?.labels),
     confidential: Boolean(raw?.confidential),
     mentionUsernames: normalizeCsvList(raw?.mentionUsernames).map(value => value.replace(/^@/, '')),
+    mentionUsers: normalizeGitLabMentionUsers(raw?.mentionUsers),
+    usersFetchedAt: typeof raw?.usersFetchedAt === 'string' ? raw.usersFetchedAt : null,
+    lastUserSyncWarning: typeof raw?.lastUserSyncWarning === 'string' ? raw.lastUserSyncWarning : null,
   }
 }
 
@@ -132,13 +297,16 @@ export class SettingsStore {
     if (!existsSync(this.filePath)) return this.defaults
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings>
+      const slack = normalizeSlack(raw.slack)
+      const gitlab = normalizeGitLab(raw.gitlab)
       return {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
         locale: normalizeLocale(raw.locale),
         severities: normalizeSeverities(raw.severities),
-        slack: normalizeSlack(raw.slack),
-        gitlab: normalizeGitLab(raw.gitlab),
+        slack,
+        gitlab,
+        mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
       }
     } catch {
       return this.defaults
@@ -165,6 +333,20 @@ export class SettingsStore {
 
   setGitLab(gitlab: GitLabPublishSettings): AppSettings {
     const next = { ...this.get(), gitlab: normalizeGitLab(gitlab) }
+    this.write(next)
+    return next
+  }
+
+  setMentionIdentities(mentionIdentities: MentionIdentity[]): AppSettings {
+    const current = this.get()
+    const next = { ...current, mentionIdentities: normalizeManualMentionIdentities(mentionIdentities) }
+    this.write(next)
+    return next
+  }
+
+  refreshMentionIdentities(): AppSettings {
+    const current = this.get()
+    const next = { ...current, mentionIdentities: normalizeMentionIdentities(current.mentionIdentities, current.slack, current.gitlab) }
     this.write(next)
     return next
   }

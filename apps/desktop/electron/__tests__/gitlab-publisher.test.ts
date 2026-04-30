@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { publishManifestToGitLab } from '../gitlab-publisher'
+import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, publishManifestToGitLab } from '../gitlab-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
-function response(payload: unknown, ok = true): Response {
-  return new Response(JSON.stringify(payload), { status: ok ? 200 : 400, headers: { 'Content-Type': 'application/json' } })
+function response(payload: unknown, ok = true, status = ok ? 200 : 400): Response {
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
 function session(): Session {
@@ -34,7 +34,7 @@ function session(): Session {
   }
 }
 
-function bug(): Bug {
+function bug(over: Partial<Bug> = {}): Bug {
   return {
     id: 'b1',
     sessionId: 's1',
@@ -49,10 +49,104 @@ function bug(): Bug {
     preSec: 5,
     postSec: 8,
     mentionUserIds: [],
+    ...over,
   }
 }
 
 describe('GitLab publisher', () => {
+  it('fetches project members for mention identities with pagination', async () => {
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/members/all?per_page=100&page=1')) {
+        return new Response(JSON.stringify([{ id: 1, username: 'miki', name: 'Miki', email: 'MIKI@example.com', state: 'active', avatar_url: 'https://avatar.test/miki.png', web_url: 'https://gitlab.example.com/miki' }]), {
+          status: 200,
+          headers: { 'x-next-page': '2', 'Content-Type': 'application/json' },
+        })
+      }
+      if (String(input).endsWith('/members/all?per_page=100&page=2')) return response([{ id: 2, username: 'qa', name: 'QA Lead', state: 'active' }])
+      throw new Error(`unexpected URL ${input}`)
+    })
+
+    const users = await fetchGitLabMentionUsers({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'glpat-test',
+      projectId: 'group/project',
+      mode: 'single-issue',
+    }, fetchImpl)
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain('/projects/group%2Fproject/members/all')
+    expect(users).toEqual([
+      { id: 1, username: 'miki', name: 'Miki', email: 'miki@example.com', state: 'active', avatarUrl: 'https://avatar.test/miki.png', webUrl: 'https://gitlab.example.com/miki' },
+      { id: 2, username: 'qa', name: 'QA Lead', email: undefined, state: 'active', avatarUrl: undefined, webUrl: undefined },
+    ])
+  })
+
+  it('keeps only active project members for mention identities', async () => {
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/members/all?per_page=100&page=1')) return response([
+        { id: 1, username: 'miki', name: 'Miki', state: 'active' },
+        { id: 2, username: 'blocked', name: 'Blocked User', state: 'blocked' },
+        { id: 3, username: 'deactivated', name: 'Deactivated User', state: 'deactivated' },
+      ])
+      throw new Error(`unexpected URL ${input}`)
+    })
+
+    const users = await fetchGitLabMentionUsers({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'glpat-test',
+      projectId: 'group/project',
+      mode: 'single-issue',
+    }, fetchImpl)
+
+    expect(users.map(user => user.username)).toEqual(['miki'])
+  })
+
+  it('optionally enriches GitLab member emails through admin users API without blocking on 403', async () => {
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/members/all?per_page=100&page=1')) return response([
+        { id: 1, username: 'miki', name: 'Miki', state: 'active' },
+        { id: 2, username: 'qa', name: 'QA Lead', state: 'active' },
+      ])
+      if (String(input).endsWith('/users/1')) return response({ email: 'miki@example.com' })
+      if (String(input).endsWith('/users/2')) return response({ message: '403 Forbidden' }, false, 403)
+      throw new Error(`unexpected URL ${input}`)
+    })
+
+    const result = await fetchGitLabMentionUsersWithEmailLookup({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'glpat-test',
+      projectId: 'group/project',
+      mode: 'single-issue',
+      emailLookup: 'admin-users-api',
+    }, fetchImpl)
+
+    expect(result.warning).toBe('需要 self-managed admin token 才能讀取 GitLab email。')
+    expect(result.users).toEqual([
+      { id: 1, username: 'miki', name: 'Miki', email: 'miki@example.com', state: 'active', avatarUrl: undefined, webUrl: undefined },
+      { id: 2, username: 'qa', name: 'QA Lead', email: undefined, state: 'active', avatarUrl: undefined, webUrl: undefined },
+    ])
+  })
+
+  it('warns when GitLab users API responds without email fields', async () => {
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/members/all?per_page=100&page=1')) return response([
+        { id: 1, username: 'miki', name: 'Miki', state: 'active' },
+      ])
+      if (String(input).endsWith('/users/1')) return response({ username: 'miki', name: 'Miki' })
+      throw new Error(`unexpected URL ${input}`)
+    })
+
+    const result = await fetchGitLabMentionUsersWithEmailLookup({
+      baseUrl: 'https://gitlab.example.com',
+      token: 'glpat-test',
+      projectId: 'group/project',
+      mode: 'single-issue',
+      emailLookup: 'admin-users-api',
+    }, fetchImpl)
+
+    expect(result.warning).toBe('GitLab users API 沒有回傳 email；請確認 token 是 self-managed admin token 且有 api scope。')
+    expect(result.users[0]?.email).toBeUndefined()
+  })
+
   it('creates one issue and marker notes in single-issue mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
@@ -64,7 +158,7 @@ describe('GitLab publisher', () => {
       writeFileSync(summaryTextPath, 'summary from file')
       const manifest = buildExportManifest({
         session: session(),
-        bugs: [bug()],
+        bugs: [bug({ mentionUserIds: ['miki', 'U123'] })],
         files,
         outDir: root,
         reportPdfPath,
@@ -80,6 +174,8 @@ describe('GitLab publisher', () => {
         }
         if (input.endsWith('/issues/11/notes')) {
           const body = JSON.parse(String(init?.body))
+          expect(body.body).toContain('@qa @miki')
+          expect(body.body).not.toContain('@U123')
           expect(body.body).toContain('login crash')
           expect(body.body).toContain('RAM: 8.0G')
           return response({ id: 2 })
@@ -91,6 +187,7 @@ describe('GitLab publisher', () => {
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv'), reportPdfPath, summaryTextPath },
         settings: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: ['qa'] },
+        mentionIdentities: [{ id: 'miki', displayName: 'Miki', slackUserId: 'U999', gitlabUsername: 'miki' }],
         fetchImpl,
       })
 

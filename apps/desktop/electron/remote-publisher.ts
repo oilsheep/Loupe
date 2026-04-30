@@ -29,6 +29,7 @@ export async function publishManifestToRemote(args: {
       manifest: args.manifest,
       manifestPaths: args.manifestPaths,
       settings: args.settings.slack,
+      mentionIdentities: args.settings.mentionIdentities,
     })
     return { target: 'slack', ...result }
   }
@@ -38,6 +39,7 @@ export async function publishManifestToRemote(args: {
       manifest: args.manifest,
       manifestPaths: args.manifestPaths,
       settings: args.settings.gitlab,
+      mentionIdentities: args.settings.mentionIdentities,
     })
     return { target: 'gitlab', ...result }
   }

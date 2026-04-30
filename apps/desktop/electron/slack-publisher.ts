@@ -2,7 +2,7 @@ import { basename } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
 import { slackSessionMessage } from './export-manifest'
-import type { SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { MentionIdentity, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { appendMentionLine, slackMentionText } from './mention-format'
 
 interface ManifestPaths {
@@ -27,6 +27,7 @@ interface SlackApiResponse {
       display_name?: string
       real_name?: string
       real_name_normalized?: string
+      email?: string
     }
   }>
   response_metadata?: { next_cursor?: string }
@@ -83,6 +84,7 @@ export async function fetchSlackMentionUsers(token: string, fetchImpl: SlackPubl
         name: member.name?.trim() || '',
         displayName: member.profile?.display_name?.trim() || '',
         realName: member.profile?.real_name_normalized?.trim() || member.profile?.real_name?.trim() || '',
+        email: member.profile?.email?.trim().toLowerCase() || undefined,
         deleted: Boolean(member.deleted),
         isBot: Boolean(member.is_bot),
       })
@@ -179,8 +181,17 @@ function rootMessageText(manifest: ExportManifest, paths: ManifestPaths): string
   return slackSessionMessage(manifest).trimEnd()
 }
 
-function markerMessageText(marker: ExportManifest['markers'][number], fallbackMentions: string[]): string {
-  const mentionText = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
+function resolveSlackMentionIds(ids: string[], identities: MentionIdentity[]): string[] {
+  const byId = new Map(identities.map(identity => [identity.id, identity]))
+  const resolved = ids
+    .map(id => byId.get(id)?.slackUserId || id)
+    .filter(Boolean)
+  return Array.from(new Set(resolved))
+}
+
+function markerMessageText(marker: ExportManifest['markers'][number], fallbackMentions: string[], identities: MentionIdentity[]): string {
+  const markerMentions = resolveSlackMentionIds(marker.mentionUserIds, identities)
+  const mentionText = slackMentionText(markerMentions.length > 0 ? markerMentions : fallbackMentions)
   return appendMentionLine(markerTitle(marker), mentionText)
 }
 
@@ -210,6 +221,7 @@ export async function publishManifestToSlack(args: {
   manifest: ExportManifest
   manifestPaths: ManifestPaths
   settings: SlackPublishSettings
+  mentionIdentities?: MentionIdentity[]
   fetchImpl?: SlackPublisherFetch
 }): Promise<SlackPublishResult> {
   validateSettings(args.settings)
@@ -217,6 +229,7 @@ export async function publishManifestToSlack(args: {
   const botToken = args.settings.botToken.trim()
   const channelId = args.settings.channelId.trim()
   const fallbackMentions = args.settings.mentionUserIds ?? []
+  const mentionIdentities = args.mentionIdentities ?? []
   const mode = args.manifest.publish.slackThreadMode ?? 'single-thread'
   const uploadErrors: string[] = []
   const markerThreadTs: Record<string, string> = {}
@@ -228,7 +241,7 @@ export async function publishManifestToSlack(args: {
       await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
     }
     for (const marker of args.manifest.markers) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker, fallbackMentions))
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker, fallbackMentions, mentionIdentities))
     }
     if (uploadErrors.length > 0) {
       await postMessage(fetchImpl, botToken, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
@@ -242,7 +255,7 @@ export async function publishManifestToSlack(args: {
     }
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
-      const markerText = markerMessageText(marker, fallbackMentions)
+      const markerText = markerMessageText(marker, fallbackMentions, mentionIdentities)
       const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerText)
       markerThreadTs[marker.id] = markerRootTs
       await postMessage(fetchImpl, botToken, channelId, markerThreadInfoText(args.manifest), markerRootTs)

@@ -11,11 +11,12 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackMentionUsers } from './slack-publisher'
 import { publishManifestToRemote } from './remote-publisher'
+import { fetchGitLabMentionUsersWithEmailLookup } from './gitlab-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
@@ -63,7 +64,11 @@ export const CHANNEL = {
   settingsSetHotkeys:      'settings:setHotkeys',
   settingsSetSlack:        'settings:setSlack',
   settingsSetGitLab:       'settings:setGitLab',
+  settingsSetMentionIdentities:'settings:setMentionIdentities',
+  settingsImportMentionIdentities:'settings:importMentionIdentities',
+  settingsExportMentionIdentities:'settings:exportMentionIdentities',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
+  settingsRefreshGitLabUsers:'settings:refreshGitLabUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsChooseExportRoot:'settings:chooseExportRoot',
@@ -1160,31 +1165,74 @@ export function registerIpc(deps: IpcDeps): void {
     deps.setHotkeys(settings.hotkeys)
     return settings
   })
-  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => {
-    let settings = deps.settings.setSlack(slack)
-    if (settings.slack.botToken.trim() && (settings.slack.mentionUsers ?? []).length === 0) {
-      try {
-        const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
-        settings = deps.settings.setSlack({
-          ...settings.slack,
-          mentionUsers,
-          usersFetchedAt: new Date().toISOString(),
-        })
-      } catch (err) {
-        console.warn('Loupe: failed to refresh Slack users after saving settings', err)
-      }
-    }
-    return settings
-  })
+  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => deps.settings.setSlack(slack))
   ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, gitlab: GitLabPublishSettings) => deps.settings.setGitLab(gitlab))
+  ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
+  ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {
+    const win = deps.getWindow()
+    const result = await (win
+      ? dialog.showSaveDialog(win, {
+        title: 'Export mention identities',
+        defaultPath: 'loupe-mention-identities.json',
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      })
+      : dialog.showSaveDialog({
+        title: 'Export mention identities',
+        defaultPath: 'loupe-mention-identities.json',
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      }))
+    if (result.canceled || !result.filePath) return null
+    const settings = deps.settings.get()
+    writeFileSync(result.filePath, `${JSON.stringify({
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      mentionIdentities: settings.mentionIdentities,
+    }, null, 2)}\n`, 'utf8')
+    return result.filePath
+  })
+  ipcMain.handle(CHANNEL.settingsImportMentionIdentities, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
+    const win = deps.getWindow()
+    const result = await (win
+      ? dialog.showOpenDialog(win, {
+        title: 'Import mention identities',
+        properties: ['openFile'],
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      })
+      : dialog.showOpenDialog({
+        title: 'Import mention identities',
+        properties: ['openFile'],
+        filters: [{ name: 'Loupe mention identities', extensions: ['json'] }],
+      }))
+    if (result.canceled || !result.filePaths[0]) return null
+    const payload = JSON.parse(readFileSync(result.filePaths[0], 'utf8')) as unknown
+    const identities = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { mentionIdentities?: unknown }).mentionIdentities)
+        ? (payload as { mentionIdentities: unknown[] }).mentionIdentities
+        : null
+    if (!identities) throw new Error('Mention identity import failed: expected a JSON array or mentionIdentities field')
+    return deps.settings.setMentionIdentities(identities as MentionIdentity[])
+  })
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
     const settings = deps.settings.get()
     const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
-    return deps.settings.setSlack({
+    const next = deps.settings.setSlack({
       ...settings.slack,
       mentionUsers,
       usersFetchedAt: new Date().toISOString(),
     })
+    return deps.settings.refreshMentionIdentities()
+  })
+  ipcMain.handle(CHANNEL.settingsRefreshGitLabUsers, async () => {
+    const settings = deps.settings.get()
+    const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(settings.gitlab)
+    const next = deps.settings.setGitLab({
+      ...settings.gitlab,
+      mentionUsers,
+      usersFetchedAt: new Date().toISOString(),
+      lastUserSyncWarning: warning,
+    })
+    return deps.settings.refreshMentionIdentities()
   })
   ipcMain.handle(CHANNEL.settingsSetLocale, async (_e, locale: AppLocale) => deps.settings.setLocale(locale))
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))

@@ -68,7 +68,7 @@ Private channel or group IDs may start with `G`.
 4. Paste the Slack bot token into **Slack bot token**.
 5. Paste the channel ID into **Slack channel ID**.
 6. Click **Save publish settings**.
-7. Click **Refresh users** to fetch the workspace user list for marker mention pickers.
+7. Click **Refresh users** to fetch the workspace user list and seed the shared mention identity table.
 8. Optional: add fallback users manually with a readable alias format such as `Miki=U1234567890` or `QA Lead=<@U2345678901>`.
 
 Slack mentions must use user IDs under the hood, not display names, because display names are not guaranteed to be unique. Loupe fetches display names for the UI, stores the matching IDs, and sends Slack's mention format, for example `<@U1234567890>`.
@@ -76,7 +76,7 @@ Slack mentions must use user IDs under the hood, not display names, because disp
 ## 6. Publish From Review
 
 1. Record a session and stop it.
-2. For each marker that needs attention, open the **Mention people** picker and select one or more Slack users.
+2. For each marker that needs attention, open the **Mention people** picker and select one or more mention identities.
 3. Select one or more markers in Review.
 4. Click Export / Publish.
 5. Set **Publish target** to **Slack**.
@@ -87,7 +87,7 @@ Slack mentions must use user IDs under the hood, not display names, because disp
 
 When marker mentions are configured, Loupe adds the relevant mentions to the session thread and the marker attachment/comment in **All markers in one thread** mode, or to each marker root message in **Every marker per thread** mode. If a marker has no selected users, Loupe falls back to the optional fallback users from Publish settings.
 
-The mention model is intentionally provider-shaped: Slack stores readable user metadata plus user IDs and renders `<@USERID>`, while a future GitLab publisher can use the same marker-level target concept and render its own format such as `@username`.
+The mention model is provider-neutral: marker picks store Loupe mention identity ids. Loupe prefers email when matching Slack and GitLab users, then falls back to provider IDs and names. Slack resolves identities to `<@USERID>`, while GitLab resolves the same people to `@username` when a GitLab username is configured.
 
 ## Troubleshooting
 

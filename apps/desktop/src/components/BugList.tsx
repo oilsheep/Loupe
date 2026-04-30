@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, PublishTarget, SeveritySettings, SlackMentionUser, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, MentionIdentity, PublishTarget, SeveritySettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -57,10 +57,6 @@ function severityLabel(severities: SeveritySettings, severity: BugSeverity): str
 
 function severityColor(severities: SeveritySettings, severity: BugSeverity): string {
   return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
-}
-
-function slackUserLabel(user: SlackMentionUser): string {
-  return user.displayName || user.realName || user.name || user.id
 }
 
 function latestLogcatLines(logcat: string, lineCount: number): string {
@@ -540,28 +536,26 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
 }
 
 interface MentionPickerProps {
-  users: SlackMentionUser[]
+  identities: MentionIdentity[]
   selectedIds: string[]
-  aliases: Record<string, string>
   onChange(ids: string[]): void
 }
 
-function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerProps) {
+function MentionPicker({ identities, selectedIds, onChange }: MentionPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = new Set(selectedIds)
-  const labels = selectedIds.map(id => aliases[id] || users.find(user => user.id === id)?.displayName || users.find(user => user.id === id)?.realName || users.find(user => user.id === id)?.name || id)
+  const labels = selectedIds.map(id => identities.find(identity => identity.id === id)?.displayName || id)
   const normalizedQuery = query.trim().toLowerCase()
-  const filteredUsers = normalizedQuery
-    ? users.filter(user => [
-        slackUserLabel(user),
-        user.name,
-        user.realName,
-        user.displayName,
-        user.id,
+  const filteredIdentities = normalizedQuery
+    ? identities.filter(identity => [
+        identity.displayName,
+        identity.id,
+        identity.slackUserId ?? '',
+        identity.gitlabUsername ?? '',
       ].some(value => value.toLowerCase().includes(normalizedQuery)))
-    : users
+    : identities
 
   function toggle(id: string) {
     const next = new Set(selected)
@@ -599,7 +593,7 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
       </button>
       {open && (
         <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
-          {users.length > 0 && (
+          {identities.length > 0 && (
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -608,20 +602,36 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
               autoFocus
             />
           )}
-          {users.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack users in Publish settings.</div>
-          ) : filteredUsers.length === 0 ? (
+          {identities.length === 0 ? (
+            <div className="px-2 py-2 text-xs text-zinc-500">Add people in Publish settings.</div>
+          ) : filteredIdentities.length === 0 ? (
             <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
-          ) : filteredUsers.map(user => (
-            <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
+          ) : filteredIdentities.map(identity => (
+            <label key={identity.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
               <input
                 type="checkbox"
-                checked={selected.has(user.id)}
-                onChange={() => toggle(user.id)}
+                checked={selected.has(identity.id)}
+                onChange={() => toggle(identity.id)}
                 className="h-4 w-4 accent-blue-600"
               />
-              <span className="min-w-0 flex-1 truncate">{slackUserLabel(user)}</span>
-              <span className="shrink-0 text-[10px] text-zinc-600">{user.id}</span>
+              <span className="min-w-0 flex-1 truncate">{identity.displayName}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {identity.slackUserId && (
+                  <span className="rounded-full border border-sky-900/70 bg-sky-950/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                    Slack
+                  </span>
+                )}
+                {identity.gitlabUsername && (
+                  <span className="rounded-full border border-orange-900/70 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
+                    GitLab
+                  </span>
+                )}
+                {!identity.slackUserId && !identity.gitlabUsername && (
+                  <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                    Local
+                  </span>
+                )}
+              </span>
             </label>
           ))}
         </div>
@@ -654,8 +664,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
-  const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
-  const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
+  const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
   const visibleSeverityList = useMemo(() => visibleSeverities(severities), [severities])
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
@@ -665,13 +674,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   useEffect(() => {
     api.settings.get().then(settings => {
       setSeverities(settings.severities)
-      const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
-      const fetchedIds = new Set(fetchedUsers.map(user => user.id))
-      const fallbackUsers = (settings.slack.mentionUserIds ?? [])
-        .filter(id => !fetchedIds.has(id))
-        .map(id => ({ id, name: '', displayName: settings.slack.mentionAliases?.[id] ?? id, realName: '' }))
-      setSlackUsers([...fetchedUsers, ...fallbackUsers])
-      setSlackAliases(settings.slack.mentionAliases ?? {})
+      setMentionIdentities(settings.mentionIdentities ?? [])
     }).catch(() => {})
   }, [api])
 
@@ -891,8 +894,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
-            slackUsers={slackUsers}
-            slackAliases={slackAliases}
+            mentionIdentities={mentionIdentities}
             onToggleLogcat={() => setExpandedLogcatIds(prev => {
               const next = new Set(prev)
               if (next.has(b.id)) next.delete(b.id)
@@ -960,13 +962,12 @@ interface RowProps {
   tester: string
   severities: SeveritySettings
   visibleSeverities: BugSeverity[]
-  slackUsers: SlackMentionUser[]
-  slackAliases: Record<string, string>
+  mentionIdentities: MentionIdentity[]
   onToggleLogcat(): void
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, slackUsers, slackAliases, onToggleLogcat, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, mentionIdentities, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -1177,9 +1178,8 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
           />
 
           <MentionPicker
-            users={slackUsers}
+            identities={mentionIdentities}
             selectedIds={mentionUserIds}
-            aliases={slackAliases}
             onChange={changeMentions}
           />
 

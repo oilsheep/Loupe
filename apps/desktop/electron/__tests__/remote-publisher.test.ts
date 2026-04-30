@@ -28,6 +28,7 @@ function settings(): AppSettings {
     },
     slack: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
     gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
+    mentionIdentities: [],
   }
 }
 
