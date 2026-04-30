@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
 import { slackSessionMessage } from './export-manifest'
 import type { SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { appendMentionLine, slackMentionText } from './mention-format'
 
 interface ManifestPaths {
   jsonPath: string
@@ -178,8 +179,9 @@ function rootMessageText(manifest: ExportManifest, paths: ManifestPaths): string
   return slackSessionMessage(manifest).trimEnd()
 }
 
-function markerMessageText(marker: ExportManifest['markers'][number]): string {
-  return markerTitle(marker)
+function markerMessageText(marker: ExportManifest['markers'][number], fallbackMentions: string[]): string {
+  const mentionText = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
+  return appendMentionLine(markerTitle(marker), mentionText)
 }
 
 function formatSlackDate(ms: number): string {
@@ -214,6 +216,7 @@ export async function publishManifestToSlack(args: {
   const fetchImpl = args.fetchImpl ?? fetch
   const botToken = args.settings.botToken.trim()
   const channelId = args.settings.channelId.trim()
+  const fallbackMentions = args.settings.mentionUserIds ?? []
   const mode = args.manifest.publish.slackThreadMode ?? 'single-thread'
   const uploadErrors: string[] = []
   const markerThreadTs: Record<string, string> = {}
@@ -225,7 +228,7 @@ export async function publishManifestToSlack(args: {
       await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
     }
     for (const marker of args.manifest.markers) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker))
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker, fallbackMentions))
     }
     if (uploadErrors.length > 0) {
       await postMessage(fetchImpl, botToken, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
@@ -239,7 +242,8 @@ export async function publishManifestToSlack(args: {
     }
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
-      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerMessageText(marker))
+      const markerText = markerMessageText(marker, fallbackMentions)
+      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerText)
       markerThreadTs[marker.id] = markerRootTs
       await postMessage(fetchImpl, botToken, channelId, markerThreadInfoText(args.manifest), markerRootTs)
       await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, markerRootTs)

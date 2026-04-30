@@ -52,6 +52,7 @@ function bug(): Bug {
     createdAt: 1_700_000_001_000,
     preSec: 5,
     postSec: 8,
+    mentionUserIds: [],
   }
 }
 
@@ -157,7 +158,7 @@ describe('Slack publisher', () => {
       const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
       expect(messageCalls).toHaveLength(3)
       expect(formBody(messageCalls[0]?.[1]).get('text')).toContain('Loupe QA Export')
-      expect(formBody(messageCalls[1]?.[1]).get('text')).toBe('[Critical] login crash')
+      expect(formBody(messageCalls[1]?.[1]).get('text')).toBe('<@U123>\n[Critical] login crash')
       const infoText = formBody(messageCalls[2]?.[1]).get('text') ?? ''
       expect(infoText).toContain('Build: 1.0')
       expect(infoText).toContain('Device: Pixel 7 / Android 14')
