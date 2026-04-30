@@ -59,11 +59,12 @@ interface RecentSessionCardProps {
   previewUrl?: string
   opening: boolean
   compact?: boolean
+  dense?: boolean
   onSelect(id: string): void
   onDelete(session: Session): void
 }
 
-function RecentSessionCard({ session, previewUrl, opening, compact = false, onSelect, onDelete }: RecentSessionCardProps) {
+function RecentSessionCard({ session, previewUrl, opening, compact = false, dense = false, onSelect, onDelete }: RecentSessionCardProps) {
   const { t } = useI18n()
   return (
     <div className="group relative min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-900/70 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-900">
@@ -76,10 +77,10 @@ function RecentSessionCard({ session, previewUrl, opening, compact = false, onSe
         <div className={compact ? 'aspect-[16/9] overflow-hidden bg-zinc-950' : 'aspect-[4/3] overflow-hidden bg-zinc-950'}>
           <SessionPreview session={session} previewUrl={previewUrl} />
         </div>
-        <div className="p-2.5">
+        <div className={dense ? 'p-2' : 'p-2.5'}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-zinc-100">{sessionTitle(session)}</div>
+              <div className={dense ? 'truncate text-xs font-semibold text-zinc-100' : 'truncate text-sm font-semibold text-zinc-100'}>{sessionTitle(session)}</div>
               <div className="mt-1 truncate text-[11px] text-zinc-500">{sessionSubtitle(session) || t('home.noSessionNote')}</div>
             </div>
             <span className="shrink-0 rounded bg-zinc-950 px-1.5 py-0.5 text-[10px] text-zinc-500">{formatSessionDuration(session.durationMs)}</span>
@@ -91,7 +92,9 @@ function RecentSessionCard({ session, previewUrl, opening, compact = false, onSe
         type="button"
         onClick={() => onDelete(session)}
         disabled={opening}
-        className="absolute bottom-2 right-2 rounded bg-zinc-950 px-2 py-1 text-[11px] text-zinc-500 opacity-0 transition hover:bg-red-950 hover:text-red-100 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100"
+        className={dense
+          ? 'absolute bottom-1.5 right-1.5 rounded bg-zinc-950 px-1.5 py-0.5 text-[10px] text-zinc-500 opacity-0 transition hover:bg-red-950 hover:text-red-100 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100'
+          : 'absolute bottom-2 right-2 rounded bg-zinc-950 px-2 py-1 text-[11px] text-zinc-500 opacity-0 transition hover:bg-red-950 hover:text-red-100 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100'}
       >
         {t('common.remove')}
       </button>
@@ -123,13 +126,15 @@ function RecentSessionDialog({ sessions, opening, previewUrls, onSelect, onBrows
           {sessions.length === 0 ? (
             <div className="px-3 py-8 text-center text-sm text-zinc-500">{t('home.noRecentSessions')}</div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-2 xl:grid-cols-5">
               {sessions.map(session => (
                 <RecentSessionCard
                   key={session.id}
                   session={session}
                   previewUrl={previewUrls[session.id]}
                   opening={opening}
+                  compact
+                  dense
                   onSelect={onSelect}
                   onDelete={onDelete}
                 />
