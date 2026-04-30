@@ -213,11 +213,14 @@ function ExportConfirmDialog({
     ? Math.round((progress.current / progress.total) * 100)
     : 0
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-24" data-testid="export-dialog">
-      <div className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
-        <div className="text-sm font-medium text-zinc-100">{count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
-        <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="export-dialog">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <div className="shrink-0 px-4 pt-4">
+          <div className="text-sm font-medium text-zinc-100">{count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
+          <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <label className="mt-4 block text-xs text-zinc-500">
           {t('export.outputFolder')}
           <div className="mt-1 flex gap-2">
@@ -391,8 +394,10 @@ function ExportConfirmDialog({
             {error}
           </div>
         )}
+        </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
+          <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
             disabled={canceling}
@@ -407,6 +412,7 @@ function ExportConfirmDialog({
           >
             {busy ? t('common.exporting') : t('common.export')}
           </button>
+          </div>
         </div>
       </div>
     </div>
