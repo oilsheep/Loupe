@@ -7,6 +7,7 @@ import {
   buildFaststartArgs,
   clampClipWindow,
   remuxForHtml5Playback,
+  assertVideoInputReadable,
   resolveAsarUnpackedPath,
 } from '../ffmpeg'
 import type { IProcessRunner } from '../process-runner'
@@ -364,6 +365,28 @@ describe('remuxForHtml5Playback', () => {
     }
     await expect(remuxForHtml5Playback(runner, '/ff', { inputPath: 'a', outputPath: 'b' }))
       .rejects.toThrow(/remux failed/)
+  })
+})
+
+describe('assertVideoInputReadable', () => {
+  it('resolves when ffmpeg can decode a video frame', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+
+    await expect(assertVideoInputReadable(runner, '/tools/ffmpeg', { inputPath: 'a.mp4' })).resolves.toBeUndefined()
+    expect(runner.run).toHaveBeenCalledWith('/tools/ffmpeg', expect.arrayContaining(['-frames:v', '1']))
+  })
+
+  it('throws a clear incomplete-recording hint for MP4 moov failures', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: 'moov atom not found\nInvalid data found when processing input', code: 1 }) as any,
+      spawn: vi.fn() as any,
+    }
+
+    await expect(assertVideoInputReadable(runner, '/tools/ffmpeg', { inputPath: 'broken.mp4' }))
+      .rejects.toThrow(/scrcpy stopped before the MP4 metadata was finalized/)
   })
 })
 

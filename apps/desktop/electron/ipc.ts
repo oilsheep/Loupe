@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
-import { clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
+import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
 import type { SessionManager } from './session'
 import type { Paths } from './paths'
@@ -14,7 +14,8 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
-import { fetchSlackMentionUsers, publishManifestToSlack } from './slack-publisher'
+import { fetchSlackMentionUsers } from './slack-publisher'
+import { publishManifestToRemote } from './remote-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
@@ -159,6 +160,7 @@ async function exportBugEvidence(args: {
   const ffmpegPath = resolveBundledFfmpegPath()
   const clicks = readClickLog(args.deps.paths.clicksFile(args.session.id))
   const inputPath = sessionVideoInputPath(args.session, args.deps.paths)
+  await assertVideoInputReadable(args.deps.runner, ffmpegPath, { inputPath })
   const tileSize = await contactSheetTileSize(args.deps.runner, inputPath)
   const clipOptions = {
     inputPath,
@@ -1217,6 +1219,7 @@ export function registerIpc(deps: IpcDeps): void {
       const ffmpegPath = resolveBundledFfmpegPath()
       const clicks = readClickLog(deps.paths.clicksFile(session.id))
       const inputPath = sessionVideoInputPath(session, deps.paths)
+      await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
       const tileSize = await contactSheetTileSize(deps.runner, inputPath)
       const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
       const severities = deps.settings.get().severities
@@ -1300,13 +1303,11 @@ export function registerIpc(deps: IpcDeps): void {
         logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
       }
       const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, publish: args.publish, severities })
-      if (args.publish?.target === 'slack') {
-        await publishManifestToSlack({
-          manifest: manifestFiles.manifest,
-          manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
-          settings: deps.settings.get().slack,
-        })
-      }
+      await publishManifestToRemote({
+        manifest: manifestFiles.manifest,
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        settings: deps.settings.get(),
+      })
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputPath}\n${pdfPath}`, total, total, 1, 1))
       return outputPath
     } catch (err) {
@@ -1356,6 +1357,7 @@ export function registerIpc(deps: IpcDeps): void {
         const imagePath = join(recordsDir, `${baseName}.jpg`)
         const ffmpegPath = resolveBundledFfmpegPath()
         const inputPath = sessionVideoInputPath(session, deps.paths)
+        await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
         const tileSize = await contactSheetTileSize(deps.runner, inputPath)
         const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
         const severityStyle = severities[bug.severity]
@@ -1433,13 +1435,11 @@ export function registerIpc(deps: IpcDeps): void {
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
       await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
       const manifestFiles = writeExportManifests({ session, bugs, files, outDir, publish: args.publish, severities })
-      if (args.publish?.target === 'slack') {
-        await publishManifestToSlack({
-          manifest: manifestFiles.manifest,
-          manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
-          settings: deps.settings.get().slack,
-        })
-      }
+      await publishManifestToRemote({
+        manifest: manifestFiles.manifest,
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        settings: deps.settings.get(),
+      })
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputs.length} clip${outputs.length === 1 ? '' : 's'} exported.\n${pdfPath}`, total, total, bugs.length, bugs.length))
       return outputs
     } catch (err) {

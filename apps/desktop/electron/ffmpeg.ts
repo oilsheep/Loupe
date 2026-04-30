@@ -38,6 +38,10 @@ export interface FaststartOptions {
   outputPath: string
 }
 
+export interface VideoInputReadableOptions {
+  inputPath: string
+}
+
 export interface ThumbnailOptions {
   inputPath: string
   outputPath: string
@@ -629,6 +633,36 @@ export function buildFaststartArgs(opts: FaststartOptions): string[] {
 export async function remuxForHtml5Playback(runner: IProcessRunner, ffmpegPath: string, opts: FaststartOptions): Promise<void> {
   const r = await runner.run(ffmpegPath, buildFaststartArgs(opts))
   if (r.code !== 0) throw new Error(`ffmpeg faststart failed (code ${r.code}): ${r.stderr.trim()}`)
+}
+
+export async function assertVideoInputReadable(runner: IProcessRunner, ffmpegPath: string, opts: VideoInputReadableOptions): Promise<void> {
+  const r = await runner.run(ffmpegPath, [
+    '-v', 'error',
+    '-i', opts.inputPath,
+    '-map', '0:v:0',
+    '-frames:v', '1',
+    '-f', 'null',
+    '-',
+  ]).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    return { code: -1, stdout: '', stderr: message }
+  })
+  if (r.code === 0) return
+
+  const streamInfo = await runner.run(ffmpegPath, [
+    '-hide_banner',
+    '-i',
+    opts.inputPath,
+  ]).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    return { code: -1, stdout: '', stderr: message }
+  })
+
+  const detail = streamInfo.stderr.trim() || streamInfo.stdout.trim() || r.stderr.trim() || r.stdout.trim() || 'no readable video stream was found'
+  const hint = /moov atom not found|Invalid data found when processing input/i.test(detail)
+    ? 'The recording looks incomplete or corrupt, usually because scrcpy stopped before the MP4 metadata was finalized.'
+    : 'The recording could not be opened as a video file.'
+  throw new Error(`Cannot export this session because the source recording is not readable: ${opts.inputPath}\n${hint}\n${detail}`)
 }
 
 /** Resolved at runtime so tests don't import the binary. */
