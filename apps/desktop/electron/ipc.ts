@@ -410,6 +410,15 @@ function copyOriginalRecordingFile(outDir: string, sourcePath: string | null | u
   return outputPath
 }
 
+function copyRecordingFileToDir(targetDir: string, sourcePath: string | null | undefined, targetStem: string): string | null {
+  if (!sourcePath || !existsSync(sourcePath)) return null
+  mkdirSync(targetDir, { recursive: true })
+  const ext = extname(sourcePath) || extname(basename(sourcePath)) || ''
+  const outputPath = join(targetDir, `${targetStem}${ext}`)
+  copyFileSync(sourcePath, outputPath)
+  return outputPath
+}
+
 async function mergeOriginalRecordingAudio(runner: IProcessRunner, ffmpegPath: string, videoPath: string, micAudioPath: string, outputPath: string): Promise<void> {
   const sourceHasAudio = await getVideoHasAudio(runner, videoPath)
   const audioArgs = sourceHasAudio
@@ -448,6 +457,16 @@ async function exportOriginalRecordingFiles(args: { outDir: string; session: Ses
     copyOriginalRecordingFile(outDir, videoPath, 'original-video'),
     copyOriginalRecordingFile(outDir, session.micAudioPath, 'session-mic'),
   ].filter(Boolean) as string[]
+}
+
+function exportFullRecordingFilesToRecords(args: { recordsDir: string; session: Session; paths: Paths }): string[] {
+  const videoPath = sessionVideoInputPath(args.session, args.paths)
+  const outputs = [
+    copyRecordingFileToDir(args.recordsDir, videoPath, 'full-recording'),
+    copyRecordingFileToDir(args.recordsDir, args.session.micAudioPath, 'session-mic'),
+  ].filter(Boolean) as string[]
+  if (outputs.length === 0) throw new Error('No full recording files were found for this session.')
+  return outputs
 }
 
 function localDatePart(ms: number): string {
@@ -1843,7 +1862,6 @@ export function registerIpc(deps: IpcDeps): void {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
-    if (bugs.length === 0) return []
     const exportId = args.exportId ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const controller = new AbortController()
     exportControllers.set(exportId, controller)
@@ -1851,12 +1869,19 @@ export function registerIpc(deps: IpcDeps): void {
     const total = 3 + bugs.length * 3
 
     try {
-      emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'Preparing batch export', `Preparing ${bugs.length} selected marker${bugs.length === 1 ? '' : 's'}.`, 0, total, 0, bugs.length))
       const outDir = exportDirForSession(deps.settings.get().exportRoot, session)
       const recordsDir = exportRecordsDir(outDir)
       const reportDir = exportReportDir(outDir)
       mkdirSync(recordsDir, { recursive: true })
+      if (bugs.length === 0) {
+        emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'No markers found', 'Copying the full-length recording and session audio into records.', 0, 2, 0, 0))
+        throwIfExportCancelled(exportId, controller.signal)
+        const outputs = exportFullRecordingFilesToRecords({ recordsDir, session, paths: deps.paths })
+        emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Full recording exported', recordsDir, 2, 2, 0, 0))
+        return outputs
+      }
       mkdirSync(reportDir, { recursive: true })
+      emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'Preparing batch export', `Preparing ${bugs.length} selected marker${bugs.length === 1 ? '' : 's'}.`, 0, total, 0, bugs.length))
       const outputs: string[] = []
       const files: ExportedMarkerFile[] = []
       const reportEntries: ReportEntry[] = []
