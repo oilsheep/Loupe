@@ -156,7 +156,7 @@ describe('BugList', () => {
       sessionId: 's1',
       bugId: 'b1',
       includeLogcat: false,
-      publish: { target: 'local', slackThreadMode: 'single-thread' },
+      publish: { target: 'local', slackThreadMode: 'per-marker-thread' },
       exportId: expect.any(String),
     })))
     expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { buildVersion: '1.2.3', tester: 'Avery', testNote: 'smoke' })
@@ -178,7 +178,7 @@ describe('BugList', () => {
       sessionId: 's1',
       bugId: 'b1',
       includeLogcat: false,
-      publish: { target: 'local', slackThreadMode: 'single-thread' },
+      publish: { target: 'local', slackThreadMode: 'per-marker-thread' },
     })))
   })
 
@@ -188,7 +188,6 @@ describe('BugList', () => {
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
     fireEvent.click(screen.getByText('Slack'))
-    fireEvent.click(screen.getByText('Every marker per thread'))
     fireEvent.click(screen.getByText('Export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       publish: { target: 'slack', slackThreadMode: 'per-marker-thread' },
