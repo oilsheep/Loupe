@@ -265,6 +265,7 @@ export interface DesktopApi {
     listPcCaptureSources():                                        Promise<PcCaptureSource[]>
     showPcCaptureFrame(sourceId: string, color?: 'green' | 'red', displayId?: string): Promise<boolean>
     hidePcCaptureFrame():                                          Promise<void>
+    readClipboardText():                                           Promise<string>
   }
   device: {
     list():                                                        Promise<Device[]>

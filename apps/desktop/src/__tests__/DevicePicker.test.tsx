@@ -16,6 +16,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       ]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(true) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+      readClipboardText: vi.fn().mockResolvedValue('') as any,
     },
     device: {
       list: vi.fn().mockResolvedValue(devices),

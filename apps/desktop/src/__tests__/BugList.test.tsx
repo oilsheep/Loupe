@@ -39,6 +39,7 @@ function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
       listPcCaptureSources: vi.fn().mockResolvedValue([]),
       showPcCaptureFrame: vi.fn().mockResolvedValue(false),
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined),
+      readClipboardText: vi.fn().mockResolvedValue(''),
     },
     device: {} as any, session: { updateMetadata: vi.fn() as any } as any,
     bug: {

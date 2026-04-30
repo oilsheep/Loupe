@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, desktopCapturer, dialog, screen, shell } from 'electron'
+import { ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, shell } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -33,6 +33,7 @@ export const CHANNEL = {
   listPcCaptureSources:   'app:listPcCaptureSources',
   showPcCaptureFrame:     'app:showPcCaptureFrame',
   hidePcCaptureFrame:     'app:hidePcCaptureFrame',
+  readClipboardText:      'app:readClipboardText',
   deviceList:              'device:list',
   deviceConnect:           'device:connect',
   deviceMdnsScan:          'device:mdnsScan',
@@ -1410,6 +1411,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.listPcCaptureSources, async () => listPcCaptureSources())
   ipcMain.handle(CHANNEL.showPcCaptureFrame, async (_e, sourceId: string, color?: 'green' | 'red', displayId?: string) => showPcCaptureFrame(sourceId, color, displayId))
   ipcMain.handle(CHANNEL.hidePcCaptureFrame, async () => hidePcCaptureFrame())
+  ipcMain.handle(CHANNEL.readClipboardText, async () => clipboard.readText())
 
   ipcMain.handle(CHANNEL.deviceList, async () => deps.adb.listDevices())
   ipcMain.handle(CHANNEL.deviceConnect, async (_e, ip: string, port?: number) => deps.adb.connect(ip, port))

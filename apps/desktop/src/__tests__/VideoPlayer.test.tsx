@@ -20,6 +20,7 @@ function fakeApi(): DesktopApi {
       listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+      readClipboardText: vi.fn().mockResolvedValue('') as any,
     },
     device: {} as any,
     session: { updateMetadata: vi.fn() as any } as any,
