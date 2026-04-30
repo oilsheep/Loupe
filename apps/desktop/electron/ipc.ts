@@ -131,6 +131,18 @@ function exportLogcatSidecar(paths: Paths, session: Session, bug: { id: string; 
   return outputPath
 }
 
+function readLogcatTailForContactSheet(paths: Paths, session: Session, bug: { logcatRel: string | null }, maxLines = 12): string | null {
+  if (!bug.logcatRel) return null
+  const sourcePath = join(paths.sessionDir(session.id), bug.logcatRel)
+  if (!existsSync(sourcePath)) return null
+  const lines = readFileSync(sourcePath, 'utf8')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return null
+  return lines.slice(-maxLines).join('\n')
+}
+
 async function exportBugEvidence(args: {
   deps: IpcDeps
   session: Session
@@ -1204,7 +1216,12 @@ export function registerIpc(deps: IpcDeps): void {
         clicks,
       }
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Writing ${imagePath}`, 2, total, 1, 1))
-      await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath }, runOpts)
+      await extractContactSheet(deps.runner, ffmpegPath, {
+        ...clipOptions,
+        ...tileSize,
+        outputPath: imagePath,
+        logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
+      }, runOpts)
       throwIfExportCancelled(exportId, controller.signal)
       const introSize = await getVideoSize(deps.runner, imagePath)
       emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Writing ${outputPath}`, 3, total, 1, 1))
@@ -1338,7 +1355,12 @@ export function registerIpc(deps: IpcDeps): void {
           clicks,
         }
         emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Marker ${clipIndex} of ${bugs.length}: ${imagePath}`, baseProgress + 1, total, clipIndex, bugs.length))
-        await extractContactSheet(deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath }, runOpts)
+        await extractContactSheet(deps.runner, ffmpegPath, {
+          ...clipOptions,
+          ...tileSize,
+          outputPath: imagePath,
+          logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
+        }, runOpts)
         throwIfExportCancelled(exportId, controller.signal)
         const introSize = await getVideoSize(deps.runner, imagePath)
         emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Marker ${clipIndex} of ${bugs.length}: ${outputPath}`, baseProgress + 2, total, clipIndex, bugs.length))

@@ -740,10 +740,12 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
   const chunksRef = useRef<Blob[]>([])
   const recordStartedAtRef = useRef(0)
   const [recording, setRecording] = useState(false)
+  const [logcatOpen, setLogcatOpen] = useState(false)
 
   useEffect(() => { setNote(bug.note) }, [bug.note])
   useEffect(() => { setPre(bug.preSec) }, [bug.preSec])
   useEffect(() => { setPost(bug.postSec) }, [bug.postSec])
+  useEffect(() => { setLogcatOpen(false) }, [bug.id])
   useEffect(() => {
     if (!shouldScrollIntoView) return
     rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -957,9 +959,20 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
           />
 
           {logcatPreview && (
-            <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`}>
-              <div className="mb-1 text-zinc-500">logcat preview</div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-zinc-400">{logcatPreview}</pre>
+            <div data-row-click-ignore="true">
+              <button
+                type="button"
+                onClick={() => setLogcatOpen(open => !open)}
+                className="inline-flex items-center rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-700"
+                data-testid={`logcat-toggle-${bug.id}`}
+              >
+                {logcatOpen ? 'Hide logcat' : 'Show logcat'}
+              </button>
+              {logcatOpen && (
+                <div className="mt-1 rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`}>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-zinc-400">{logcatPreview}</pre>
+                </div>
+              )}
             </div>
           )}
 

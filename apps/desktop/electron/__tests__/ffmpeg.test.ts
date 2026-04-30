@@ -306,6 +306,30 @@ describe('buildContactSheetArgs', () => {
     expect(filter).toContain('Daily Alpha')
     expect(filter).toContain('2026-04-29 14\\:05')
   })
+
+  it('writes wrapped logcat lines below the 3x2 image info panel', () => {
+    const args = buildContactSheetArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.jpg',
+      startMs: 1000,
+      endMs: 10_000,
+      severity: 'major',
+      note: 'button failed',
+      buildVersion: 'Daily Alpha',
+      testedAtMs: new Date(2026, 3, 29, 14, 5, 6).getTime(),
+      tileWidth: 120,
+      tileHeight: 213,
+      outputWidth: 360,
+      outputHeight: 620,
+      logcatText: '04-30 12:48:52.344 WifiHAL : Creating message to get link statistics; iface = 47',
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).toContain('tile=3x2')
+    expect(filter).toContain('drawbox=x=0:y=426:w=iw:h=194:color=#d9d9d9@1:t=fill')
+    expect(filter).toContain("text='logcat'")
+    expect(filter).toContain("text='04-30 12\\:48\\:52.344 WifiHAL \\: Creating'")
+    expect(filter).toContain("text='message to get link statistics\\; iface = 47'")
+  })
 })
 
 describe('buildFaststartArgs', () => {

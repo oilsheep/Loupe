@@ -24,6 +24,7 @@ export interface ClipOptions {
   clipStartMs?: number | null
   clipEndMs?: number | null
   telemetryLine?: string | null
+  logcatText?: string | null
 }
 
 export interface ClickPoint {
@@ -365,6 +366,29 @@ function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = [], la
   return filters
 }
 
+function buildLogcatCaptionLines(text: string | null | undefined, maxChars: number, maxLines = 12): CaptionLine[] {
+  const value = text?.trim()
+  if (!value) return []
+  const sourceLines = value
+    .split(/\r?\n/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(-maxLines)
+  const wrapped = sourceLines.flatMap(line => wrapTextLine(line, maxChars))
+  return [
+    { text: 'logcat', bold: false, small: true },
+    ...wrapped.slice(0, maxLines).map(line => ({ text: line, bold: false, small: true } satisfies CaptionLine)),
+  ]
+}
+
+function buildContactSheetCaptionLines(opts: ContactSheetOptions, width: number): CaptionLine[] {
+  const maxChars = Math.max(42, Math.floor((width - 52) / 7))
+  return [
+    ...buildCaptionLines(opts, { noteChars: 52, metaChars: 96 }),
+    ...buildLogcatCaptionLines(opts.logcatText, maxChars),
+  ]
+}
+
 export function clampClipWindow(opts: ClipWindowOptions): { startMs: number; endMs: number } {
   const fallbackDurationMs = opts.offsetMs + opts.postSec * 1_000
   const durationMs = Math.max(0, opts.durationMs ?? fallbackDurationMs)
@@ -548,7 +572,7 @@ export function buildContactSheetArgs(opts: ContactSheetOptions): string[] {
         ? [`pad=${outputWidth}:ih:(ow-iw)/2:0:color=black`]
         : []),
   ]
-  const captionLines = buildCaptionLines(opts, { noteChars: 52, metaChars: 96 })
+  const captionLines = buildContactSheetCaptionLines(opts, outputWidth ?? gridWidth)
   if (captionLines.length > 0) {
     if (outputHeight && gridHeight && outputHeight > gridHeight) {
       filters.push(...captionOverlayFilters(captionLines, { x: 26, y: gridHeight, height: outputHeight - gridHeight }))

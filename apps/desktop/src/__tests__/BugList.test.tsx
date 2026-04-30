@@ -240,6 +240,9 @@ describe('BugList', () => {
     api.bug.getLogcatPreview = vi.fn().mockResolvedValue('line 4\nline 5\nFATAL EXCEPTION: main') as any
     render(<BugList api={api} sessionId="s1" bugs={[bug({ logcatRel: 'logcat/b1.txt' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
     await waitFor(() => expect(api.bug.getLogcatPreview).toHaveBeenCalledWith({ sessionId: 's1', relPath: 'logcat/b1.txt', maxLines: 5 }))
+    await screen.findByTestId('logcat-toggle-b1')
+    expect(screen.queryByTestId('logcat-preview-b1')).toBeNull()
+    fireEvent.click(screen.getByTestId('logcat-toggle-b1'))
     await waitFor(() => expect(screen.getByTestId('logcat-preview-b1').textContent).toContain('FATAL EXCEPTION: main'))
   })
 })
