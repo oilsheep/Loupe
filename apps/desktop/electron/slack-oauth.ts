@@ -10,7 +10,7 @@ function slackOAuthConfig(settings: SlackPublishSettings): { clientId: string; c
   return {
     clientId: settings.oauthClientId?.trim() || SLACK_OAUTH_CONFIG.clientId || process.env.LOUPE_SLACK_OAUTH_CLIENT_ID?.trim() || DEFAULT_SLACK_OAUTH_CLIENT_ID,
     clientSecret: settings.oauthClientSecret?.trim() || SLACK_OAUTH_CONFIG.clientSecret || process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET?.trim() || '',
-    redirectUri: settings.oauthRedirectUri?.trim() || SLACK_OAUTH_CONFIG.redirectUri || process.env.LOUPE_SLACK_OAUTH_REDIRECT_URI?.trim() || DEFAULT_SLACK_OAUTH_REDIRECT_URI,
+    redirectUri: DEFAULT_SLACK_OAUTH_REDIRECT_URI,
   }
 }
 

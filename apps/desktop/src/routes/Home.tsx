@@ -114,7 +114,7 @@ export function Home() {
   const [exportRoot, setExportRoot] = useState('')
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
-  const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+  const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
   const [slackSaved, setSlackSaved] = useState(false)
   const [startingSlackOAuth, setStartingSlackOAuth] = useState(false)
   const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
@@ -261,7 +261,7 @@ export function Home() {
         channelId: slack.channelId.trim(),
         oauthClientId: slack.oauthClientId?.trim() || '',
         oauthClientSecret: slack.oauthClientSecret?.trim() || '',
-        oauthRedirectUri: slack.oauthRedirectUri?.trim() || '',
+        oauthRedirectUri: 'loupe://slack-oauth',
       })
       setSlack(settings.slack)
     } catch (err) {
@@ -297,7 +297,7 @@ export function Home() {
       authType: input.authType ?? 'pat',
       oauthClientId: input.oauthClientId?.trim() ?? '',
       oauthClientSecret: input.oauthClientSecret?.trim() ?? '',
-      oauthRedirectUri: input.oauthRedirectUri?.trim() || 'loupe://gitlab-oauth',
+      oauthRedirectUri: 'loupe://gitlab-oauth',
       projectId: input.projectId.trim(),
       labels: parseListInput(gitlabLabelsInput),
       mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
@@ -387,7 +387,7 @@ export function Home() {
       ...google,
       oauthClientId: google.oauthClientId?.trim() ?? '',
       oauthClientSecret: google.oauthClientSecret?.trim() ?? '',
-      oauthRedirectUri: google.oauthRedirectUri?.trim() || 'http://127.0.0.1:38988/oauth/google/callback',
+      oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback',
       driveFolderId: parseGoogleDriveFolderInput(google.driveFolderId),
       driveFolderName: google.driveFolderName?.trim() ?? '',
       spreadsheetId: parseGoogleSpreadsheetInput(google.spreadsheetId),
@@ -670,6 +670,7 @@ export function Home() {
             onSeveritiesChange={setSeverities}
             onSaveSeverities={saveSeverities}
             onResetLabels={resetDefaultLabels}
+            onSlackChange={(next) => { setSlack(next); setSlackSaved(false) }}
             onStartSlackOAuth={startSlackUserOAuth}
             onRefreshSlackUsers={() => { void refreshSlackUsers() }}
             onGitLabChange={(next) => { setGitLab(next); setGitLabSaved(false) }}

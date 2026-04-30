@@ -59,7 +59,7 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     channelId: raw?.channelId || '',
     oauthClientId: raw?.oauthClientId || '',
     oauthClientSecret: raw?.oauthClientSecret || '',
-    oauthRedirectUri: raw?.oauthRedirectUri || '',
+    oauthRedirectUri: 'loupe://slack-oauth',
     oauthUserId: raw?.oauthUserId || '',
     oauthTeamId: raw?.oauthTeamId || '',
     oauthTeamName: raw?.oauthTeamName || '',
@@ -293,14 +293,13 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
   const authType = raw?.authType === 'oauth' ? 'oauth' : 'pat'
-  const oauthRedirectUri = typeof raw?.oauthRedirectUri === 'string' ? raw.oauthRedirectUri.trim() : ''
   return {
     baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
     authType,
     oauthClientId: typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '',
     oauthClientSecret: typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : '',
-    oauthRedirectUri: oauthRedirectUri && !oauthRedirectUri.includes('/oauth/gitlab/callback') ? oauthRedirectUri : 'loupe://gitlab-oauth',
+    oauthRedirectUri: 'loupe://gitlab-oauth',
     projectId: raw?.projectId?.trim() || '',
     mode,
     emailLookup,

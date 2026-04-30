@@ -35,21 +35,25 @@ Loupe requests these user OAuth scopes when you click **Connect Slack**:
 
 ### How Loupe resolves the Slack client ID
 
-Loupe reads the Slack OAuth settings in this order:
+Loupe reads the Slack OAuth client credentials in this order:
 
-1. `slack.oauthClientId`, `slack.oauthClientSecret`, `slack.oauthRedirectUri` in the saved Loupe settings.
+1. `slack.oauthClientId`, `slack.oauthClientSecret` in the saved Loupe settings.
 2. Process environment variables:
    - `LOUPE_SLACK_OAUTH_CLIENT_ID`
    - `LOUPE_SLACK_OAUTH_CLIENT_SECRET`
-   - `LOUPE_SLACK_OAUTH_REDIRECT_URI`
 3. Built-in defaults:
    - Client ID: `2178062560.11055652367536`
-   - Redirect URI: `loupe://slack-oauth`
+
+The redirect URI is hardcoded in Loupe:
+
+```text
+loupe://slack-oauth
+```
 
 At the moment, Loupe's Publish UI shows **Connect Slack**, but does not expose separate text fields for Slack OAuth client settings. If you need to override the built-in Slack app in local development, use one of these approaches before clicking **Connect Slack**:
 
-- set `LOUPE_SLACK_OAUTH_CLIENT_ID`, `LOUPE_SLACK_OAUTH_CLIENT_SECRET`, and optionally `LOUPE_SLACK_OAUTH_REDIRECT_URI` before launching Loupe
-- or edit the saved settings JSON and fill `slack.oauthClientId`, `slack.oauthClientSecret`, and `slack.oauthRedirectUri`
+- set `LOUPE_SLACK_OAUTH_CLIENT_ID` and `LOUPE_SLACK_OAUTH_CLIENT_SECRET` before launching Loupe
+- or edit the saved settings JSON and fill `slack.oauthClientId` and `slack.oauthClientSecret`
 
 ## 3. Add Bot Token Scopes
 

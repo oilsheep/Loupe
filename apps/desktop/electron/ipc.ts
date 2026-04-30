@@ -202,7 +202,7 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
   const clientId = settings.oauthClientId?.trim() || ''
   const clientSecret = settings.oauthClientSecret?.trim() || ''
-  const redirectUri = settings.oauthRedirectUri?.trim() || DEFAULT_GITLAB_OAUTH_REDIRECT_URI
+  const redirectUri = DEFAULT_GITLAB_OAUTH_REDIRECT_URI
   if (!baseUrl) throw new Error('GitLab base URL is missing')
   if (!clientId) throw new Error('GitLab OAuth client ID is missing')
 
@@ -283,7 +283,7 @@ async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<Goog
   googleOAuthCancel?.()
   const clientId = settings.oauthClientId?.trim() || ''
   const clientSecret = settings.oauthClientSecret?.trim() || ''
-  const redirectUri = settings.oauthRedirectUri?.trim() || DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
+  const redirectUri = DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
   if (!clientId) throw new Error('Google OAuth client ID is missing')
 
   const redirect = new URL(redirectUri)

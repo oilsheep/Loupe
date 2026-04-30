@@ -142,6 +142,7 @@ interface PreferencesDialogProps {
   onSeveritiesChange(value: SeveritySettings): void
   onSaveSeverities(value: SeveritySettings): void
   onResetLabels(): void
+  onSlackChange(value: SlackPublishSettings): void
   onStartSlackOAuth(): void
   onRefreshSlackUsers(): void
   onGitLabChange(value: GitLabPublishSettings): void
@@ -223,6 +224,7 @@ export function PreferencesDialog({
   onSeveritiesChange,
   onSaveSeverities,
   onResetLabels,
+  onSlackChange,
   onStartSlackOAuth,
   onRefreshSlackUsers,
   onGitLabChange,
@@ -462,6 +464,30 @@ export function PreferencesDialog({
                     </button>
                   </div>
                 </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="text-xs text-zinc-500">
+                    OAuth client ID
+                    <input
+                      value={slack.oauthClientId ?? ''}
+                      onChange={(e) => onSlackChange({ ...slack, oauthClientId: e.target.value })}
+                      placeholder="Slack Client ID"
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    OAuth client secret
+                    <input
+                      value={slack.oauthClientSecret ?? ''}
+                      onChange={(e) => onSlackChange({ ...slack, oauthClientSecret: e.target.value })}
+                      type="password"
+                      placeholder="Slack Client Secret"
+                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  Redirect URI is fixed: <span className="font-mono text-zinc-400">loupe://slack-oauth</span>
+                </div>
                 <div className="mt-3 rounded border border-zinc-800 bg-zinc-950">
                   <div className="flex items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
                     <div>
@@ -660,7 +686,10 @@ export function PreferencesDialog({
                     <div className="grid grid-cols-2 gap-2">
                       <label className="text-xs text-zinc-500">OAuth client ID<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder="Application ID" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
                       <label className="text-xs text-zinc-500">OAuth client secret<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder="Optional for confidential apps" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                      <label className="text-xs text-zinc-500">Redirect URI<input value={gitlab.oauthRedirectUri ?? 'loupe://gitlab-oauth'} onChange={(e) => onGitLabChange({ ...gitlab, oauthRedirectUri: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                      <div className="text-xs text-zinc-500">
+                        Redirect URI
+                        <div className="mt-1 rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
+                      </div>
                     </div>
                     <div className="mt-2 flex items-center justify-end gap-2">
                       {gitlab.token.trim() && <span className="text-xs text-emerald-300">Connected</span>}
