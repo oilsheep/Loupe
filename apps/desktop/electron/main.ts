@@ -9,13 +9,51 @@ import { LogcatBuffer } from './logcat'
 import { SessionManager } from './session'
 import { openDb } from './db'
 import { createPaths, defaultRoot } from './paths'
-import { registerIpc, emitBugMarkRequested } from './ipc'
+import { registerIpc, emitBugMarkRequested, handleProtocolUrl } from './ipc'
 import { DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import type { HotkeySettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let win: BrowserWindow | null = null
 let thumbnailCaptureQueue = Promise.resolve()
+const pendingProtocolUrls: string[] = []
+
+function handleDeepLink(url: string): void {
+  if (!url.startsWith('loupe://')) return
+  if (!win) {
+    pendingProtocolUrls.push(url)
+    return
+  }
+  if (!handleProtocolUrl(url)) {
+    pendingProtocolUrls.push(url)
+    return
+  }
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  }
+}
+
+function registerLoupeProtocolClient(): void {
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient('loupe')
+    return
+  }
+  app.setAsDefaultProtocolClient('loupe', process.execPath, [app.getAppPath()])
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) app.quit()
+
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find(arg => arg.startsWith('loupe://'))
+  if (url) handleDeepLink(url)
+})
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleDeepLink(url)
+})
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -81,6 +119,8 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  registerLoupeProtocolClient()
+
   electronSession.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     const sources = await desktopCapturer.getSources({ types: ['screen'] })
     callback({ video: sources[0], audio: 'loopback' } as any)
@@ -168,7 +208,7 @@ app.whenReady().then(async () => {
     hotkeys: DEFAULT_HOTKEYS,
     locale: 'system',
     severities: DEFAULT_SEVERITIES,
-    slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
+    slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [] },
   })
   const db = openDb(paths.dbFile())
@@ -256,6 +296,8 @@ app.whenReady().then(async () => {
   registerIpc({ adb, manager, paths, runner, db, settings, getWindow: () => win, setHotkeyEnabled, setHotkeys })
 
   await createWindow()
+  const startupUrls = [...pendingProtocolUrls.splice(0), ...process.argv.filter(arg => arg.startsWith('loupe://'))]
+  for (const url of startupUrls) handleDeepLink(url)
   applyHotkey()
 }).catch((err) => { console.error(err); app.quit() })
 

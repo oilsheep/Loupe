@@ -69,7 +69,7 @@ describe('export manifest', () => {
     })
 
     expect(manifest.reportPdfPath).toBe('/exports/QA_bug_report_1.0_2023-11-14.pdf')
-    expect(manifest.publish).toEqual({ target: 'slack', slackThreadMode: 'single-thread', gitlabMode: null })
+    expect(manifest.publish).toEqual({ target: 'slack', targets: ['slack'], slackThreadMode: 'single-thread', gitlabMode: null })
     expect(manifest.session.buildVersion).toBe('1.0')
     expect(manifest.session.ramTotalGb).toBeNull()
     expect(manifest.session.graphicsDevice).toBeNull()
@@ -93,7 +93,19 @@ describe('export manifest', () => {
       publish: { target: 'gitlab', gitlabMode: 'per-marker-issue' },
     })
 
-    expect(manifest.publish).toEqual({ target: 'gitlab', slackThreadMode: null, gitlabMode: 'per-marker-issue' })
+    expect(manifest.publish).toEqual({ target: 'gitlab', targets: ['gitlab'], slackThreadMode: null, gitlabMode: 'per-marker-issue' })
+  })
+
+  it('builds multi-target publish metadata', () => {
+    const manifest = buildExportManifest({
+      session: session(),
+      bugs: [bug()],
+      files: [file()],
+      outDir: '/exports',
+      publish: { target: 'slack', targets: ['slack', 'gitlab'], slackThreadMode: 'single-thread', gitlabMode: 'per-marker-issue' },
+    })
+
+    expect(manifest.publish).toEqual({ target: 'slack', targets: ['slack', 'gitlab'], slackThreadMode: 'single-thread', gitlabMode: 'per-marker-issue' })
   })
 
   it('writes JSON, CSV, and Slack thread payload manifests', () => {

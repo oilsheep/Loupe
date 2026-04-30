@@ -2,7 +2,11 @@ export function normalizeSlackMentionIds(value: unknown): string[] {
   const raw = Array.isArray(value) ? value.join(' ') : String(value ?? '')
   const ids = raw
     .split(/[\s,;]+/)
-    .map(part => part.trim().replace(/^<@([^>|]+)(?:\|[^>]+)?>$/, '$1'))
+    .map(part => part.trim())
+    .map(part => part.replace(/^<@([^>|]+)(?:\|[^>]+)?>$/, '$1'))
+    .map(part => part.replace(/^<!(subteam\^[^>|]+)(?:\|[^>]+)?>$/, '!$1'))
+    .map(part => part.replace(/^<!(here|channel|everyone)>$/, '!$1'))
+    .map(part => part.replace(/^@(here|channel|everyone)$/, '!$1'))
     .map(part => part.replace(/^@/, ''))
     .filter(Boolean)
   return Array.from(new Set(ids))
@@ -25,7 +29,11 @@ export function mentionLabel(id: string, aliases: Record<string, string>): strin
 
 export function slackMentionText(userIds: string[]): string {
   return normalizeSlackMentionIds(userIds)
-    .map(id => `<@${id}>`)
+    .map(id => {
+      if (id === '!here' || id === '!channel' || id === '!everyone') return `<${id}>`
+      if (id.startsWith('!subteam^')) return `<${id}>`
+      return `<@${id}>`
+    })
     .join(' ')
 }
 

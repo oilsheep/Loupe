@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import type { Writable, Readable } from 'node:stream'
 import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
@@ -14,7 +15,8 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
-import { fetchSlackMentionUsers } from './slack-publisher'
+import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
+import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote } from './remote-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
@@ -64,6 +66,9 @@ export const CHANNEL = {
   settingsSetSlack:        'settings:setSlack',
   settingsSetGitLab:       'settings:setGitLab',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
+  settingsRefreshSlackChannels:'settings:refreshSlackChannels',
+  settingsStartSlackUserOAuth:'settings:startSlackUserOAuth',
+  settingsSlackOAuthCompleted:'settings:slackOAuthCompleted',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsChooseExportRoot:'settings:chooseExportRoot',
@@ -74,6 +79,15 @@ let pcCaptureFrameToken = 0
 let pcRecordingProcess: ChildProcessByStdio<Writable, null, Readable> | null = null
 let pcRecordingStderr = ''
 const exportControllers = new Map<string, AbortController>()
+let pendingSlackOAuth: { state: string; codeVerifier: string; createdAt: number } | null = null
+let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
+
+export function handleProtocolUrl(url: string): boolean {
+  if (!url.startsWith('loupe://slack-oauth')) return false
+  if (!slackOAuthCallbackHandler) return false
+  void slackOAuthCallbackHandler(url)
+  return true
+}
 
 export interface IpcDeps {
   adb: Adb
@@ -98,6 +112,49 @@ function safeFilePart(value: string): string {
     .replace(/[\\/:*?"<>|]/g, '_')
     .trim()
     .slice(0, 80) || 'session'
+}
+
+function slackApiTokenForUsers(settings: SlackPublishSettings): string {
+  return (settings.publishIdentity === 'user' ? settings.userToken : settings.botToken)?.trim() || settings.botToken.trim() || settings.userToken?.trim() || ''
+}
+
+async function refreshSlackDirectory(settings: SlackPublishSettings, token: string): Promise<Partial<SlackPublishSettings>> {
+  if (!token.trim()) throw new Error('Slack token is missing')
+  const [mentionUsersResult, channelsResult] = await Promise.allSettled([
+    fetchSlackMentionUsers(token),
+    fetchSlackChannels(token),
+  ])
+  const now = new Date().toISOString()
+  const directory: Partial<SlackPublishSettings> = {}
+  if (mentionUsersResult.status === 'fulfilled') {
+    directory.mentionUsers = mentionUsersResult.value
+    directory.usersFetchedAt = now
+  }
+  if (channelsResult.status === 'fulfilled') {
+    const channels = channelsResult.value
+    const channelStillExists = channels.some(channel => channel.id === settings.channelId)
+    directory.channels = channels
+    directory.channelsFetchedAt = now
+    directory.channelId = channelStillExists ? settings.channelId : (settings.channelId || '')
+  }
+  const errors = [mentionUsersResult, channelsResult]
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map(result => result.reason instanceof Error ? result.reason.message : String(result.reason))
+  if (errors.length === 2) throw new Error(errors.join('; '))
+  if (errors.length > 0) console.warn('Loupe: partial Slack directory refresh failed', errors.join('; '))
+  return directory
+}
+
+async function refreshSlackChannelsOnly(settings: SlackPublishSettings, token: string): Promise<Partial<SlackPublishSettings>> {
+  if (!token.trim()) throw new Error('Slack token is missing')
+  const channels = await fetchSlackChannels(token)
+  const now = new Date().toISOString()
+  const channelStillExists = channels.some(channel => channel.id === settings.channelId)
+  return {
+    channels,
+    channelsFetchedAt: now,
+    channelId: channelStillExists ? settings.channelId : (settings.channelId || ''),
+  }
 }
 
 function exportDirForSession(root: string, session: Session): string {
@@ -453,7 +510,7 @@ function buildSlackSummaryText(session: Session, entries: ReportEntry[], pdfPath
       return `#${String(entry.index).padStart(2, '0')} [${entry.severityLabel}] ${note} (${formatReportTime(entry.clipStartMs)}-${formatReportTime(entry.clipEndMs)})`
     }),
     '',
-    `PDF: ${pdfPath}`,
+    pdfPath ? 'PDF: attached' : '',
   ]
   return `${lines.filter((line, index, arr) => line || arr[index - 1]).join('\n')}\n`
 }
@@ -1049,6 +1106,42 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
 }
 
 export function registerIpc(deps: IpcDeps): void {
+  slackOAuthCallbackHandler = async (callbackUrl: string) => {
+    const win = deps.getWindow()
+    try {
+      const callback = parseSlackOAuthCallback(callbackUrl)
+      if (!pendingSlackOAuth || pendingSlackOAuth.state !== callback.state) throw new Error('Slack OAuth state does not match this Loupe session')
+      if (Date.now() - pendingSlackOAuth.createdAt > 10 * 60 * 1000) throw new Error('Slack OAuth code expired; please start login again')
+      const codeVerifier = pendingSlackOAuth.codeVerifier
+      pendingSlackOAuth = null
+      const current = deps.settings.get().slack
+      const oauth = await exchangeSlackOAuthCode({ code: callback.code, codeVerifier, settings: current })
+      let settings = deps.settings.setSlack({
+        ...current,
+        userToken: oauth.userToken,
+        publishIdentity: 'user',
+        oauthUserId: oauth.userId,
+        oauthTeamId: oauth.teamId,
+        oauthTeamName: oauth.teamName,
+        oauthConnectedAt: new Date().toISOString(),
+        oauthUserScopes: oauth.scopes,
+      })
+      try {
+        const directory = await refreshSlackDirectory(settings.slack, oauth.userToken)
+        settings = deps.settings.setSlack({
+          ...settings.slack,
+          ...directory,
+        })
+      } catch (err) {
+        console.warn('Loupe: failed to refresh Slack directory after Slack OAuth', err)
+      }
+      win?.webContents.send(CHANNEL.settingsSlackOAuthCompleted, { ok: true, settings })
+    } catch (err) {
+      pendingSlackOAuth = null
+      win?.webContents.send(CHANNEL.settingsSlackOAuthCompleted, { ok: false, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   ipcMain.handle(CHANNEL.doctor, async (): Promise<ToolCheck[]> => doctor(deps.runner))
   ipcMain.handle(CHANNEL.showItemInFolder, async (_e, path: string) => shell.showItemInFolder(path))
   ipcMain.handle(CHANNEL.openPath, async (_e, path: string) => {
@@ -1216,16 +1309,16 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => {
     let settings = deps.settings.setSlack(slack)
-    if (settings.slack.botToken.trim() && (settings.slack.mentionUsers ?? []).length === 0) {
+    const token = slackApiTokenForUsers(settings.slack)
+    if (token && (settings.slack.mentionUsers ?? []).length === 0 && (settings.slack.channels ?? []).length === 0) {
       try {
-        const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
+        const directory = await refreshSlackDirectory(settings.slack, token)
         settings = deps.settings.setSlack({
           ...settings.slack,
-          mentionUsers,
-          usersFetchedAt: new Date().toISOString(),
+          ...directory,
         })
       } catch (err) {
-        console.warn('Loupe: failed to refresh Slack users after saving settings', err)
+        console.warn('Loupe: failed to refresh Slack directory after saving settings', err)
       }
     }
     return settings
@@ -1233,12 +1326,30 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, gitlab: GitLabPublishSettings) => deps.settings.setGitLab(gitlab))
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
     const settings = deps.settings.get()
-    const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
+    const token = slackApiTokenForUsers(settings.slack)
+    const directory = (settings.slack.mentionUsers ?? []).length > 0 && (settings.slack.channels ?? []).length === 0
+      ? await refreshSlackChannelsOnly(settings.slack, token)
+      : await refreshSlackDirectory(settings.slack, token)
     return deps.settings.setSlack({
       ...settings.slack,
-      mentionUsers,
-      usersFetchedAt: new Date().toISOString(),
+      ...directory,
     })
+  })
+  ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async () => {
+    const settings = deps.settings.get()
+    const directory = await refreshSlackChannelsOnly(settings.slack, slackApiTokenForUsers(settings.slack))
+    return deps.settings.setSlack({
+      ...settings.slack,
+      ...directory,
+    })
+  })
+  ipcMain.handle(CHANNEL.settingsStartSlackUserOAuth, async (_e, slack: SlackPublishSettings) => {
+    const settings = deps.settings.setSlack(slack)
+    const state = randomBytes(18).toString('base64url')
+    const pkce = createSlackPkce()
+    pendingSlackOAuth = { state, codeVerifier: pkce.codeVerifier, createdAt: Date.now() }
+    await shell.openExternal(buildSlackUserOAuthUrl(settings.slack, state, pkce.codeChallenge))
+    return settings
   })
   ipcMain.handle(CHANNEL.settingsSetLocale, async (_e, locale: AppLocale) => deps.settings.setLocale(locale))
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))

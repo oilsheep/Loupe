@@ -54,6 +54,8 @@ function fakeApi(): DesktopApi {
       setSlack: vi.fn() as any,
       setGitLab: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,
+      refreshSlackChannels: vi.fn() as any,
+      startSlackUserOAuth: vi.fn() as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,
@@ -62,6 +64,7 @@ function fakeApi(): DesktopApi {
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
+    onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }

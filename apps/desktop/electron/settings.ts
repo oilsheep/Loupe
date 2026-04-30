@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, GitLabPublishSettings, HotkeySettings, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, BugSeverity, GitLabPublishSettings, HotkeySettings, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
@@ -50,14 +50,51 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     if (label) mentionAliases[user.id] = label
   }
   const knownIds = new Set([...mentionUserIds, ...mentionUsers.map(user => user.id)])
+  const publishIdentity = raw?.publishIdentity === 'bot' ? 'bot' : 'user'
   return {
     botToken: raw?.botToken || '',
+    userToken: raw?.userToken || '',
+    publishIdentity,
     channelId: raw?.channelId || '',
+    oauthClientId: raw?.oauthClientId || '',
+    oauthClientSecret: raw?.oauthClientSecret || '',
+    oauthRedirectUri: raw?.oauthRedirectUri || '',
+    oauthUserId: raw?.oauthUserId || '',
+    oauthTeamId: raw?.oauthTeamId || '',
+    oauthTeamName: raw?.oauthTeamName || '',
+    oauthConnectedAt: typeof raw?.oauthConnectedAt === 'string' ? raw.oauthConnectedAt : null,
+    oauthUserScopes: Array.isArray(raw?.oauthUserScopes)
+      ? raw.oauthUserScopes.map(scope => String(scope).trim()).filter(Boolean)
+      : [],
+    channels: normalizeSlackChannels(raw?.channels),
+    channelsFetchedAt: typeof raw?.channelsFetchedAt === 'string' ? raw.channelsFetchedAt : null,
     mentionUserIds,
     mentionAliases: Object.fromEntries(Object.entries(mentionAliases).filter(([id]) => knownIds.has(id))),
     mentionUsers,
     usersFetchedAt: typeof raw?.usersFetchedAt === 'string' ? raw.usersFetchedAt : null,
   }
+}
+
+function normalizeSlackChannels(raw?: unknown): SlackChannel[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  return raw
+    .map((channel): SlackChannel | null => {
+      if (!channel || typeof channel !== 'object') return null
+      const value = channel as Partial<SlackChannel>
+      const id = typeof value.id === 'string' ? value.id.trim() : ''
+      const name = typeof value.name === 'string' ? value.name.trim() : ''
+      if (!id || !name || seen.has(id)) return null
+      seen.add(id)
+      return {
+        id,
+        name,
+        isPrivate: Boolean(value.isPrivate),
+        isArchived: Boolean(value.isArchived),
+        isMember: Boolean(value.isMember),
+      }
+    })
+    .filter(Boolean) as SlackChannel[]
 }
 
 function normalizeSlackMentionUsers(raw?: unknown): SlackMentionUser[] {

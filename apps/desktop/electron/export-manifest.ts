@@ -20,6 +20,7 @@ export interface ExportManifest {
   reportPdfPath: string | null
   publish: {
     target: 'local' | 'slack' | 'gitlab'
+    targets: Array<'local' | 'slack' | 'gitlab'>
     slackThreadMode: 'single-thread' | 'per-marker-thread' | null
     gitlabMode: 'single-issue' | 'per-marker-issue' | null
   }
@@ -87,6 +88,7 @@ function severityStyle(severities: SeveritySettings | undefined, severity: BugSe
 export function buildExportManifest(args: BuildExportManifestArgs): ExportManifest {
   const fileByBug = new Map(args.files.map(file => [file.bugId, file]))
   const publish = args.publish ?? { target: 'local' as const }
+  const targets = Array.from(new Set(publish.targets && publish.targets.length > 0 ? publish.targets : [publish.target]))
   return {
     version: 1,
     createdAt: new Date(args.now ?? Date.now()).toISOString(),
@@ -94,8 +96,9 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
     reportPdfPath: args.reportPdfPath ?? null,
     publish: {
       target: publish.target,
-      slackThreadMode: publish.target === 'slack' ? publish.slackThreadMode ?? 'single-thread' : null,
-      gitlabMode: publish.target === 'gitlab' ? publish.gitlabMode ?? 'single-issue' : null,
+      targets,
+      slackThreadMode: targets.includes('slack') ? publish.slackThreadMode ?? 'single-thread' : null,
+      gitlabMode: targets.includes('gitlab') ? publish.gitlabMode ?? 'single-issue' : null,
     },
     session: {
       id: args.session.id,
@@ -155,6 +158,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Logcat Path',
       'Report PDF Path',
       'Publish Target',
+      'Publish Targets',
       'Slack Thread Mode',
       'GitLab Mode',
     ],
@@ -177,6 +181,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       marker.logcatPath ?? '',
       manifest.reportPdfPath ?? '',
       manifest.publish.target,
+      manifest.publish.targets.join(';'),
       manifest.publish.slackThreadMode ?? '',
       manifest.publish.gitlabMode ?? '',
     ]),
@@ -233,7 +238,7 @@ export function writeExportManifests(args: BuildExportManifestArgs): { manifest:
   let slackPlanPath: string | null = null
   writeFileSync(jsonPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
   writeFileSync(csvPath, manifestToCsv(manifest), 'utf8')
-  if (manifest.publish.target === 'slack') {
+  if (manifest.publish.targets.includes('slack')) {
     slackPlanPath = join(args.outDir, 'slack-publish-plan.json')
     writeFileSync(slackPlanPath, `${JSON.stringify(slackThreadPayload(manifest), null, 2)}\n`, 'utf8')
   }

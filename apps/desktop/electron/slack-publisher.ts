@@ -2,7 +2,7 @@ import { basename } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
 import { slackSessionMessage } from './export-manifest'
-import type { SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { appendMentionLine, slackMentionText } from './mention-format'
 
 interface ManifestPaths {
@@ -29,11 +29,30 @@ interface SlackApiResponse {
       real_name_normalized?: string
     }
   }>
+  channels?: Array<{
+    id?: string
+    name?: string
+    is_channel?: boolean
+    is_group?: boolean
+    is_private?: boolean
+    is_archived?: boolean
+    is_member?: boolean
+  }>
   response_metadata?: { next_cursor?: string }
 }
 
 interface SlackPublisherFetch {
   (input: string, init?: RequestInit): Promise<Response>
+}
+
+class SlackRateLimitError extends Error {
+  retryAfterSec: number
+
+  constructor(method: string, retryAfterSec: number) {
+    super(`Slack ${method} failed: ratelimited`)
+    this.name = 'SlackRateLimitError'
+    this.retryAfterSec = retryAfterSec
+  }
 }
 
 export interface SlackPublishResult {
@@ -44,7 +63,11 @@ export interface SlackPublishResult {
   uploadErrors: string[]
 }
 
-async function slackApi(fetchImpl: SlackPublisherFetch, token: string, method: string, body: Record<string, unknown>): Promise<SlackApiResponse> {
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function slackApi(fetchImpl: SlackPublisherFetch, token: string, method: string, body: Record<string, unknown>, attempt = 0): Promise<SlackApiResponse> {
   const form = new URLSearchParams()
   for (const [key, value] of Object.entries(body)) {
     if (value == null) continue
@@ -58,7 +81,15 @@ async function slackApi(fetchImpl: SlackPublisherFetch, token: string, method: s
     },
     body: form.toString(),
   })
-  const payload = await response.json() as SlackApiResponse
+  const payload = await response.json().catch(() => ({})) as SlackApiResponse
+  const retryAfterSec = Number(response.headers.get('retry-after') || '0')
+  if ((response.status === 429 || payload.error === 'ratelimited') && attempt < 2) {
+    await sleep(Math.max(1, Math.min(retryAfterSec || 2, 8)) * 1000)
+    return slackApi(fetchImpl, token, method, body, attempt + 1)
+  }
+  if (response.status === 429 || payload.error === 'ratelimited') {
+    throw new SlackRateLimitError(method, retryAfterSec)
+  }
   if (!response.ok || !payload.ok) {
     throw new Error(`Slack ${method} failed: ${payload.error || response.statusText}`)
   }
@@ -67,7 +98,7 @@ async function slackApi(fetchImpl: SlackPublisherFetch, token: string, method: s
 
 export async function fetchSlackMentionUsers(token: string, fetchImpl: SlackPublisherFetch = fetch): Promise<SlackMentionUser[]> {
   const botToken = token.trim()
-  if (!botToken) throw new Error('Slack bot token is missing')
+  if (!botToken) throw new Error('Slack token is missing')
   const users: SlackMentionUser[] = []
   let cursor = ''
   do {
@@ -162,24 +193,68 @@ async function uploadFileCollectingErrors(
 }
 
 function validateSettings(settings: SlackPublishSettings): void {
-  if (!settings.botToken.trim()) throw new Error('Slack bot token is missing')
+  if (!slackPublishToken(settings)) {
+    throw new Error(settings.publishIdentity === 'user' ? 'Slack user OAuth token is missing' : 'Slack bot token is missing')
+  }
   if (!settings.channelId.trim()) throw new Error('Slack channel ID is missing')
+}
+
+export async function fetchSlackChannels(token: string, fetchImpl: SlackPublisherFetch = fetch): Promise<SlackChannel[]> {
+  const slackToken = token.trim()
+  if (!slackToken) throw new Error('Slack token is missing')
+  const channels: SlackChannel[] = []
+  let cursor = ''
+  do {
+    let payload: SlackApiResponse
+    try {
+      payload = await slackApi(fetchImpl, slackToken, 'conversations.list', {
+        limit: '200',
+        types: 'public_channel,private_channel',
+        exclude_archived: 'true',
+        ...(cursor ? { cursor } : {}),
+      })
+    } catch (err) {
+      if (err instanceof SlackRateLimitError && channels.length > 0) break
+      throw err
+    }
+    for (const channel of payload.channels ?? []) {
+      const id = channel.id?.trim()
+      const name = channel.name?.trim()
+      if (!id || !name || channel.is_archived) continue
+      channels.push({
+        id,
+        name,
+        isPrivate: Boolean(channel.is_private || channel.is_group),
+        isArchived: Boolean(channel.is_archived),
+        isMember: Boolean(channel.is_member),
+      })
+    }
+    cursor = payload.response_metadata?.next_cursor?.trim() || ''
+  } while (cursor)
+  return channels.sort((a, b) => Number(a.isPrivate) - Number(b.isPrivate) || a.name.localeCompare(b.name))
+}
+
+function slackPublishToken(settings: SlackPublishSettings): string {
+  return (settings.publishIdentity === 'user' ? settings.userToken : settings.botToken)?.trim() || ''
 }
 
 function markerTitle(marker: ExportManifest['markers'][number]): string {
   return `[${marker.severityLabel || marker.severity}] ${marker.note.trim() || 'No note'}`
 }
 
-function rootMessageText(manifest: ExportManifest, paths: ManifestPaths): string {
+function rootMessageText(manifest: ExportManifest, paths: ManifestPaths, mentionIds: string[] = []): string {
+  const mentionText = slackMentionText(mentionIds)
   const summaryPath = paths.summaryTextPath
+  let text = ''
   if (summaryPath && existsSync(summaryPath)) {
     const summary = readFileSync(summaryPath, 'utf8').trimEnd()
-    if (summary) return summary
+    if (summary) text = summary
   }
-  return slackSessionMessage(manifest).trimEnd()
+  if (!text) text = slackSessionMessage(manifest).trimEnd()
+  return appendMentionLine(text, mentionText)
 }
 
-function markerMessageText(marker: ExportManifest['markers'][number], fallbackMentions: string[]): string {
+function markerMessageText(marker: ExportManifest['markers'][number], fallbackMentions: string[] = []): string {
   const mentionText = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
   return appendMentionLine(markerTitle(marker), mentionText)
 }
@@ -214,7 +289,7 @@ export async function publishManifestToSlack(args: {
 }): Promise<SlackPublishResult> {
   validateSettings(args.settings)
   const fetchImpl = args.fetchImpl ?? fetch
-  const botToken = args.settings.botToken.trim()
+  const token = slackPublishToken(args.settings)
   const channelId = args.settings.channelId.trim()
   const fallbackMentions = args.settings.mentionUserIds ?? []
   const mode = args.manifest.publish.slackThreadMode ?? 'single-thread'
@@ -222,34 +297,34 @@ export async function publishManifestToSlack(args: {
   const markerThreadTs: Record<string, string> = {}
 
   if (mode === 'single-thread') {
-    const rootTs = await postMessage(fetchImpl, botToken, channelId, rootMessageText(args.manifest, args.manifestPaths))
+    const rootTs = await postMessage(fetchImpl, token, channelId, rootMessageText(args.manifest, args.manifestPaths, fallbackMentions))
     const reportPdfPath = args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath
     if (reportPdfPath) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
     }
     for (const marker of args.manifest.markers) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker, fallbackMentions))
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, rootTs, markerMessageText(marker))
     }
     if (uploadErrors.length > 0) {
-      await postMessage(fetchImpl, botToken, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
+      await postMessage(fetchImpl, token, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
     }
     return { channelId, rootTs, markerThreadTs, mode, uploadErrors }
   } else {
     const reportPdfPath = args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath
-    const rootTs = await postMessage(fetchImpl, botToken, channelId, rootMessageText(args.manifest, args.manifestPaths))
+    const rootTs = await postMessage(fetchImpl, token, channelId, rootMessageText(args.manifest, args.manifestPaths))
     if (reportPdfPath) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
     }
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
       const markerText = markerMessageText(marker, fallbackMentions)
-      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerText)
+      const markerRootTs = await postMessage(fetchImpl, token, channelId, markerText)
       markerThreadTs[marker.id] = markerRootTs
-      await postMessage(fetchImpl, botToken, channelId, markerThreadInfoText(args.manifest), markerRootTs)
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, markerRootTs)
+      await postMessage(fetchImpl, token, channelId, markerThreadInfoText(args.manifest), markerRootTs)
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, markerRootTs)
       const markerErrors = uploadErrors.slice(firstErrorIndex)
       if (markerErrors.length > 0) {
-        await postMessage(fetchImpl, botToken, channelId, `Loupe finished this marker with upload error(s):\n${markerErrors.map(error => `- ${error}`).join('\n')}`, markerRootTs)
+        await postMessage(fetchImpl, token, channelId, `Loupe finished this marker with upload error(s):\n${markerErrors.map(error => `- ${error}`).join('\n')}`, markerRootTs)
       }
     }
     return { channelId, rootTs, markerThreadTs, mode, uploadErrors }

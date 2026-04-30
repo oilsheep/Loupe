@@ -52,6 +52,8 @@ const api: DesktopApi = {
     setSlack:          (settings) => ipcRenderer.invoke(CHANNEL.settingsSetSlack, settings),
     setGitLab:         (settings) => ipcRenderer.invoke(CHANNEL.settingsSetGitLab, settings),
     refreshSlackUsers: ()        => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackUsers),
+    refreshSlackChannels: ()     => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackChannels),
+    startSlackUserOAuth: (settings) => ipcRenderer.invoke(CHANNEL.settingsStartSlackUserOAuth, settings),
     setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
     chooseExportRoot: ()        => ipcRenderer.invoke(CHANNEL.settingsChooseExportRoot),
@@ -75,6 +77,11 @@ const api: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
     ipcRenderer.on(CHANNEL.sessionLoadProgress, handler)
     return () => ipcRenderer.removeListener(CHANNEL.sessionLoadProgress, handler)
+  },
+  onSlackOAuthCompleted: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: any) => cb(result)
+    ipcRenderer.on(CHANNEL.settingsSlackOAuthCompleted, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.settingsSlackOAuthCompleted, handler)
   },
   _resolveAssetPath: (id, relPath) => ipcRenderer.invoke(CHANNEL.sessionResolveAssetPath, id, relPath),
 }
