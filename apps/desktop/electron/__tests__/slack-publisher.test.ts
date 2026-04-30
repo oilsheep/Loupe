@@ -86,7 +86,7 @@ describe('Slack publisher', () => {
       const result = await publishManifestToSlack({
         manifest,
         manifestPaths: { jsonPath, csvPath },
-        settings: { botToken: 'xoxb-test', channelId: 'C123' },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
         fetchImpl,
       })
 
@@ -131,7 +131,7 @@ describe('Slack publisher', () => {
       const result = await publishManifestToSlack({
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
-        settings: { botToken: 'xoxb-test', channelId: 'C123' },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: ['U123'], mentionAliases: { U123: 'Miki' } },
         fetchImpl,
       })
 
@@ -139,7 +139,7 @@ describe('Slack publisher', () => {
       expect(result.markerThreadTs.b1).toBe('123.456')
       const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
       expect(messageCalls).toHaveLength(2)
-      expect(formBody(messageCalls[0]?.[1]).get('text')).toBe('[Critical] login crash')
+      expect(formBody(messageCalls[0]?.[1]).get('text')).toBe('<@U123>\n[Critical] login crash')
       expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('RAM: 8.0G')
       expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('Graphic Device: Qualcomm Adreno 740')
       expect(formBody(messageCalls[1]?.[1]).get('thread_ts')).toBe('123.456')
@@ -184,7 +184,7 @@ describe('Slack publisher', () => {
       const result = await publishManifestToSlack({
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
-        settings: { botToken: 'xoxb-test', channelId: 'C123' },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
         fetchImpl,
       })
 

@@ -15,10 +15,10 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
-        slack: { botToken: '', channelId: '' },
+        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
       })
 
-      expect(store.get().slack).toEqual({ botToken: '', channelId: '' })
+      expect(store.get().slack).toEqual({ botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -33,13 +33,25 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
-        slack: { botToken: '', channelId: '' },
+        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
       })
 
-      const settings = store.setSlack({ botToken: ' xoxb-test ', channelId: ' C123 ' })
+      const settings = store.setSlack({
+        botToken: ' xoxb-test ',
+        channelId: ' C123 ',
+        mentionUserIds: [' <@U123> ', '@U456', 'U123'],
+        mentionAliases: { U123: 'Miki', U456: 'QA Lead', U789: 'Unused' },
+      })
 
       expect(settings.exportRoot).toBe('/default')
-      expect(settings.slack).toEqual({ botToken: ' xoxb-test ', channelId: ' C123 ' })
+      expect(settings.slack).toEqual({
+        botToken: ' xoxb-test ',
+        channelId: ' C123 ',
+        mentionUserIds: ['U123', 'U456'],
+        mentionAliases: { U123: 'Miki', U456: 'QA Lead' },
+        mentionUsers: [],
+        usersFetchedAt: null,
+      })
       expect(store.get().slack.channelId).toBe(' C123 ')
     } finally {
       rmSync(root, { recursive: true, force: true })

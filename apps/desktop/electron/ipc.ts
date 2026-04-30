@@ -14,7 +14,7 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, HotkeySettings, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
-import { publishManifestToSlack } from './slack-publisher'
+import { fetchSlackMentionUsers, publishManifestToSlack } from './slack-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
@@ -60,6 +60,7 @@ export const CHANNEL = {
   settingsSetExportRoot:   'settings:setExportRoot',
   settingsSetHotkeys:      'settings:setHotkeys',
   settingsSetSlack:        'settings:setSlack',
+  settingsRefreshSlackUsers:'settings:refreshSlackUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsChooseExportRoot:'settings:chooseExportRoot',
@@ -1119,7 +1120,7 @@ export function registerIpc(deps: IpcDeps): void {
     return join(deps.paths.sessionDir(sessionId), relPath)
   })
 
-  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch) => deps.manager.updateBug(id, patch))
+  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; preSec: number; postSec: number; mentionUserIds?: string[] }) => deps.manager.updateBug(id, patch))
   ipcMain.handle(CHANNEL.bugGetLogcatPreview, async (_e, args: { sessionId: string; relPath: string; maxLines?: number }) => {
     const filePath = join(deps.paths.sessionDir(args.sessionId), args.relPath)
     if (!existsSync(filePath)) return null
@@ -1142,7 +1143,31 @@ export function registerIpc(deps: IpcDeps): void {
     deps.setHotkeys(settings.hotkeys)
     return settings
   })
-  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => deps.settings.setSlack(slack))
+  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, slack: SlackPublishSettings) => {
+    let settings = deps.settings.setSlack(slack)
+    if (settings.slack.botToken.trim() && (settings.slack.mentionUsers ?? []).length === 0) {
+      try {
+        const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
+        settings = deps.settings.setSlack({
+          ...settings.slack,
+          mentionUsers,
+          usersFetchedAt: new Date().toISOString(),
+        })
+      } catch (err) {
+        console.warn('Loupe: failed to refresh Slack users after saving settings', err)
+      }
+    }
+    return settings
+  })
+  ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
+    const settings = deps.settings.get()
+    const mentionUsers = await fetchSlackMentionUsers(settings.slack.botToken)
+    return deps.settings.setSlack({
+      ...settings.slack,
+      mentionUsers,
+      usersFetchedAt: new Date().toISOString(),
+    })
+  })
   ipcMain.handle(CHANNEL.settingsSetLocale, async (_e, locale: AppLocale) => deps.settings.setLocale(locale))
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))
   ipcMain.handle(CHANNEL.settingsChooseExportRoot, async (): Promise<ReturnType<SettingsStore['get']> | null> => {

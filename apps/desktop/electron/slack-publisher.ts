@@ -2,7 +2,8 @@ import { basename } from 'node:path'
 import { readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
 import { slackSessionMessage } from './export-manifest'
-import type { SlackPublishSettings } from '@shared/types'
+import type { SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { appendMentionLine, slackMentionText } from './mention-format'
 
 interface ManifestPaths {
   jsonPath: string
@@ -15,6 +16,18 @@ interface SlackApiResponse {
   ts?: string
   file_id?: string
   upload_url?: string
+  members?: Array<{
+    id?: string
+    name?: string
+    deleted?: boolean
+    is_bot?: boolean
+    profile?: {
+      display_name?: string
+      real_name?: string
+      real_name_normalized?: string
+    }
+  }>
+  response_metadata?: { next_cursor?: string }
 }
 
 interface SlackPublisherFetch {
@@ -48,6 +61,37 @@ async function slackApi(fetchImpl: SlackPublisherFetch, token: string, method: s
     throw new Error(`Slack ${method} failed: ${payload.error || response.statusText}`)
   }
   return payload
+}
+
+export async function fetchSlackMentionUsers(token: string, fetchImpl: SlackPublisherFetch = fetch): Promise<SlackMentionUser[]> {
+  const botToken = token.trim()
+  if (!botToken) throw new Error('Slack bot token is missing')
+  const users: SlackMentionUser[] = []
+  let cursor = ''
+  do {
+    const payload = await slackApi(fetchImpl, botToken, 'users.list', {
+      limit: '200',
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const member of payload.members ?? []) {
+      const id = member.id?.trim()
+      if (!id || member.deleted || member.is_bot || id === 'USLACKBOT') continue
+      users.push({
+        id,
+        name: member.name?.trim() || '',
+        displayName: member.profile?.display_name?.trim() || '',
+        realName: member.profile?.real_name_normalized?.trim() || member.profile?.real_name?.trim() || '',
+        deleted: Boolean(member.deleted),
+        isBot: Boolean(member.is_bot),
+      })
+    }
+    cursor = payload.response_metadata?.next_cursor?.trim() || ''
+  } while (cursor)
+  return users.sort((a, b) => mentionSortLabel(a).localeCompare(mentionSortLabel(b)))
+}
+
+function mentionSortLabel(user: SlackMentionUser): string {
+  return user.displayName || user.realName || user.name || user.id
 }
 
 function slackUploadFilename(filePath: string): string {
@@ -145,17 +189,20 @@ export async function publishManifestToSlack(args: {
   const fetchImpl = args.fetchImpl ?? fetch
   const botToken = args.settings.botToken.trim()
   const channelId = args.settings.channelId.trim()
+  const fallbackMentions = args.settings.mentionUserIds ?? []
   const mode = args.manifest.publish.slackThreadMode ?? 'single-thread'
   const uploadErrors: string[] = []
   const markerThreadTs: Record<string, string> = {}
 
   if (mode === 'single-thread') {
-    const rootTs = await postMessage(fetchImpl, botToken, channelId, slackSessionMessage(args.manifest).trimEnd())
+    const rootMentions = slackMentionText(uniqueStrings(args.manifest.markers.flatMap(marker => marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)))
+    const rootTs = await postMessage(fetchImpl, botToken, channelId, appendMentionLine(slackSessionMessage(args.manifest).trimEnd(), rootMentions))
     for (const marker of args.manifest.markers) {
+      const markerMentions = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
       const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
       for (let i = 0; i < files.length; i++) {
         const text = i === 0
-          ? [markerTitle(marker), '', 'Note:', marker.note.trim() || '(none)'].join('\n')
+          ? appendMentionLine([markerTitle(marker), '', 'Note:', marker.note.trim() || '(none)'].join('\n'), markerMentions)
           : undefined
         await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, files[i], rootTs, text)
       }
@@ -167,7 +214,8 @@ export async function publishManifestToSlack(args: {
   } else {
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
-      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerTitle(marker))
+      const markerMentions = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
+      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, appendMentionLine(markerTitle(marker), markerMentions))
       markerThreadTs[marker.id] = markerRootTs
       await postMessage(fetchImpl, botToken, channelId, deviceDetailLines(args.manifest.session).join('\n'), markerRootTs)
       const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
@@ -182,4 +230,8 @@ export async function publishManifestToSlack(args: {
   }
 
   return { channelId, rootTs: null, markerThreadTs, mode, uploadErrors }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map(value => value.trim()).filter(Boolean)))
 }

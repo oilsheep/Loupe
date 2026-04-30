@@ -33,6 +33,19 @@ export interface HotkeySettings {
 export interface SlackPublishSettings {
   botToken: string
   channelId: string
+  mentionUserIds?: string[]
+  mentionAliases?: Record<string, string>
+  mentionUsers?: SlackMentionUser[]
+  usersFetchedAt?: string | null
+}
+
+export interface SlackMentionUser {
+  id: string
+  name: string
+  displayName: string
+  realName: string
+  deleted?: boolean
+  isBot?: boolean
 }
 
 export interface AppSettings {
@@ -78,6 +91,8 @@ export interface Bug {
   preSec: number
   /** Seconds after offsetMs to include when exporting a clip. */
   postSec: number
+  /** Slack user IDs to mention when this marker is published. */
+  mentionUserIds?: string[]
 }
 
 export type PublishTarget = 'local' | 'slack'
@@ -169,7 +184,7 @@ export interface DesktopApi {
   bug: {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string }): Promise<Bug>
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
-    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }): Promise<void>
+    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }): Promise<void>
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
@@ -186,6 +201,7 @@ export interface DesktopApi {
     setExportRoot(path: string):                                   Promise<AppSettings>
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
+    refreshSlackUsers():                                            Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     chooseExportRoot():                                            Promise<AppSettings | null>

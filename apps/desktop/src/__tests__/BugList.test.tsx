@@ -50,6 +50,7 @@ function fakeApi(): DesktopApi {
       setExportRoot: vi.fn().mockResolvedValue({ exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack: { botToken: '', channelId: '' } }) as any,
       setHotkeys: vi.fn() as any,
       setSlack: vi.fn() as any,
+      refreshSlackUsers: vi.fn() as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,

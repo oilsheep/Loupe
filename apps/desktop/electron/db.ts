@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS bugs (
   audio_duration_ms INTEGER,
   created_at INTEGER NOT NULL,
   pre_sec INTEGER NOT NULL DEFAULT 5,
-  post_sec INTEGER NOT NULL DEFAULT 5
+  post_sec INTEGER NOT NULL DEFAULT 5,
+  mention_user_ids TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -65,6 +66,17 @@ function rowToBug(r: any): Bug {
     audioRel: r.audio_rel ?? null, audioDurationMs: r.audio_duration_ms ?? null,
     createdAt: r.created_at,
     preSec: r.pre_sec, postSec: r.post_sec,
+    mentionUserIds: parseJsonStringArray(r.mention_user_ids),
+  }
+}
+
+function parseJsonStringArray(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(item => String(item).trim()).filter(Boolean) : []
+  } catch {
+    return []
   }
 }
 
@@ -122,6 +134,7 @@ function migrate(db: Database.Database): void {
   if (!cols.includes('post_sec')) db.exec(`ALTER TABLE bugs ADD COLUMN post_sec INTEGER NOT NULL DEFAULT 5`)
   if (!cols.includes('audio_rel')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_rel TEXT`)
   if (!cols.includes('audio_duration_ms')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_duration_ms INTEGER`)
+  if (!cols.includes('mention_user_ids')) db.exec(`ALTER TABLE bugs ADD COLUMN mention_user_ids TEXT NOT NULL DEFAULT '[]'`)
 
   const bugTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='bugs'`).get() as { sql?: string } | undefined
   if (!bugTable?.sql?.includes(`'note'`) || bugTable?.sql?.includes(`CHECK(severity IN`)) {
@@ -139,10 +152,11 @@ function migrate(db: Database.Database): void {
         audio_duration_ms INTEGER,
         created_at INTEGER NOT NULL,
         pre_sec INTEGER NOT NULL DEFAULT 5,
-        post_sec INTEGER NOT NULL DEFAULT 5
+        post_sec INTEGER NOT NULL DEFAULT 5,
+        mention_user_ids TEXT NOT NULL DEFAULT '[]'
       );
-      INSERT INTO bugs_new (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec)
-      SELECT id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec FROM bugs;
+      INSERT INTO bugs_new (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids)
+      SELECT id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids FROM bugs;
       DROP TABLE bugs;
       ALTER TABLE bugs_new RENAME TO bugs;
       CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -195,8 +209,8 @@ export function openDb(file: string) {
   const deleteSessionStmt= db.prepare(`DELETE FROM sessions WHERE id = ?`)
 
   const insertBugStmt = db.prepare(`
-    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec)
-    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec)
+    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids)
+    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec, @mentionUserIdsJson)
     ON CONFLICT(id) DO UPDATE SET
       session_id=excluded.session_id,
       offset_ms=excluded.offset_ms,
@@ -208,13 +222,15 @@ export function openDb(file: string) {
       audio_duration_ms=excluded.audio_duration_ms,
       created_at=excluded.created_at,
       pre_sec=excluded.pre_sec,
-      post_sec=excluded.post_sec
+      post_sec=excluded.post_sec,
+      mention_user_ids=excluded.mention_user_ids
   `)
-  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, pre_sec=@preSec, post_sec=@postSec WHERE id=@id`)
+  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, pre_sec=@preSec, post_sec=@postSec, mention_user_ids=@mentionUserIdsJson WHERE id=@id`)
   const updateBugAssetsStmt = db.prepare(`UPDATE bugs SET screenshot_rel=@screenshotRel, logcat_rel=@logcatRel WHERE id=@id`)
   const updateBugAudioStmt = db.prepare(`UPDATE bugs SET audio_rel=@audioRel, audio_duration_ms=@audioDurationMs WHERE id=@id`)
   const deleteBugStmt = db.prepare(`DELETE FROM bugs WHERE id = ?`)
   const deleteBugsForSessionStmt = db.prepare(`DELETE FROM bugs WHERE session_id = ?`)
+  const getBugStmt = db.prepare(`SELECT * FROM bugs WHERE id = ?`)
   const listBugsStmt  = db.prepare(`SELECT * FROM bugs WHERE session_id = ? ORDER BY offset_ms ASC`)
 
   return {
@@ -245,9 +261,12 @@ export function openDb(file: string) {
       return (listSessionsStmt.all() as any[]).map(rowToSession)
     },
     deleteSession(id: string) { deleteSessionStmt.run(id) },
-    insertBug(b: Bug) { insertBugStmt.run(b) },
-    updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
-      updateBugStmt.run({ id, ...patch })
+    insertBug(b: Bug) { insertBugStmt.run({ ...b, mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []) }) },
+    updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
+      const currentRow = getBugStmt.get(id) as any
+      if (!currentRow) return
+      const current = rowToBug(currentRow)
+      updateBugStmt.run({ id, ...patch, mentionUserIdsJson: JSON.stringify(patch.mentionUserIds ?? current.mentionUserIds) })
     },
     updateBugAssets(id: string, args: { screenshotRel: string | null; logcatRel: string | null }) {
       updateBugAssetsStmt.run({ id, ...args })

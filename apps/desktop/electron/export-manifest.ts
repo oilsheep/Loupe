@@ -48,6 +48,7 @@ export interface ExportManifest {
     videoPath: string
     previewPath: string
     logcatPath: string | null
+    mentionUserIds: string[]
   }>
 }
 
@@ -122,6 +123,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
         videoPath: file.videoPath,
         previewPath: file.previewPath,
         logcatPath: file.logcatPath,
+        mentionUserIds: bug.mentionUserIds ?? [],
       }
     }),
   }

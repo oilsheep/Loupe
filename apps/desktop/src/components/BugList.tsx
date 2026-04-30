@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, PublishTarget, SeveritySettings, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, PublishTarget, SeveritySettings, SlackMentionUser, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -56,6 +56,10 @@ function severityLabel(severities: SeveritySettings, severity: BugSeverity): str
 
 function severityColor(severities: SeveritySettings, severity: BugSeverity): string {
   return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
+}
+
+function slackUserLabel(user: SlackMentionUser): string {
+  return user.displayName || user.realName || user.name || user.id
 }
 
 function latestLogcatLines(logcat: string, lineCount: number): string {
@@ -441,6 +445,56 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
   )
 }
 
+interface MentionPickerProps {
+  users: SlackMentionUser[]
+  selectedIds: string[]
+  aliases: Record<string, string>
+  onChange(ids: string[]): void
+}
+
+function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerProps) {
+  const [open, setOpen] = useState(false)
+  const selected = new Set(selectedIds)
+  const labels = selectedIds.map(id => aliases[id] || users.find(user => user.id === id)?.displayName || users.find(user => user.id === id)?.realName || users.find(user => user.id === id)?.name || id)
+
+  function toggle(id: string) {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange([...next])
+  }
+
+  return (
+    <div className="relative" data-row-click-ignore="true">
+      <button
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        className="max-w-full rounded bg-zinc-800 px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-700"
+      >
+        {labels.length > 0 ? `Mention: ${labels.join(', ')}` : 'Mention people'}
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+          {users.length === 0 ? (
+            <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack users in Publish settings.</div>
+          ) : users.map(user => (
+            <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
+              <input
+                type="checkbox"
+                checked={selected.has(user.id)}
+                onChange={() => toggle(user.id)}
+                className="h-4 w-4 accent-blue-600"
+              />
+              <span className="min-w-0 flex-1 truncate">{slackUserLabel(user)}</span>
+              <span className="shrink-0 text-[10px] text-zinc-600">{user.id}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '' }: Props) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
@@ -463,6 +517,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
+  const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
   const visibleSeverityList = useMemo(() => visibleSeverities(severities), [severities])
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
@@ -470,7 +526,16 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const checkedIds = useMemo(() => bugs.filter(b => checked.has(b.id)).map(b => b.id), [bugs, checked])
 
   useEffect(() => {
-    api.settings.get().then(settings => setSeverities(settings.severities)).catch(() => {})
+    api.settings.get().then(settings => {
+      setSeverities(settings.severities)
+      const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
+      const fetchedIds = new Set(fetchedUsers.map(user => user.id))
+      const fallbackUsers = (settings.slack.mentionUserIds ?? [])
+        .filter(id => !fetchedIds.has(id))
+        .map(id => ({ id, name: '', displayName: settings.slack.mentionAliases?.[id] ?? id, realName: '' }))
+      setSlackUsers([...fetchedUsers, ...fallbackUsers])
+      setSlackAliases(settings.slack.mentionAliases ?? {})
+    }).catch(() => {})
   }, [api])
 
   useEffect(() => {
@@ -685,6 +750,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
+            slackUsers={slackUsers}
+            slackAliases={slackAliases}
             onToggleLogcat={() => setExpandedLogcatIds(prev => {
               const next = new Set(prev)
               if (next.has(b.id)) next.delete(b.id)
@@ -746,15 +813,18 @@ interface RowProps {
   tester: string
   severities: SeveritySettings
   visibleSeverities: BugSeverity[]
+  slackUsers: SlackMentionUser[]
+  slackAliases: Record<string, string>
   onToggleLogcat(): void
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onToggleLogcat, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, slackUsers, slackAliases, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
   const [post, setPost] = useState(bug.postSec)
+  const [mentionUserIds, setMentionUserIds] = useState(bug.mentionUserIds ?? [])
   const rowRef = useRef<HTMLLIElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -765,6 +835,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
   useEffect(() => { setNote(bug.note) }, [bug.note])
   useEffect(() => { setPre(bug.preSec) }, [bug.preSec])
   useEffect(() => { setPost(bug.postSec) }, [bug.postSec])
+  useEffect(() => { setMentionUserIds(bug.mentionUserIds ?? []) }, [bug.mentionUserIds])
   useEffect(() => {
     if (!shouldScrollIntoView) return
     rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -776,12 +847,13 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
     el.style.height = `${el.scrollHeight}px`
   }, [note])
 
-  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'preSec' | 'postSec'>>) {
+  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'preSec' | 'postSec' | 'mentionUserIds'>>) {
     await api.bug.update(bug.id, {
       note: bug.note,
       severity: bug.severity,
       preSec: bug.preSec,
       postSec: bug.postSec,
+      mentionUserIds: bug.mentionUserIds ?? [],
       ...patch,
     })
     onMutated()
@@ -802,6 +874,11 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
     const v = Math.max(CLIP_MIN_SEC, Math.min(CLIP_MAX_SEC, n))
     setPost(v)
     await save({ postSec: v })
+  }
+
+  async function changeMentions(ids: string[]) {
+    setMentionUserIds(ids)
+    await save({ mentionUserIds: ids })
   }
 
   async function del() {
@@ -975,6 +1052,13 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
             placeholder={t('bug.addNote')}
             data-testid={`note-${bug.id}`}
             className="min-h-8 w-full resize-none overflow-hidden break-words rounded bg-zinc-950/40 px-2 py-1 text-sm text-zinc-200 outline-none hover:bg-zinc-950 focus:bg-zinc-800 focus:ring-1 focus:ring-blue-600"
+          />
+
+          <MentionPicker
+            users={slackUsers}
+            selectedIds={mentionUserIds}
+            aliases={slackAliases}
+            onChange={changeMentions}
           />
 
           {logcatPreview && (

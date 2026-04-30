@@ -168,7 +168,7 @@ app.whenReady().then(async () => {
     hotkeys: DEFAULT_HOTKEYS,
     locale: 'system',
     severities: DEFAULT_SEVERITIES,
-    slack: { botToken: '', channelId: '' },
+    slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
   })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()

@@ -1,10 +1,38 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
 import type { AppLocale, SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
+
+function formatMentionInput(slack: SlackPublishSettings): string {
+  const fetchedIds = new Set((slack.mentionUsers ?? []).map(user => user.id))
+  return (slack.mentionUserIds ?? [])
+    .filter(id => !fetchedIds.has(id))
+    .map(id => slack.mentionAliases?.[id] ? `${slack.mentionAliases[id]}=${id}` : id)
+    .join(', ')
+}
+
+function parseMentionInput(value: string): { mentionUserIds: string[]; mentionAliases: Record<string, string> } {
+  const mentionUserIds: string[] = []
+  const mentionAliases: Record<string, string> = {}
+  for (const rawPart of value.split(/[,;\n]+/)) {
+    const part = rawPart.trim()
+    if (!part) continue
+    const pair = part.match(/^(.+?)\s*=\s*(<?@?[^>\s]+>?)$/)
+    const slackMention = part.match(/^(.+?)\s+<@([^>|]+)(?:\|[^>]+)?>$/)
+    const label = pair?.[1]?.trim() || slackMention?.[1]?.trim() || ''
+    const id = (pair?.[2] || slackMention?.[2] || part)
+      .trim()
+      .replace(/^<@([^>|]+)(?:\|[^>]+)?>$/, '$1')
+      .replace(/^@/, '')
+    if (!id || mentionUserIds.includes(id)) continue
+    mentionUserIds.push(id)
+    if (label && label !== id) mentionAliases[id] = label
+  }
+  return { mentionUserIds, mentionAliases }
+}
 
 export function Home() {
   const { t, locale, localeOptions, setLocale } = useI18n()
@@ -13,19 +41,24 @@ export function Home() {
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [opening, setOpening] = useState(false)
   const [exportRoot, setExportRoot] = useState('')
-  const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', channelId: '' })
+  const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+  const [slackMentionInput, setSlackMentionInput] = useState('')
   const [savingSlack, setSavingSlack] = useState(false)
   const [slackSaved, setSlackSaved] = useState(false)
+  const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
+  const [slackError, setSlackError] = useState('')
 
   useEffect(() => { api.doctor().then(setChecks) }, [])
   useEffect(() => {
     api.settings.get().then(s => {
       setExportRoot(s.exportRoot)
       setSlack(s.slack)
+      setSlackMentionInput(formatMentionInput(s.slack))
     })
   }, [])
 
   const missing = checks.filter(c => !c.ok)
+  const activeSlackUsers = useMemo(() => (slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot), [slack.mentionUsers])
 
   async function openSavedSession() {
     setOpening(true)
@@ -45,15 +78,40 @@ export function Home() {
   async function saveSlackSettings() {
     setSavingSlack(true)
     setSlackSaved(false)
+    setSlackError('')
     try {
+      const mentions = parseMentionInput(slackMentionInput)
       const settings = await api.settings.setSlack({
         botToken: slack.botToken.trim(),
         channelId: slack.channelId.trim(),
+        mentionUserIds: mentions.mentionUserIds,
+        mentionAliases: mentions.mentionAliases,
+        mentionUsers: slack.mentionUsers ?? [],
+        usersFetchedAt: slack.usersFetchedAt ?? null,
       })
       setSlack(settings.slack)
+      setSlackMentionInput(formatMentionInput(settings.slack))
       setSlackSaved(true)
+    } catch (err) {
+      setSlackError(err instanceof Error ? err.message : String(err))
     } finally {
       setSavingSlack(false)
+    }
+  }
+
+  async function refreshSlackUsers() {
+    setRefreshingSlackUsers(true)
+    setSlackSaved(false)
+    setSlackError('')
+    try {
+      const settings = await api.settings.refreshSlackUsers()
+      setSlack(settings.slack)
+      setSlackMentionInput(formatMentionInput(settings.slack))
+      setSlackSaved(true)
+    } catch (err) {
+      setSlackError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRefreshingSlackUsers(false)
     }
   }
 
@@ -222,6 +280,49 @@ export function Home() {
               />
             </label>
           </div>
+          <label className="mt-2 block text-xs text-zinc-500">
+            Slack mention fallback users
+            <input
+              value={slackMentionInput}
+              onChange={(e) => { setSlackMentionInput(e.target.value); setSlackSaved(false) }}
+              placeholder="Miki=U1234567890, QA Lead=<@U2345678901>"
+              className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </label>
+          <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-medium text-zinc-300">Slack users</div>
+                <div className="text-[11px] text-zinc-500">
+                  {slack.usersFetchedAt ? `Updated ${new Date(slack.usersFetchedAt).toLocaleString()}` : 'Not synced yet'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={refreshSlackUsers}
+                disabled={refreshingSlackUsers || !slack.botToken.trim()}
+                className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+              >
+                {refreshingSlackUsers ? 'Refreshing...' : 'Refresh users'}
+              </button>
+            </div>
+            <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800 bg-zinc-950">
+              {activeSlackUsers.length === 0 ? (
+                <div className="px-2 py-3 text-xs text-zinc-500">Refresh users to build a display-name mention list.</div>
+              ) : activeSlackUsers.map(user => {
+                const label = user.displayName || user.realName || user.name || user.id
+                return (
+                  <div key={user.id} className="flex items-center justify-between gap-3 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs text-zinc-200">{label}</div>
+                      <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` · @${user.name}` : ''}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
           <div className="mt-2 flex items-center justify-end gap-2">
             {slackSaved && <span className="text-xs text-emerald-300">Saved</span>}
             <button

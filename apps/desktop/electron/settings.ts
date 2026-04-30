@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, HotkeySettings, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, BugSeverity, HotkeySettings, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
   improvement: 'F6',
@@ -41,10 +42,44 @@ function normalizeHotkeys(raw?: Partial<HotkeySettings> & { note?: string }): Ho
 }
 
 function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettings {
+  const mentionUserIds = normalizeSlackMentionIds(raw?.mentionUserIds)
+  const mentionAliases = normalizeMentionAliases(raw?.mentionAliases)
+  const mentionUsers = normalizeSlackMentionUsers(raw?.mentionUsers)
+  for (const user of mentionUsers) {
+    const label = user.displayName || user.realName || user.name
+    if (label) mentionAliases[user.id] = label
+  }
+  const knownIds = new Set([...mentionUserIds, ...mentionUsers.map(user => user.id)])
   return {
     botToken: raw?.botToken || '',
     channelId: raw?.channelId || '',
+    mentionUserIds,
+    mentionAliases: Object.fromEntries(Object.entries(mentionAliases).filter(([id]) => knownIds.has(id))),
+    mentionUsers,
+    usersFetchedAt: typeof raw?.usersFetchedAt === 'string' ? raw.usersFetchedAt : null,
   }
+}
+
+function normalizeSlackMentionUsers(raw?: unknown): SlackMentionUser[] {
+  if (!Array.isArray(raw)) return []
+  const users = raw
+    .map((user): SlackMentionUser | null => {
+      if (!user || typeof user !== 'object') return null
+      const value = user as Partial<SlackMentionUser>
+      const id = typeof value.id === 'string' ? value.id.trim() : ''
+      if (!id) return null
+      return {
+        id,
+        name: typeof value.name === 'string' ? value.name.trim() : '',
+        displayName: typeof value.displayName === 'string' ? value.displayName.trim() : '',
+        realName: typeof value.realName === 'string' ? value.realName.trim() : '',
+        deleted: Boolean(value.deleted),
+        isBot: Boolean(value.isBot),
+      }
+    })
+    .filter(Boolean) as SlackMentionUser[]
+  const byId = new Map(users.map(user => [user.id, user]))
+  return [...byId.values()].sort((a, b) => (a.displayName || a.realName || a.name || a.id).localeCompare(b.displayName || b.realName || b.name || b.id))
 }
 
 function normalizeLocale(raw?: string): AppLocale {

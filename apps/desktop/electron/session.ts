@@ -203,6 +203,7 @@ export class SessionManager {
       audioDurationMs: null,
       createdAt: this.now(),
       preSec: 5, postSec: 5,
+      mentionUserIds: [],
     }
     db.insertBug(bug)
     this.persistProject(sess.id)
@@ -319,6 +320,7 @@ export class SessionManager {
       createdAt: this.now(),
       preSec: 5,
       postSec: 5,
+      mentionUserIds: [],
     }
     this.deps.db.insertBug(bug)
     this.persistProject(session.id)
@@ -344,7 +346,7 @@ export class SessionManager {
     this.persistProject(sessionId)
     return out
   }
-  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number }) {
+  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
     this.deps.db.updateBug(id, patch)
     const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
     if (session?.session_id) this.persistProject(session.session_id)
