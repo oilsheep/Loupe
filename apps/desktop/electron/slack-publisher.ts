@@ -1,13 +1,14 @@
 import { basename } from 'node:path'
-import { readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
 import { slackSessionMessage } from './export-manifest'
 import type { SlackMentionUser, SlackPublishSettings } from '@shared/types'
-import { appendMentionLine, slackMentionText } from './mention-format'
 
 interface ManifestPaths {
   jsonPath: string
   csvPath: string
+  reportPdfPath?: string | null
+  summaryTextPath?: string | null
 }
 
 interface SlackApiResponse {
@@ -168,15 +169,17 @@ function markerTitle(marker: ExportManifest['markers'][number]): string {
   return `[${marker.severityLabel || marker.severity}] ${marker.note.trim() || 'No note'}`
 }
 
-function deviceDetailLines(session: ExportManifest['session']): string[] {
-  const lines = [
-    `Build: ${session.buildVersion || '(none)'}`,
-    `Tester: ${session.tester || '(none)'}`,
-    `Device: ${session.deviceModel || '(none)'} / Android ${session.androidVersion || '(none)'}`,
-  ]
-  if (session.ramTotalGb != null) lines.push(`RAM: ${session.ramTotalGb.toFixed(1)}G`)
-  if (session.graphicsDevice) lines.push(`Graphic Device: ${session.graphicsDevice}`)
-  return lines
+function rootMessageText(manifest: ExportManifest, paths: ManifestPaths): string {
+  const summaryPath = paths.summaryTextPath
+  if (summaryPath && existsSync(summaryPath)) {
+    const summary = readFileSync(summaryPath, 'utf8').trimEnd()
+    if (summary) return summary
+  }
+  return slackSessionMessage(manifest).trimEnd()
+}
+
+function markerMessageText(marker: ExportManifest['markers'][number]): string {
+  return markerTitle(marker)
 }
 
 export async function publishManifestToSlack(args: {
@@ -189,49 +192,40 @@ export async function publishManifestToSlack(args: {
   const fetchImpl = args.fetchImpl ?? fetch
   const botToken = args.settings.botToken.trim()
   const channelId = args.settings.channelId.trim()
-  const fallbackMentions = args.settings.mentionUserIds ?? []
   const mode = args.manifest.publish.slackThreadMode ?? 'single-thread'
   const uploadErrors: string[] = []
   const markerThreadTs: Record<string, string> = {}
 
   if (mode === 'single-thread') {
-    const rootMentions = slackMentionText(uniqueStrings(args.manifest.markers.flatMap(marker => marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)))
-    const rootTs = await postMessage(fetchImpl, botToken, channelId, appendMentionLine(slackSessionMessage(args.manifest).trimEnd(), rootMentions))
+    const rootTs = await postMessage(fetchImpl, botToken, channelId, rootMessageText(args.manifest, args.manifestPaths))
+    const reportPdfPath = args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath
+    if (reportPdfPath) {
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
+    }
     for (const marker of args.manifest.markers) {
-      const markerMentions = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
-      const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
-      for (let i = 0; i < files.length; i++) {
-        const text = i === 0
-          ? appendMentionLine([markerTitle(marker), '', 'Note:', marker.note.trim() || '(none)'].join('\n'), markerMentions)
-          : undefined
-        await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, files[i], rootTs, text)
-      }
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, rootTs, markerMessageText(marker))
     }
     if (uploadErrors.length > 0) {
       await postMessage(fetchImpl, botToken, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
     }
     return { channelId, rootTs, markerThreadTs, mode, uploadErrors }
   } else {
+    const reportPdfPath = args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath
+    const rootTs = await postMessage(fetchImpl, botToken, channelId, rootMessageText(args.manifest, args.manifestPaths))
+    if (reportPdfPath) {
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
+    }
     for (const marker of args.manifest.markers) {
       const firstErrorIndex = uploadErrors.length
-      const markerMentions = slackMentionText(marker.mentionUserIds.length > 0 ? marker.mentionUserIds : fallbackMentions)
-      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, appendMentionLine(markerTitle(marker), markerMentions))
+      const markerText = markerMessageText(marker)
+      const markerRootTs = await postMessage(fetchImpl, botToken, channelId, markerText)
       markerThreadTs[marker.id] = markerRootTs
-      await postMessage(fetchImpl, botToken, channelId, deviceDetailLines(args.manifest.session).join('\n'), markerRootTs)
-      const files = [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[]
-      for (const file of files) {
-        await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, file, markerRootTs)
-      }
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, botToken, channelId, marker.videoPath, markerRootTs)
       const markerErrors = uploadErrors.slice(firstErrorIndex)
       if (markerErrors.length > 0) {
         await postMessage(fetchImpl, botToken, channelId, `Loupe finished this marker with upload error(s):\n${markerErrors.map(error => `- ${error}`).join('\n')}`, markerRootTs)
       }
     }
+    return { channelId, rootTs, markerThreadTs, mode, uploadErrors }
   }
-
-  return { channelId, rootTs: null, markerThreadTs, mode, uploadErrors }
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.map(value => value.trim()).filter(Boolean)))
 }

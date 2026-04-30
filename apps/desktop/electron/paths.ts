@@ -9,6 +9,7 @@ export interface Paths {
   projectFile(sessionId: string): string
   videoFile(sessionId: string): string
   pcVideoFile(sessionId: string): string
+  micAudioFile(sessionId: string): string
   clicksFile(sessionId: string): string
   telemetryFile(sessionId: string): string
   screenshotsDir(sessionId: string): string
@@ -37,6 +38,7 @@ export function createPaths(root: string): Paths {
     projectFile: (id) => join(root, 'sessions', id, `${id}.loupe`),
     videoFile: (id) => join(root, 'sessions', id, 'video.mp4'),
     pcVideoFile: (id) => join(root, 'sessions', id, 'pc-recording.webm'),
+    micAudioFile: (id) => join(root, 'sessions', id, 'session-mic.webm'),
     clicksFile: (id) => join(root, 'sessions', id, 'clicks.jsonl'),
     telemetryFile: (id) => join(root, 'sessions', id, 'telemetry.jsonl'),
     screenshotsDir,

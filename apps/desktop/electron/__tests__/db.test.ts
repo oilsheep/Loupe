@@ -6,7 +6,8 @@ function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
   return {
     id: 'sess-1', buildVersion: '1.0.0', testNote: '', tester: '', deviceId: 'ABC', deviceModel: 'Pixel 7',
     androidVersion: '14', connectionMode: 'usb', status: 'recording', durationMs: null,
-    startedAt: 1700000000000, endedAt: null, videoPath: null, pcRecordingEnabled: false, pcVideoPath: null, ...over,
+    startedAt: 1700000000000, endedAt: null, videoPath: null, pcRecordingEnabled: false, pcVideoPath: null,
+    micAudioPath: null, micAudioDurationMs: null, ...over,
   }
 }
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
@@ -37,6 +38,14 @@ describe('Db', () => {
     const s = db.getSession('sess-1')
     expect(s?.pcRecordingEnabled).toBe(true)
     expect(s?.pcVideoPath).toBe('C:/tmp/pc.webm')
+  })
+
+  it('updates session MIC recording metadata', () => {
+    db.insertSession(fixSession())
+    db.updateSessionMicRecording('sess-1', { micAudioPath: 'C:/tmp/session-mic.webm', micAudioDurationMs: 12345 })
+    const s = db.getSession('sess-1')
+    expect(s?.micAudioPath).toBe('C:/tmp/session-mic.webm')
+    expect(s?.micAudioDurationMs).toBe(12345)
   })
 
   it('listSessions returns rows newest-first', () => {

@@ -168,6 +168,23 @@ describe('buildClipArgs', () => {
     expect(filter).toContain('[1:a:0]atrim=start=0:duration=5.000,asetpts=PTS-STARTPTS')
   })
 
+  it('uses a clipped session MIC track instead of marker narration', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 2000,
+      endMs: 7000,
+      narrationPath: 'note.webm',
+      narrationDurationMs: 8000,
+      sessionMicPath: 'session-mic.webm',
+    })
+    const filter = args[args.indexOf('-filter_complex') + 1]
+    expect(args).toEqual(expect.arrayContaining(['-i', 'session-mic.webm', '-t', '5.000', '-map', '[v]', '-map', '[a]']))
+    expect(args).not.toContain('note.webm')
+    expect(filter).toContain('[1:a:0]atrim=start=2.000:duration=5.000,asetpts=PTS-STARTPTS')
+    expect(filter).not.toContain('tpad=stop_mode=clone')
+  })
+
   it('adds PC click overlays inside the exported clip window', () => {
     const args = buildClipArgs({
       inputPath: 'in.mp4',
@@ -274,6 +291,24 @@ describe('buildIntroClipArgs', () => {
     expect(filter).not.toContain('[1:a:0]')
     expect(args).not.toContain('[a]')
     expect(args).not.toContain('-c:a')
+  })
+
+  it('uses session MIC audio for intro exports when requested', () => {
+    const args = buildIntroClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      sourceHasAudio: false,
+      sessionMicPath: 'session-mic.webm',
+    })
+    const filter = args[args.indexOf('-filter_complex') + 1]
+    expect(args).toEqual(expect.arrayContaining(['-i', 'session-mic.webm', '-map', '[a]']))
+    expect(filter).toContain('[2:a:0]atrim=start=5.000:duration=7.000')
+    expect(filter).toContain('adelay=3000|3000[a]')
   })
 })
 

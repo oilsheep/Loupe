@@ -9,6 +9,7 @@ export interface ClipOptions {
   endMs: number
   narrationPath?: string | null
   narrationDurationMs?: number | null
+  sessionMicPath?: string | null
   severity?: 'note' | 'major' | 'normal' | 'minor' | 'improvement' | 'custom1' | 'custom2' | 'custom3' | 'custom4' | null
   note?: string | null
   markerMs?: number | null
@@ -416,23 +417,25 @@ export function buildClipArgs(opts: ClipOptions): string[] {
   if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
   const durationMs = endMs - startMs
   const narrationDurationMs = Math.max(0, opts.narrationDurationMs ?? 0)
-  const outputDurationMs = opts.narrationPath ? Math.max(durationMs, narrationDurationMs) : durationMs
+  const outputDurationMs = opts.sessionMicPath ? durationMs : opts.narrationPath ? Math.max(durationMs, narrationDurationMs) : durationMs
   const freezeDurationMs = Math.max(0, outputDurationMs - durationMs)
   const filters: string[] = [...clickOverlayFilters(opts.clicks, startMs, endMs)]
   if (freezeDurationMs > 0) filters.push(`tpad=stop_mode=clone:stop_duration=${ms(freezeDurationMs)}`)
   const captionedFilters = videoCaptionFilters(opts, filters)
-  if (opts.narrationPath) {
+  if (opts.sessionMicPath || opts.narrationPath) {
+    const audioPath = opts.sessionMicPath ?? opts.narrationPath!
+    const audioTrimStart = opts.sessionMicPath ? ms(startMs) : '0'
     const videoFilter = [
       `[0:v:0]trim=start=${ms(startMs)}:duration=${ms(durationMs)}`,
       'setpts=PTS-STARTPTS',
       ...captionedFilters,
     ].join(',')
-    const audioFilter = `[1:a:0]atrim=start=0:duration=${ms(outputDurationMs)},asetpts=PTS-STARTPTS`
+    const audioFilter = `[1:a:0]atrim=start=${audioTrimStart}:duration=${ms(outputDurationMs)},asetpts=PTS-STARTPTS`
     return [
       '-y',
       '-fflags', '+genpts',
       '-i', opts.inputPath,
-      '-i', opts.narrationPath,
+      '-i', audioPath,
       '-filter_complex', `${videoFilter}[v];${audioFilter}[a]`,
       '-map', '[v]',
       '-map', '[a]',
@@ -491,6 +494,7 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
   const canvasHeight = Math.max(2, Math.floor(opts.canvasHeight / 2) * 2)
   const clipFilters = clickOverlayFilters(opts.clicks, startMs, endMs)
   const sourceHasAudio = opts.sourceHasAudio ?? true
+  const hasSessionMic = Boolean(opts.sessionMicPath)
   const clipFilter = [
     `[1:v:0]trim=start=${ms(startMs)}:duration=${ms(durationMs)}`,
     'setpts=PTS-STARTPTS',
@@ -506,9 +510,11 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
     `[introfit]fade=t=out:st=${fadeStartSec}:d=${fadeDurationSec},format=yuv420p,setsar=1[intro]`,
     `${clipFilter}[clip]`,
     '[intro][clip]concat=n=2:v=1:a=0[v]',
-    ...(sourceHasAudio
-      ? [`[1:a:0]atrim=start=${ms(startMs)}:duration=${ms(durationMs)},asetpts=PTS-STARTPTS,adelay=${introDurationMs}|${introDurationMs}[a]`]
-      : []),
+    ...(hasSessionMic
+      ? [`[2:a:0]atrim=start=${ms(startMs)}:duration=${ms(durationMs)},asetpts=PTS-STARTPTS,adelay=${introDurationMs}|${introDurationMs}[a]`]
+      : sourceHasAudio
+        ? [`[1:a:0]atrim=start=${ms(startMs)}:duration=${ms(durationMs)},asetpts=PTS-STARTPTS,adelay=${introDurationMs}|${introDurationMs}[a]`]
+        : []),
   ].join(';')
 
   return [
@@ -519,14 +525,15 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
     '-t', introDurationSec,
     '-i', opts.introImagePath,
     '-i', opts.inputPath,
+    ...(opts.sessionMicPath ? ['-i', opts.sessionMicPath] : []),
     '-filter_complex', filterComplex,
     '-map', '[v]',
-    ...(sourceHasAudio ? ['-map', '[a]'] : []),
+    ...(hasSessionMic || sourceHasAudio ? ['-map', '[a]'] : []),
     '-t', ms(introDurationMs + durationMs),
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '20',
-    ...(sourceHasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
+    ...(hasSessionMic || sourceHasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
     '-max_muxing_queue_size', '4096',
     '-avoid_negative_ts', 'make_zero',
     '-movflags', '+faststart',

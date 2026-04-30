@@ -16,6 +16,7 @@ interface Props {
   buildVersion?: string
   tester?: string
   testNote?: string
+  hasSessionMicTrack?: boolean
 }
 
 function fmt(ms: number): string {
@@ -151,6 +152,9 @@ interface ExportConfirmDialogProps {
   tester: string
   testNote: string
   includeLogcat: boolean
+  includeMicTrack: boolean
+  hasSessionMicTrack: boolean
+  hasMarkerAudioNotes: boolean
   publishTarget: PublishTarget
   slackThreadMode: SlackThreadMode
   busy: boolean
@@ -164,6 +168,7 @@ interface ExportConfirmDialogProps {
   onTesterChange(value: string): void
   onTestNoteChange(value: string): void
   onIncludeLogcatChange(value: boolean): void
+  onIncludeMicTrackChange(value: boolean): void
   onPublishTargetChange(value: PublishTarget): void
   onSlackThreadModeChange(value: SlackThreadMode): void
   onBrowseOutputRoot(): void
@@ -179,6 +184,9 @@ function ExportConfirmDialog({
   tester,
   testNote,
   includeLogcat,
+  includeMicTrack,
+  hasSessionMicTrack,
+  hasMarkerAudioNotes,
   publishTarget,
   slackThreadMode,
   busy,
@@ -192,6 +200,7 @@ function ExportConfirmDialog({
   onTesterChange,
   onTestNoteChange,
   onIncludeLogcatChange,
+  onIncludeMicTrackChange,
   onPublishTargetChange,
   onSlackThreadModeChange,
   onBrowseOutputRoot,
@@ -279,6 +288,23 @@ function ExportConfirmDialog({
           />
           Export marker logcat as sidecar text files
         </label>
+
+        {hasSessionMicTrack && (
+          <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={includeMicTrack}
+              onChange={(e) => onIncludeMicTrackChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-blue-600"
+            />
+            <span>
+              <span className="block text-zinc-300">Use session MIC track in exported clips</span>
+              {hasMarkerAudioNotes && (
+                <span className="mt-1 block text-amber-300">This replaces marker audio notes for these exports.</span>
+              )}
+            </span>
+          </label>
+        )}
 
         <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/60 p-3">
           <div className="text-xs font-medium text-zinc-300">Publish target</div>
@@ -564,7 +590,7 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
   )
 }
 
-export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '' }: Props) {
+export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '', hasSessionMicTrack = false }: Props) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
@@ -580,6 +606,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [exportTester, setExportTester] = useState(tester)
   const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
+  const [exportIncludeMicTrack, setExportIncludeMicTrack] = useState(false)
   const [publishTarget, setPublishTarget] = useState<PublishTarget>('local')
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
   const [exportError, setExportError] = useState('')
@@ -697,6 +724,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setExportTester(tester)
     setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
+    setExportIncludeMicTrack(false)
     setPublishTarget('local')
     setSlackThreadMode('per-marker-thread')
     setExportError('')
@@ -742,8 +770,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       onMutated()
       const publish = { target: publishTarget, slackThreadMode }
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, publish })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, publish })
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, publish })
       if (paths && paths.length > 0) notifyExported(api, paths[0], paths.length, t)
       setExportRequest(null)
     } catch (err) {
@@ -840,6 +868,9 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           tester={exportTester}
           testNote={exportTestNote}
           includeLogcat={exportIncludeLogcat}
+          includeMicTrack={exportIncludeMicTrack}
+          hasSessionMicTrack={hasSessionMicTrack}
+          hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
           publishTarget={publishTarget}
           slackThreadMode={slackThreadMode}
           busy={exporting}
@@ -853,6 +884,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onTesterChange={setExportTester}
           onTestNoteChange={setExportTestNote}
           onIncludeLogcatChange={setExportIncludeLogcat}
+          onIncludeMicTrackChange={setExportIncludeMicTrack}
           onPublishTargetChange={setPublishTarget}
           onSlackThreadModeChange={setSlackThreadMode}
           onBrowseOutputRoot={browseExportRoot}

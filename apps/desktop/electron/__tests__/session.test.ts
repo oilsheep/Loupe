@@ -295,6 +295,8 @@ describe('SessionManager', () => {
       videoPath: join(root, 'external.mp4'),
       pcRecordingEnabled: false,
       pcVideoPath: null,
+      micAudioPath: null,
+      micAudioDurationMs: null,
     }
     const bug = {
       id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, severity: 'normal' as const,

@@ -6,7 +6,7 @@ import { VideoPlayer, type VideoPlayerHandle } from '@/components/VideoPlayer'
 import { BugList } from '@/components/BugList'
 import { useI18n } from '@/lib/i18n'
 
-interface Loaded { session: Session; bugs: Bug[]; videoUrl: string }
+interface Loaded { session: Session; bugs: Bug[]; videoUrl: string; micAudioUrl: string | null }
 
 export function Draft({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
@@ -25,7 +25,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
     if (!r) { goHome(); return }
     const videoRel = r.session.connectionMode === 'pc' && r.session.pcVideoPath ? 'pc-recording.webm' : 'video.mp4'
     const videoUrl = await assetUrl(sessionId, videoRel)
-    setData({ session: r.session, bugs: r.bugs, videoUrl })
+    const micAudioUrl = r.session.micAudioPath ? await assetUrl(sessionId, 'session-mic.webm') : null
+    setData({ session: r.session, bugs: r.bugs, videoUrl, micAudioUrl })
     setBuildVersion(r.session.buildVersion)
     setTester(r.session.tester)
     setTestNote(r.session.testNote)
@@ -74,7 +75,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
     )
   }
 
-  const { session, bugs, videoUrl } = data
+  const { session, bugs, videoUrl, micAudioUrl } = data
   const dur = session.durationMs ?? 0
 
   function selectBug(b: Bug) {
@@ -115,6 +116,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
           ref={playerRef}
           api={api}
           src={videoUrl}
+          micAudioSrc={micAudioUrl}
           bugs={bugs}
           durationMs={dur}
           selectedBugId={selectedBugId}
@@ -179,6 +181,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             buildVersion={buildVersion}
             tester={tester}
             testNote={testNote}
+            hasSessionMicTrack={Boolean(session.micAudioPath)}
           />
         </div>
       </aside>

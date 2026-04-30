@@ -22,6 +22,8 @@ function session(over: Partial<Session> = {}): Session {
     videoPath: '/session/video.mp4',
     pcRecordingEnabled: false,
     pcVideoPath: null,
+    micAudioPath: null,
+    micAudioDurationMs: null,
     ...over,
   }
 }
@@ -61,10 +63,12 @@ describe('export manifest', () => {
       bugs: [bug()],
       files: [file()],
       outDir: '/exports',
+      reportPdfPath: '/exports/QA_bug_report_1.0_2023-11-14.pdf',
       publish: { target: 'slack', slackThreadMode: 'single-thread' },
       now: 1_700_000_002_000,
     })
 
+    expect(manifest.reportPdfPath).toBe('/exports/QA_bug_report_1.0_2023-11-14.pdf')
     expect(manifest.publish).toEqual({ target: 'slack', slackThreadMode: 'single-thread' })
     expect(manifest.session.buildVersion).toBe('1.0')
     expect(manifest.session.ramTotalGb).toBeNull()
@@ -88,6 +92,7 @@ describe('export manifest', () => {
         bugs: [bug({ note: 'quote "inside"' })],
         files: [file()],
         outDir: root,
+        reportPdfPath: join(root, 'QA_bug_report_1.0_2023-11-14.pdf'),
         publish: { target: 'slack', slackThreadMode: 'single-thread' },
         now: 1_700_000_002_000,
       })
@@ -97,6 +102,8 @@ describe('export manifest', () => {
       expect(paths.slackPlanPath).toBe(join(root, 'slack-publish-plan.json'))
       expect(JSON.parse(readFileSync(paths.jsonPath, 'utf8')).markers[0].note).toBe('quote "inside"')
       expect(readFileSync(paths.csvPath, 'utf8')).toContain('"quote ""inside"""')
+      expect(JSON.parse(readFileSync(paths.jsonPath, 'utf8')).reportPdfPath).toBe(join(root, 'QA_bug_report_1.0_2023-11-14.pdf'))
+      expect(JSON.parse(readFileSync(paths.slackPlanPath!, 'utf8')).reportPdfPath).toBe(join(root, 'QA_bug_report_1.0_2023-11-14.pdf'))
       expect(JSON.parse(readFileSync(paths.slackPlanPath!, 'utf8')).markers[0].files).toContain('/exports/b1.mp4')
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -122,13 +129,17 @@ describe('export manifest', () => {
       bugs: [bug()],
       files: [file()],
       outDir: '/exports',
+      reportPdfPath: '/exports/QA_bug_report_1.0_2023-11-14.pdf',
       publish: { target: 'slack', slackThreadMode: 'single-thread' },
     })
 
     expect(slackSessionMessage(manifest)).toContain('1. [Critical] login crash')
+    expect(slackSessionMessage(manifest)).toContain('Detailed PDF report')
+    expect(slackThreadPayload(manifest).reportPdfPath).toBe('/exports/QA_bug_report_1.0_2023-11-14.pdf')
     expect(slackThreadPayload(manifest).markers[0]).toMatchObject({
       markerId: 'b1',
-      files: ['/exports/b1.mp4', '/exports/b1.jpg', '/exports/b1.logcat.txt'],
+      text: '[Critical] login crash',
+      files: ['/exports/b1.mp4'],
     })
   })
 })

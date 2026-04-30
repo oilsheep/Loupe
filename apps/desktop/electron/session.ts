@@ -150,6 +150,8 @@ export class SessionManager {
       videoPath: isPcSession ? null : paths.videoFile(id),
       pcRecordingEnabled: isPcSession || Boolean(args.recordPcScreen),
       pcVideoPath: null,
+      micAudioPath: null,
+      micAudioDurationMs: null,
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
@@ -343,6 +345,19 @@ export class SessionManager {
     const out = this.deps.paths.pcVideoFile(sessionId)
     writeFileSync(out, bytes)
     this.deps.db.updateSessionPcRecording(sessionId, { pcRecordingEnabled: true, pcVideoPath: out })
+    this.persistProject(sessionId)
+    return out
+  }
+  saveMicRecording(sessionId: string, bytes: Buffer, durationMs: number): string {
+    const session = this.deps.db.getSession(sessionId)
+    if (!session) throw new Error('session not found')
+    this.deps.paths.ensureSessionDirs(sessionId)
+    const out = this.deps.paths.micAudioFile(sessionId)
+    writeFileSync(out, bytes)
+    this.deps.db.updateSessionMicRecording(sessionId, {
+      micAudioPath: out,
+      micAudioDurationMs: Math.max(0, Math.round(durationMs)),
+    })
     this.persistProject(sessionId)
     return out
   }

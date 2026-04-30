@@ -30,6 +30,7 @@ const api: DesktopApi = {
     openProject: ()             => ipcRenderer.invoke(CHANNEL.sessionOpenProject),
     updateMetadata: (id, patch) => ipcRenderer.invoke(CHANNEL.sessionUpdateMetadata, id, patch),
     savePcRecording: (args)     => ipcRenderer.invoke(CHANNEL.sessionSavePcRecording, args),
+    saveMicRecording: (args)    => ipcRenderer.invoke(CHANNEL.sessionSaveMicRecording, args),
   },
   bug: {
     addMarker:  (args)          => ipcRenderer.invoke(CHANNEL.bugAddMarker, args),

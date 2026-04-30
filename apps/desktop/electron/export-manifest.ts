@@ -7,6 +7,7 @@ interface BuildExportManifestArgs {
   bugs: Bug[]
   files: ExportedMarkerFile[]
   outDir: string
+  reportPdfPath?: string | null
   publish?: ExportPublishOptions
   severities?: SeveritySettings
   now?: number
@@ -16,6 +17,7 @@ export interface ExportManifest {
   version: 1
   createdAt: string
   exportDir: string
+  reportPdfPath: string | null
   publish: {
     target: 'local' | 'slack'
     slackThreadMode: 'single-thread' | 'per-marker-thread' | null
@@ -88,6 +90,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
     version: 1,
     createdAt: new Date(args.now ?? Date.now()).toISOString(),
     exportDir: args.outDir,
+    reportPdfPath: args.reportPdfPath ?? null,
     publish: {
       target: publish.target,
       slackThreadMode: publish.target === 'slack' ? publish.slackThreadMode ?? 'single-thread' : null,
@@ -148,6 +151,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Video Path',
       'Preview Path',
       'Logcat Path',
+      'Report PDF Path',
       'Publish Target',
       'Slack Thread Mode',
     ],
@@ -168,6 +172,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       marker.videoPath,
       marker.previewPath,
       marker.logcatPath ?? '',
+      manifest.reportPdfPath ?? '',
       manifest.publish.target,
       manifest.publish.slackThreadMode ?? '',
     ]),
@@ -194,6 +199,7 @@ export function slackSessionMessage(manifest: ExportManifest): string {
     'Files:',
     '- export-manifest.json',
     '- export-manifest.csv',
+    ...(manifest.reportPdfPath ? ['- Detailed PDF report'] : []),
   ]
   return `${lines.join('\n')}\n`
 }
@@ -201,20 +207,17 @@ export function slackSessionMessage(manifest: ExportManifest): string {
 export function slackThreadPayload(manifest: ExportManifest): {
   mode: 'single-thread' | 'per-marker-thread' | null
   sessionMessage: string
+  reportPdfPath: string | null
   markers: Array<{ markerId: string; text: string; files: string[] }>
 } {
   return {
     mode: manifest.publish.slackThreadMode,
     sessionMessage: slackSessionMessage(manifest).trimEnd(),
+    reportPdfPath: manifest.reportPdfPath,
     markers: manifest.markers.map(marker => ({
       markerId: marker.id,
-      text: [
-        markerTitle(marker),
-        '',
-        'Note:',
-        marker.note.trim() || '(none)',
-      ].join('\n'),
-      files: [marker.videoPath, marker.previewPath, marker.logcatPath].filter(Boolean) as string[],
+      text: markerTitle(marker),
+      files: [marker.videoPath],
     })),
   }
 }

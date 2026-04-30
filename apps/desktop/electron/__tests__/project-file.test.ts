@@ -22,6 +22,8 @@ function session(over: Partial<Session> = {}): Session {
     videoPath: 'C:/video.mp4',
     pcRecordingEnabled: false,
     pcVideoPath: null,
+    micAudioPath: null,
+    micAudioDurationMs: null,
     ...over,
   }
 }

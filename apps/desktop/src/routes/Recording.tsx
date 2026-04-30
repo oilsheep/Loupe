@@ -112,6 +112,11 @@ export function Recording({ session }: { session: Session }) {
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const mediaChunksRef = useRef<Blob[]>([])
   const [pcRecorderError, setPcRecorderError] = useState<string | null>(null)
+  const micRecorderRef = useRef<MediaRecorder | null>(null)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const micChunksRef = useRef<Blob[]>([])
+  const [micRecorderError, setMicRecorderError] = useState<string | null>(null)
+  const [micRecording, setMicRecording] = useState(false)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>([])
   const [showHotkeySettings, setShowHotkeySettings] = useState(false)
@@ -199,6 +204,64 @@ export function Recording({ session }: { session: Session }) {
     }
   }, [session.connectionMode, session.deviceId, usesRendererPcRecording])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function startMicRecording() {
+      try {
+        const mediaDevices = navigator.mediaDevices
+        if (!mediaDevices?.getUserMedia) return
+        const stream = await mediaDevices.getUserMedia({ audio: true })
+        if (cancelled) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm'
+        const recorder = new MediaRecorder(stream, { mimeType })
+        micChunksRef.current = []
+        micStreamRef.current = stream
+        micRecorderRef.current = recorder
+        recorder.ondataavailable = event => {
+          if (event.data.size > 0) micChunksRef.current.push(event.data)
+        }
+        recorder.start(1000)
+        setMicRecording(true)
+        setMicRecorderError(null)
+      } catch (e) {
+        setMicRecorderError(e instanceof Error ? e.message : String(e))
+      }
+    }
+
+    void startMicRecording()
+    return () => {
+      cancelled = true
+      micStreamRef.current?.getTracks().forEach(track => track.stop())
+    }
+  }, [])
+
+  async function stopAndSaveMicRecording() {
+    const recorder = micRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    const stopped = new Promise<void>(resolve => {
+      recorder.addEventListener('stop', () => resolve(), { once: true })
+    })
+    recorder.stop()
+    micStreamRef.current?.getTracks().forEach(track => track.stop())
+    await stopped
+    setMicRecording(false)
+    const blob = new Blob(micChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+    if (blob.size <= 0) return
+    const base64 = await blobToBase64(blob)
+    await api.session.saveMicRecording({
+      sessionId: session.id,
+      base64,
+      mimeType: blob.type,
+      durationMs: Math.max(0, Date.now() - session.startedAt),
+    })
+  }
+
   async function saveHotkeys(next: HotkeySettings) {
     const settings = await api.settings.setHotkeys(next)
     setHotkeys(settings.hotkeys)
@@ -222,6 +285,9 @@ export function Recording({ session }: { session: Session }) {
     setStopping(true)
     try {
       await api.app.hidePcCaptureFrame()
+      await stopAndSaveMicRecording().catch(e => {
+        setMicRecorderError(e instanceof Error ? e.message : String(e))
+      })
       const recorder = mediaRecorderRef.current
       if (usesRendererPcRecording && recorder && recorder.state !== 'inactive') {
         const stopped = new Promise<void>(resolve => {
@@ -271,6 +337,14 @@ export function Recording({ session }: { session: Session }) {
             {pcRecorderError && (
               <div className="mt-2 text-xs text-red-300">
                 PC recording error: {pcRecorderError}
+              </div>
+            )}
+            <div className={`mt-1 text-xs ${micRecording ? 'text-emerald-300' : 'text-zinc-500'}`}>
+              MIC recording: {micRecording ? 'recording' : micRecorderError ? 'unavailable' : 'standby'}
+            </div>
+            {micRecorderError && (
+              <div className="mt-1 text-xs text-amber-300">
+                MIC recording error: {micRecorderError}
               </div>
             )}
           </div>
