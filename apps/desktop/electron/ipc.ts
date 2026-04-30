@@ -44,6 +44,7 @@ export const CHANNEL = {
   sessionOpenProject:      'session:openProject',
   sessionUpdateMetadata:   'session:updateMetadata',
   sessionSavePcRecording:  'session:savePcRecording',
+  sessionSaveMicRecording: 'session:saveMicRecording',
   sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
   bugAddMarker:            'bug:addMarker',
@@ -153,6 +154,7 @@ async function exportBugEvidence(args: {
   outDir: string
   baseName: string
   includeLogcat?: boolean
+  includeMicTrack?: boolean
 }): Promise<ExportedMarkerFile> {
   const outputPath = join(args.outDir, `${args.baseName}.mp4`)
   const imagePath = join(args.outDir, `${args.baseName}.jpg`)
@@ -167,8 +169,9 @@ async function exportBugEvidence(args: {
     outputPath,
     startMs,
     endMs,
-    narrationPath: args.bug.audioRel ? join(args.deps.paths.sessionDir(args.session.id), args.bug.audioRel) : null,
-    narrationDurationMs: args.bug.audioDurationMs,
+    narrationPath: !args.includeMicTrack && args.bug.audioRel ? join(args.deps.paths.sessionDir(args.session.id), args.bug.audioRel) : null,
+    narrationDurationMs: !args.includeMicTrack ? args.bug.audioDurationMs : null,
+    sessionMicPath: args.includeMicTrack ? args.session.micAudioPath : null,
     severity: args.bug.severity,
     note: args.bug.note,
     markerMs: args.bug.offsetMs,
@@ -617,11 +620,12 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
 </html>`
 }
 
-async function writeQaReportPdf(outDir: string, session: Session, entries: ReportEntry[], reportTitle?: string | null, owner?: BrowserWindow | null): Promise<string> {
+async function writeQaReportPdf(htmlDir: string, pdfDir: string, session: Session, entries: ReportEntry[], reportTitle?: string | null, owner?: BrowserWindow | null): Promise<string> {
   if (entries.length === 0) throw new Error('cannot create PDF report without entries')
-  mkdirSync(outDir, { recursive: true })
-  const htmlPath = join(outDir, 'qa-report.html')
-  const pdfPath = `${reportBasePath(outDir, session)}.pdf`
+  mkdirSync(htmlDir, { recursive: true })
+  mkdirSync(pdfDir, { recursive: true })
+  const htmlPath = join(htmlDir, 'qa-report.html')
+  const pdfPath = `${reportBasePath(pdfDir, session)}.pdf`
   writeFileSync(htmlPath, buildReportHtml(session, entries, reportTitle), 'utf8')
 
   const win = new BrowserWindow({
@@ -1069,6 +1073,10 @@ export function registerIpc(deps: IpcDeps): void {
     const bytes = Buffer.from(args.base64, 'base64')
     return deps.manager.savePcRecording(args.sessionId, bytes)
   })
+  ipcMain.handle(CHANNEL.sessionSaveMicRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string> => {
+    const bytes = Buffer.from(args.base64, 'base64')
+    return deps.manager.saveMicRecording(args.sessionId, bytes, args.durationMs)
+  })
   ipcMain.handle(CHANNEL.sessionOpenProject, async (): Promise<Session | null> => {
     const win = deps.getWindow()
     const pick = await (win
@@ -1083,6 +1091,8 @@ export function registerIpc(deps: IpcDeps): void {
       videoPath: project.session.videoPath ?? null,
       pcRecordingEnabled: project.session.pcRecordingEnabled ?? false,
       pcVideoPath: project.session.pcVideoPath ?? null,
+      micAudioPath: project.session.micAudioPath ?? null,
+      micAudioDurationMs: project.session.micAudioDurationMs ?? null,
     }
     const currentVideoPath = session.connectionMode === 'pc' ? session.pcVideoPath : session.videoPath
     if (!currentVideoPath || !existsSync(currentVideoPath)) {
@@ -1118,6 +1128,10 @@ export function registerIpc(deps: IpcDeps): void {
     if (relPath === 'pc-recording.webm') {
       const session = deps.manager.getSession(sessionId)
       if (session?.pcVideoPath) return session.pcVideoPath
+    }
+    if (relPath === 'session-mic.webm') {
+      const session = deps.manager.getSession(sessionId)
+      if (session?.micAudioPath) return session.micAudioPath
     }
     return join(deps.paths.sessionDir(sessionId), relPath)
   })
@@ -1191,7 +1205,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.bugExportCancel, async (_e, exportId: string): Promise<void> => {
     exportControllers.get(exportId)?.abort()
   })
-  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
+  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId)
     const bug = bugs.find(b => b.id === args.bugId)
@@ -1229,8 +1243,9 @@ export function registerIpc(deps: IpcDeps): void {
         inputPath,
         outputPath,
         startMs, endMs,
-        narrationPath: bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-        narrationDurationMs: bug.audioDurationMs,
+        narrationPath: !args.includeMicTrack && bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
+        narrationDurationMs: !args.includeMicTrack ? bug.audioDurationMs : null,
+        sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
         severity: bug.severity,
         severityLabel: severityStyle?.label ?? bug.severity,
         severityColor: severityStyle?.color ?? '#888888',
@@ -1272,7 +1287,7 @@ export function registerIpc(deps: IpcDeps): void {
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating PDF report', `Writing PDF report for ${outputPath}`, 4, total, 1, 1))
       const reportTitle = normalizedReportTitle(args.reportTitle)
-      const pdfPath = await writeQaReportPdf(reportDir, session, [{
+      const pdfPath = await writeQaReportPdf(reportDir, outDir, session, [{
         index: 1,
         bug,
         imagePath,
@@ -1285,7 +1300,7 @@ export function registerIpc(deps: IpcDeps): void {
       }], reportTitle, deps.getWindow())
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', `Writing summary text.`, 5, total, 1, 1))
-      await writeSummaryText(outDir, session, [{
+      const summaryTextPath = await writeSummaryText(outDir, session, [{
         index: 1,
         bug,
         imagePath,
@@ -1302,10 +1317,10 @@ export function registerIpc(deps: IpcDeps): void {
         previewPath: imagePath,
         logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, publish: args.publish, severities })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
       await publishManifestToRemote({
         manifest: manifestFiles.manifest,
-        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputPath}\n${pdfPath}`, total, total, 1, 1))
@@ -1321,7 +1336,7 @@ export function registerIpc(deps: IpcDeps): void {
     }
   })
 
-  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
+  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
@@ -1367,8 +1382,9 @@ export function registerIpc(deps: IpcDeps): void {
           outputPath,
           startMs,
           endMs,
-          narrationPath: bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-          narrationDurationMs: bug.audioDurationMs,
+          narrationPath: !args.includeMicTrack && bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
+          narrationDurationMs: !args.includeMicTrack ? bug.audioDurationMs : null,
+          sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
           severity: bug.severity,
           severityLabel: severityStyle?.label ?? bug.severity,
           severityColor: severityStyle?.color ?? '#888888',
@@ -1430,14 +1446,14 @@ export function registerIpc(deps: IpcDeps): void {
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating PDF report', `Writing QA report for ${outputs.length} exported clip${outputs.length === 1 ? '' : 's'}.`, total - 2, total, bugs.length, bugs.length))
       const reportTitle = normalizedReportTitle(args.reportTitle)
-      const pdfPath = await writeQaReportPdf(reportDir, session, reportEntries, reportTitle, deps.getWindow())
+      const pdfPath = await writeQaReportPdf(reportDir, outDir, session, reportEntries, reportTitle, deps.getWindow())
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
-      await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, publish: args.publish, severities })
+      const summaryTextPath = await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
       await publishManifestToRemote({
         manifest: manifestFiles.manifest,
-        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath },
+        manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputs.length} clip${outputs.length === 1 ? '' : 's'} exported.\n${pdfPath}`, total, total, bugs.length, bugs.length))

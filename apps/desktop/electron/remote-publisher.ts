@@ -5,6 +5,8 @@ import { publishManifestToSlack, type SlackPublishResult } from './slack-publish
 interface ManifestPaths {
   jsonPath: string
   csvPath: string
+  reportPdfPath?: string | null
+  summaryTextPath?: string | null
 }
 
 export type RemotePublishResult =

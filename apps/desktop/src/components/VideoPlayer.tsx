@@ -11,17 +11,20 @@ export interface VideoPlayerHandle {
 interface Props {
   api: DesktopApi
   src: string
+  micAudioSrc?: string | null
   bugs: Bug[]
   durationMs: number
   selectedBugId: string | null
   onMarkerClick(bug: Bug): void
 }
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
+export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const micAudioRef = useRef<HTMLAudioElement>(null)
   const clipEndMsRef = useRef<number | null>(null)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [videoSrc, setVideoSrc] = useState(src)
+  const [micMuted, setMicMuted] = useState(false)
   const [cursorMs, setCursorMs] = useState(0)
   const selectedBug = bugs.find(b => b.id === selectedBugId) ?? null
   const cursorPct = durationMs ? Math.max(0, Math.min(100, (cursorMs / durationMs) * 100)) : 0
@@ -118,6 +121,22 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bug
     setCursorMs(video.currentTime * 1000)
   }
 
+  function syncMicToVideo() {
+    const video = videoRef.current
+    const audio = micAudioRef.current
+    if (!video || !audio) return
+    if (Math.abs(audio.currentTime - video.currentTime) > 0.25) audio.currentTime = video.currentTime
+  }
+
+  function playMicWithVideo() {
+    syncMicToVideo()
+    micAudioRef.current?.play().catch(() => {})
+  }
+
+  function pauseMicWithVideo() {
+    micAudioRef.current?.pause()
+  }
+
   function seekFromTimeline(e: MouseEvent<HTMLDivElement>) {
     const video = videoRef.current
     if (!video || durationMs <= 0) return
@@ -137,8 +156,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bug
         src={videoSrc}
         controls
         preload="metadata"
-        onTimeUpdate={stopAtClipEnd}
-        onSeeked={updateCursorFromVideo}
+        onPlay={playMicWithVideo}
+        onPause={pauseMicWithVideo}
+        onTimeUpdate={() => { stopAtClipEnd(); syncMicToVideo() }}
+        onSeeked={() => { updateCursorFromVideo(); syncMicToVideo() }}
         onLoadedMetadata={updateCursorFromVideo}
         onError={(e) => {
           const mediaError = e.currentTarget.error
@@ -151,6 +172,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, bug
         className="mx-auto block max-h-[calc(100vh-190px)] max-w-full rounded-lg bg-black object-contain"
         data-testid="video-el"
       />
+      {micAudioSrc && (
+        <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300" data-testid="mic-track-controls">
+          <audio ref={micAudioRef} src={micAudioSrc} preload="metadata" muted={micMuted} />
+          <div>
+            <div className="font-medium text-zinc-200">Session MIC track</div>
+            <div className="text-zinc-500">Synced with review playback</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMicMuted(v => !v)}
+            className="rounded bg-zinc-800 px-2 py-1 text-zinc-200 hover:bg-zinc-700"
+            data-testid="mic-track-mute"
+          >
+            {micMuted ? 'Unmute MIC' : 'Mute MIC'}
+          </button>
+        </div>
+      )}
       <div className="relative h-4 cursor-pointer rounded bg-zinc-800" data-testid="timeline" onClick={seekFromTimeline}>
         {selectedBug && durationMs > 0 && selectionEndPct > selectionStartPct && (
           <div

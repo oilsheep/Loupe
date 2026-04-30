@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at INTEGER,
   video_path TEXT,
   pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
-  pc_video_path TEXT
+  pc_video_path TEXT,
+  mic_audio_path TEXT,
+  mic_audio_duration_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS bugs (
@@ -56,6 +58,8 @@ function rowToSession(r: any): Session {
     videoPath: r.video_path ?? null,
     pcRecordingEnabled: Boolean(r.pc_recording_enabled ?? 0),
     pcVideoPath: r.pc_video_path ?? null,
+    micAudioPath: r.mic_audio_path ?? null,
+    micAudioDurationMs: r.mic_audio_duration_ms ?? null,
   }
 }
 function rowToBug(r: any): Bug {
@@ -93,6 +97,8 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('pc_video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_video_path TEXT`)
   if (!sessionCols.includes('ram_total_gb')) db.exec(`ALTER TABLE sessions ADD COLUMN ram_total_gb REAL`)
   if (!sessionCols.includes('graphics_device')) db.exec(`ALTER TABLE sessions ADD COLUMN graphics_device TEXT`)
+  if (!sessionCols.includes('mic_audio_path')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_path TEXT`)
+  if (!sessionCols.includes('mic_audio_duration_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_duration_ms INTEGER`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -114,14 +120,16 @@ function migrate(db: Database.Database): void {
         ended_at INTEGER,
         video_path TEXT,
         pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
-        pc_video_path TEXT
+        pc_video_path TEXT,
+        mic_audio_path TEXT,
+        mic_audio_duration_ms INTEGER
       );
       INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
                                 ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-                                pc_recording_enabled, pc_video_path)
+                                pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms)
       SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
              ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-             pc_recording_enabled, pc_video_path FROM sessions;
+             pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
       CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
@@ -174,9 +182,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
-                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path)
+                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms)
     VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath)
+            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       test_note=excluded.test_note,
@@ -193,7 +201,9 @@ export function openDb(file: string) {
       ended_at=excluded.ended_at,
       video_path=excluded.video_path,
       pc_recording_enabled=excluded.pc_recording_enabled,
-      pc_video_path=excluded.pc_video_path
+      pc_video_path=excluded.pc_video_path,
+      mic_audio_path=excluded.mic_audio_path,
+      mic_audio_duration_ms=excluded.mic_audio_duration_ms
   `)
   const finalizeSessionStmt = db.prepare(`
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
@@ -203,6 +213,9 @@ export function openDb(file: string) {
   `)
   const updateSessionPcRecordingStmt = db.prepare(`
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
+  `)
+  const updateSessionMicRecordingStmt = db.prepare(`
+    UPDATE sessions SET mic_audio_path=@micAudioPath, mic_audio_duration_ms=@micAudioDurationMs WHERE id=@id
   `)
   const getSessionStmt   = db.prepare(`SELECT * FROM sessions WHERE id = ?`)
   const listSessionsStmt = db.prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
@@ -242,6 +255,8 @@ export function openDb(file: string) {
         ramTotalGb: s.ramTotalGb ?? null,
         graphicsDevice: s.graphicsDevice ?? null,
         pcRecordingEnabled: s.pcRecordingEnabled ? 1 : 0,
+        micAudioPath: s.micAudioPath ?? null,
+        micAudioDurationMs: s.micAudioDurationMs ?? null,
       })
     },
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
@@ -252,6 +267,9 @@ export function openDb(file: string) {
     },
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
       updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })
+    },
+    updateSessionMicRecording(id: string, patch: { micAudioPath: string | null; micAudioDurationMs: number | null }) {
+      updateSessionMicRecordingStmt.run({ id, ...patch })
     },
     getSession(id: string): Session | undefined {
       const r = getSessionStmt.get(id) as any

@@ -47,6 +47,8 @@ function session(): Session {
     videoPath: '/session/video.mp4',
     pcRecordingEnabled: false,
     pcVideoPath: null,
+    micAudioPath: null,
+    micAudioDurationMs: null,
   }
 }
 
