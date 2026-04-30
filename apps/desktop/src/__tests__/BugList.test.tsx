@@ -25,9 +25,11 @@ const severities = {
 const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
 const mentionIdentities: MentionIdentity[] = []
 
-function fakeApi(options: { slack?: any } = {}): DesktopApi {
+function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
   const slack = options.slack ?? { botToken: '', channelId: '' }
+  const gitlabSettings = options.gitlab ?? gitlab
   const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, mentionIdentities }
+  const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -51,14 +53,14 @@ function fakeApi(options: { slack?: any } = {}): DesktopApi {
     } as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     settings: {
-      get: vi.fn().mockResolvedValue(settings) as any,
-      setExportRoot: vi.fn().mockResolvedValue(settings) as any,
+      get: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setExportRoot: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setHotkeys: vi.fn() as any,
-      setSlack: vi.fn().mockResolvedValue(settings) as any,
-      setGitLab: vi.fn() as any,
+      setSlack: vi.fn().mockImplementation((nextSlack) => Promise.resolve({ ...settingsWithOptions, slack: nextSlack })) as any,
+      setGitLab: vi.fn().mockImplementation((nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,
       connectGitLabOAuth: vi.fn() as any,
       cancelGitLabOAuth: vi.fn() as any,
-      listGitLabProjects: vi.fn() as any,
+      listGitLabProjects: vi.fn().mockResolvedValue([{ id: 7, name: 'App', nameWithNamespace: 'QA / App', pathWithNamespace: 'qa/app', webUrl: 'https://gitlab.example.com/qa/app' }]) as any,
       setGoogle: vi.fn() as any,
       connectGoogleOAuth: vi.fn() as any,
       cancelGoogleOAuth: vi.fn() as any,
@@ -70,9 +72,9 @@ function fakeApi(options: { slack?: any } = {}): DesktopApi {
       importMentionIdentities: vi.fn() as any,
       exportMentionIdentities: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,
-      refreshSlackChannels: vi.fn().mockResolvedValue(settings) as any,
-      startSlackUserOAuth: vi.fn().mockResolvedValue(settings) as any,
-      refreshGitLabUsers: vi.fn().mockResolvedValue(settings) as any,
+      refreshSlackChannels: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      startSlackUserOAuth: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      refreshGitLabUsers: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,
@@ -227,6 +229,29 @@ describe('BugList', () => {
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       publish: expect.objectContaining({ target: 'slack', slackThreadMode: 'per-marker-thread' }),
     })))
+  })
+
+  it('saves the selected GitLab project before publishing', async () => {
+    const api = fakeApi({ gitlab: { ...gitlab, token: 'glpat-test', projectId: 'old/project' } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    const gitlabToggle = screen.getByText('GitLab').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement
+    fireEvent.click(gitlabToggle)
+    fireEvent.click(await screen.findByText('old/project'))
+    const projectInput = await screen.findByPlaceholderText('Search or enter group/project')
+    fireEvent.change(projectInput, { target: { value: 'qa/app' } })
+    fireEvent.keyDown(projectInput, { key: 'Enter' })
+    fireEvent.click(screen.getByText('Issue per marker'))
+    fireEvent.click(screen.getByTestId('confirm-export'))
+
+    await waitFor(() => expect(api.settings.setGitLab).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'qa/app',
+      mode: 'per-marker-issue',
+    })))
+    expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
+      publish: expect.objectContaining({ target: 'gitlab', gitlabMode: 'per-marker-issue' }),
+    }))
   })
 
   it('confirms large original attachments and passes merge audio options', async () => {

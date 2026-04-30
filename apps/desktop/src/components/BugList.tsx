@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -268,6 +268,10 @@ interface ExportConfirmDialogProps {
   slackDirectoryRefreshing: boolean
   slackDirectoryError: string
   gitlabMode: GitLabPublishMode
+  gitlabProjectId: string
+  gitlabProjects: GitLabProject[]
+  gitlabProjectsRefreshing: boolean
+  gitlabProjectsError: string
   busy: boolean
   error: string
   canceling: boolean
@@ -292,6 +296,8 @@ interface ExportConfirmDialogProps {
   onSlackManualMentionInputChange(value: string): void
   onRefreshSlackDirectory(): void
   onGitLabModeChange(value: GitLabPublishMode): void
+  onGitLabProjectIdChange(value: string): void
+  onRefreshGitLabProjects(): void
   onBrowseOutputRoot(): void
   onCancel(): void
   onConfirm(): void
@@ -325,6 +331,10 @@ function ExportConfirmDialog({
   slackDirectoryRefreshing,
   slackDirectoryError,
   gitlabMode,
+  gitlabProjectId,
+  gitlabProjects,
+  gitlabProjectsRefreshing,
+  gitlabProjectsError,
   busy,
   error,
   canceling,
@@ -349,6 +359,8 @@ function ExportConfirmDialog({
   onSlackManualMentionInputChange,
   onRefreshSlackDirectory,
   onGitLabModeChange,
+  onGitLabProjectIdChange,
+  onRefreshGitLabProjects,
   onBrowseOutputRoot,
   onCancel,
   onConfirm,
@@ -580,25 +592,56 @@ function ExportConfirmDialog({
             </label>
 
             {isGitLab && (
-            <div className="mt-3 border-t border-sky-900/60 pt-3">
-              <div className="text-xs text-zinc-500">GitLab publish mode</div>
-              <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
-                <button
-                  type="button"
-                  onClick={() => onGitLabModeChange('single-issue')}
-                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                >
-                  Single issue
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onGitLabModeChange('per-marker-issue')}
-                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                >
-                  Issue per marker
-                </button>
+              <div className="mt-3 space-y-3 border-t border-sky-900/60 pt-3">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="min-w-0 flex-1 text-xs text-zinc-500">
+                      Project
+                      <GitLabProjectPicker
+                        projects={gitlabProjects}
+                        value={gitlabProjectId}
+                        loading={gitlabProjectsRefreshing}
+                        onOpen={() => {
+                          if (gitlabProjects.length === 0 && !gitlabProjectsRefreshing) onRefreshGitLabProjects()
+                        }}
+                        onChange={onGitLabProjectIdChange}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={onRefreshGitLabProjects}
+                      disabled={busy || gitlabProjectsRefreshing}
+                      className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {gitlabProjectsRefreshing ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {gitlabProjectsError && <div className="mt-1 text-xs text-red-300">{gitlabProjectsError}</div>}
+                  {gitlabProjects.length === 0 && !gitlabProjectsError && (
+                    <div className="mt-1 text-xs text-zinc-500">Refresh projects after setting a GitLab token in Publish settings, or enter group/project manually.</div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-xs text-zinc-500">GitLab publish mode</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
+                    <button
+                      type="button"
+                      onClick={() => onGitLabModeChange('single-issue')}
+                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                    >
+                      Single issue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onGitLabModeChange('per-marker-issue')}
+                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                    >
+                      Issue per marker
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
             )}
           </section>
 
@@ -838,6 +881,15 @@ interface SlackChannelPickerProps {
   onChange(id: string): void
 }
 
+interface GitLabProjectPickerProps {
+  projects: GitLabProject[]
+  value: string
+  disabled?: boolean
+  loading?: boolean
+  onOpen?(): void
+  onChange(projectId: string): void
+}
+
 function SlackChannelPicker({ channels, value, disabled = false, loading = false, onOpen, onChange }: SlackChannelPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -912,6 +964,108 @@ function SlackChannelPicker({ channels, value, disabled = false, loading = false
               >
                 <span className="min-w-0 truncate">{slackChannelLabel(channel)}</span>
                 <span className="shrink-0 text-[11px] text-zinc-500">{channel.isMember === false ? 'not joined' : ''}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GitLabProjectPicker({ projects, value, disabled = false, loading = false, onOpen, onChange }: GitLabProjectPickerProps) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = projects.find(project => project.pathWithNamespace === value)
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredProjects = normalizedQuery
+    ? projects.filter(project => [
+        project.name,
+        project.nameWithNamespace,
+        project.pathWithNamespace,
+      ].some(text => text.toLowerCase().includes(normalizedQuery)))
+    : projects
+  const canUseQuery = query.trim() && !projects.some(project => project.pathWithNamespace === query.trim())
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(event: globalThis.MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  function toggleOpen() {
+    if (disabled) return
+    setOpen(prev => {
+      const next = !prev
+      if (next) {
+        setQuery(value)
+        onOpen?.()
+      }
+      return next
+    })
+  }
+
+  function commitProject(projectId: string) {
+    onChange(projectId)
+    setQuery(projectId)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative mt-1" data-row-click-ignore="true">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={toggleOpen}
+        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-900 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
+      >
+        <span className="min-w-0 truncate">{selected ? selected.nameWithNamespace : (value || (loading ? 'Loading projects...' : 'Select GitLab project'))}</span>
+        <span className="shrink-0 text-zinc-500">v</span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">
+          <div className="border-b border-zinc-800 p-2">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && query.trim()) commitProject(query.trim())
+              }}
+              autoFocus
+              placeholder="Search or enter group/project"
+              className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto py-1">
+            {loading && (
+              <div className="px-3 py-2 text-sm text-zinc-500">Loading projects...</div>
+            )}
+            {!loading && canUseQuery && (
+              <button
+                type="button"
+                onClick={() => commitProject(query.trim())}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-blue-100 hover:bg-zinc-800"
+              >
+                <span className="min-w-0 truncate">Use {query.trim()}</span>
+                <span className="shrink-0 text-[11px] text-zinc-500">custom</span>
+              </button>
+            )}
+            {!loading && filteredProjects.length === 0 && !canUseQuery && (
+              <div className="px-3 py-2 text-sm text-zinc-500">{projects.length === 0 ? 'No projects loaded' : 'No matching projects'}</div>
+            )}
+            {filteredProjects.map(project => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => commitProject(project.pathWithNamespace)}
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${project.pathWithNamespace === value ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
+              >
+                <span className="min-w-0 truncate">{project.nameWithNamespace}</span>
+                <span className="max-w-32 shrink-0 truncate text-[11px] text-zinc-500">{project.pathWithNamespace}</span>
               </button>
             ))}
           </div>
@@ -1124,7 +1278,12 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [slackDirectoryRefreshing, setSlackDirectoryRefreshing] = useState(false)
   const [slackDirectoryError, setSlackDirectoryError] = useState('')
   const slackDirectoryRefreshPromiseRef = useRef<Promise<Awaited<ReturnType<DesktopApi['settings']['get']> | null>> | null>(null)
+  const [gitlabSettings, setGitLabSettings] = useState<GitLabPublishSettings | null>(null)
   const [gitlabMode, setGitLabMode] = useState<GitLabPublishMode>('single-issue')
+  const [gitlabProjectId, setGitLabProjectId] = useState('')
+  const [gitlabProjects, setGitLabProjects] = useState<GitLabProject[]>([])
+  const [gitlabProjectsRefreshing, setGitLabProjectsRefreshing] = useState(false)
+  const [gitlabProjectsError, setGitLabProjectsError] = useState('')
   const [exportError, setExportError] = useState('')
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
@@ -1183,6 +1342,9 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       setSlackUsers([...fetchedUsers, ...fallbackUsers])
       setSlackAliases(settings.slack.mentionAliases ?? {})
       setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
+      setGitLabSettings(settings.gitlab)
+      setGitLabProjectId(settings.gitlab.projectId)
+      setGitLabMode(settings.gitlab.mode)
       setMentionIdentities(settings.mentionIdentities ?? [])
     }).catch(() => {})
   }, [api])
@@ -1340,6 +1502,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       return
     }
     setSlackDirectoryError('')
+    setGitLabProjectsError('')
     setExportRoot(settings.exportRoot)
     setExportReportTitle('Loupe QA Report')
     setExportBuildVersion(buildVersion)
@@ -1360,6 +1523,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     setSlackMentionIds(settings.slack.mentionUserIds ?? [])
     setSlackManualMentionInput(formatManualSlackMentions(settings.slack.mentionUserIds ?? []))
     applySlackDirectory(settings)
+    setGitLabSettings(settings.gitlab)
+    setGitLabProjectId(settings.gitlab.projectId)
     setGitLabMode(settings.gitlab.mode)
     setExportError('')
     setExportProgress(null)
@@ -1391,6 +1556,31 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     }
   }
 
+  async function refreshGitLabProjectsForExport() {
+    const sourceSettings = gitlabSettings ?? (await api.settings.get()).gitlab
+    const nextGitLab = {
+      ...sourceSettings,
+      projectId: gitlabProjectId.trim() || sourceSettings.projectId,
+      mode: gitlabMode,
+    }
+    setGitLabProjectsRefreshing(true)
+    setGitLabProjectsError('')
+    try {
+      const projects = await withTimeout(
+        api.settings.listGitLabProjects(nextGitLab),
+        15000,
+        'GitLab project loading timed out. Try Refresh again in a minute.',
+      )
+      setGitLabSettings(nextGitLab)
+      setGitLabProjects([...projects].sort((a, b) => a.nameWithNamespace.localeCompare(b.nameWithNamespace)))
+      if (projects.length === 0) setGitLabProjectsError('GitLab connected, but no projects were returned.')
+    } catch (err) {
+      setGitLabProjectsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGitLabProjectsRefreshing(false)
+    }
+  }
+
   async function exportSelected() {
     if (bugs.length > 0 && checkedIds.length === 0) return
     const selectedBugs = bugs.filter(b => checked.has(b.id))
@@ -1407,6 +1597,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     }
     if (publishSlack && !slackChannelId.trim()) {
       setExportError('Select a Slack channel before exporting.')
+      return
+    }
+    if (publishGitLab && !gitlabProjectId.trim()) {
+      setExportError('Select a GitLab project before exporting.')
       return
     }
     if (exportIncludeOriginalFiles && !skipOriginalFilesWarning && localStorage.getItem(ORIGINAL_FILES_WARNING_KEY) !== '1') {
@@ -1453,6 +1647,17 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
         currentSettings = await api.settings.setSlack(nextSlack)
         setSlackMentionIds(currentSettings.slack.mentionUserIds ?? [])
         setSlackManualMentionInput(formatManualSlackMentions(currentSettings.slack.mentionUserIds ?? []))
+      }
+      if (publishGitLab && gitlabProjectId.trim()) {
+        const nextGitLab: GitLabPublishSettings = {
+          ...currentSettings.gitlab,
+          projectId: gitlabProjectId.trim(),
+          mode: gitlabMode,
+        }
+        currentSettings = await api.settings.setGitLab(nextGitLab)
+        setGitLabSettings(currentSettings.gitlab)
+        setGitLabProjectId(currentSettings.gitlab.projectId)
+        setGitLabMode(currentSettings.gitlab.mode)
       }
       onMutated()
       const targets: PublishTarget[] = [
@@ -1598,6 +1803,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           slackDirectoryRefreshing={slackDirectoryRefreshing}
           slackDirectoryError={slackDirectoryError}
           gitlabMode={gitlabMode}
+          gitlabProjectId={gitlabProjectId}
+          gitlabProjects={gitlabProjects}
+          gitlabProjectsRefreshing={gitlabProjectsRefreshing}
+          gitlabProjectsError={gitlabProjectsError}
           busy={exporting}
           error={exportError}
           canceling={cancelingExport}
@@ -1614,7 +1823,10 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
           onConnectSlack={() => { void connectSlackForExport() }}
           onPublishSlackChange={setPublishSlack}
-          onPublishGitLabChange={setPublishGitLab}
+          onPublishGitLabChange={(value) => {
+            setPublishGitLab(value)
+            if (value && gitlabProjects.length === 0 && !gitlabProjectsRefreshing) void refreshGitLabProjectsForExport()
+          }}
           onPublishGoogleDriveChange={setPublishGoogleDrive}
           onSlackThreadModeChange={setSlackThreadMode}
           onSlackChannelIdChange={setSlackChannelId}
@@ -1622,6 +1834,8 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
           onSlackManualMentionInputChange={setSlackManualMentionInput}
           onRefreshSlackDirectory={() => { void refreshSlackDirectoryForExport() }}
           onGitLabModeChange={setGitLabMode}
+          onGitLabProjectIdChange={setGitLabProjectId}
+          onRefreshGitLabProjects={() => { void refreshGitLabProjectsForExport() }}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={cancelExport}
           onConfirm={confirmExport}
