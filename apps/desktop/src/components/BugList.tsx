@@ -963,9 +963,16 @@ function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute
       if (dropdownMode !== 'fixed') return
       const rect = rootRef.current?.getBoundingClientRect()
       if (!rect) return
-      const width = 320
+      const gap = 4
+      const margin = 16
+      const width = Math.min(320, window.innerWidth - margin * 2)
+      const maxHeight = Math.min(256, window.innerHeight - margin * 2)
       const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
-      setFixedMenuStyle({ position: 'fixed', top: rect.bottom + 4, left, width })
+      const opensAbove = rect.bottom + gap + maxHeight > window.innerHeight - margin && rect.top > window.innerHeight - rect.bottom
+      const top = opensAbove
+        ? Math.max(margin, rect.top - gap - maxHeight)
+        : Math.min(rect.bottom + gap, window.innerHeight - margin - maxHeight)
+      setFixedMenuStyle({ position: 'fixed', top, left, width, maxHeight })
     }
     updateFixedMenuStyle()
     function onPointerDown(event: PointerEvent) {
@@ -1870,6 +1877,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
             options={mentionOptions}
             selectedIds={mentionUserIds}
             aliases={slackAliases}
+            dropdownMode="fixed"
             onChange={changeMentions}
           />
 
