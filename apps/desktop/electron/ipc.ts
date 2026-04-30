@@ -1109,12 +1109,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.bugGetLogcatPreview, async (_e, args: { sessionId: string; relPath: string; maxLines?: number }) => {
     const filePath = join(deps.paths.sessionDir(args.sessionId), args.relPath)
     if (!existsSync(filePath)) return null
-    const maxLines = Math.max(1, args.maxLines ?? 1)
     const lines = readFileSync(filePath, 'utf8')
       .split(/\r?\n/)
       .map(line => line.trim())
       .filter(Boolean)
     if (lines.length === 0) return null
+    if (args.maxLines === undefined) return lines.join('\n')
+    const maxLines = Math.max(1, args.maxLines)
     return lines.slice(-maxLines).join('\n')
   })
   ipcMain.handle(CHANNEL.bugDelete, async (_e, id: string) => deps.manager.deleteBug(id))

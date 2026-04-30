@@ -112,9 +112,16 @@ describe('SessionManager', () => {
     await flushPromises()
     expect(existsSync(paths.screenshotFile('sess-1', bug.id))).toBe(true)
     expect(existsSync(paths.logcatFile('sess-1', bug.id))).toBe(true)
-    expect(stubs.logcat.dumpRecentLinesToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id), 5)
+    expect(stubs.logcat.dumpRecentLinesToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id), 50)
     expect(db.listBugs('sess-1')[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).bugs[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
+  })
+
+  it('uses the requested marker logcat line count', async () => {
+    await mgr.start({ deviceId: 'ABC', connectionMode: 'usb', buildVersion: '', testNote: '', logcatLineCount: 100 })
+    const bug = await mgr.markBug()
+    await flushPromises()
+    expect(stubs.logcat.dumpRecentLinesToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id), 100)
   })
 
   it('markBug returns before a slow screenshot finishes', async () => {

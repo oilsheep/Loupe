@@ -65,4 +65,66 @@ describe('LogcatBuffer', () => {
     const args = (runner.spawn as any).mock.calls[0][1] as string[]
     expect(args).toEqual(['-s', 'ABC', 'logcat', '-v', 'threadtime'])
   })
+
+  it('keeps only lines whose pid belongs to the package filter', async () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '1234\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(m.proc) as any,
+    }
+    const buf = new LogcatBuffer(runner, 'ABC', {
+      packageName: 'com.example.app',
+      pidRefreshMs: 60_000,
+      nowFn: () => 1000,
+    })
+    buf.start()
+    await Promise.resolve()
+
+    expect(runner.run).toHaveBeenCalledWith('adb', ['-s', 'ABC', 'shell', 'pidof', 'com.example.app'])
+    m.emitLine('04-30 12:00:00.000  1234  2222 I App: kept')
+    m.emitLine('04-30 12:00:00.001  9999  2222 I Other: dropped')
+
+    expect(buf.dumpRecent(1000)).toBe('04-30 12:00:00.000  1234  2222 I App: kept')
+    buf.stop()
+  })
+
+  it('keeps only matching logcat tags when a tag filter is set', () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = { run: vi.fn() as any, spawn: vi.fn().mockReturnValue(m.proc) as any }
+    const buf = new LogcatBuffer(runner, 'ABC', {
+      tagFilter: 'Unity',
+      minPriority: 'V',
+      nowFn: () => 1000,
+    })
+    buf.start()
+    m.emitLine('04-30 13:38:34.602 19244 19348 V Unity   : verbose kept')
+    m.emitLine('04-30 13:38:34.603 19244 19348 I Unity   : info kept')
+    m.emitLine('04-30 13:38:34.604 19244 19348 E ActivityManager: dropped')
+
+    expect(buf.dumpRecent(1000)).toBe([
+      '04-30 13:38:34.602 19244 19348 V Unity   : verbose kept',
+      '04-30 13:38:34.603 19244 19348 I Unity   : info kept',
+    ].join('\n'))
+    buf.stop()
+  })
+
+  it('keeps only lines at or above the minimum logcat priority', () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = { run: vi.fn() as any, spawn: vi.fn().mockReturnValue(m.proc) as any }
+    const buf = new LogcatBuffer(runner, 'ABC', {
+      tagFilter: 'Unity',
+      minPriority: 'I',
+      nowFn: () => 1000,
+    })
+    buf.start()
+    m.emitLine('04-30 13:38:34.602 19244 19348 D Unity   : debug dropped')
+    m.emitLine('04-30 13:38:34.603 19244 19348 I Unity   : info kept')
+    m.emitLine('04-30 13:38:34.604 19244 19348 E Unity   : error kept')
+
+    expect(buf.dumpRecent(1000)).toBe([
+      '04-30 13:38:34.603 19244 19348 I Unity   : info kept',
+      '04-30 13:38:34.604 19244 19348 E Unity   : error kept',
+    ].join('\n'))
+    buf.stop()
+  })
 })

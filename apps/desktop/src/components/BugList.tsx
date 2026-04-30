@@ -28,6 +28,8 @@ const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'cust
 const CLIP_MIN_SEC = 2
 const CLIP_MAX_SEC = 60
 const THUMB_PENDING_MS = 45_000
+const LOGCAT_COLLAPSED_LINES = 2
+const LOGCAT_EXPANDED_LINES = 10
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
   note: { label: 'note', color: '#a1a1aa' },
@@ -54,6 +56,10 @@ function severityLabel(severities: SeveritySettings, severity: BugSeverity): str
 
 function severityColor(severities: SeveritySettings, severity: BugSeverity): string {
   return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
+}
+
+function latestLogcatLines(logcat: string, lineCount: number): string {
+  return logcat.split(/\r?\n/).slice(-lineCount).join('\n')
 }
 
 function DownloadIcon() {
@@ -440,6 +446,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
   const [logcatPreview, setLogcatPreview] = useState<Record<string, string>>({})
+  const [expandedLogcatIds, setExpandedLogcatIds] = useState<Set<string>>(new Set())
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
   const [cancelingExport, setCancelingExport] = useState(false)
@@ -516,7 +523,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
       bugs
         .filter(b => b.logcatRel)
         .map(async b => {
-          const preview = await api.bug.getLogcatPreview({ sessionId: b.sessionId, relPath: b.logcatRel!, maxLines: 5 })
+          const preview = await api.bug.getLogcatPreview({ sessionId: b.sessionId, relPath: b.logcatRel! })
           return [b.id, preview ?? ''] as const
         })
     ).then(entries => {
@@ -529,6 +536,11 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
     })
     return () => { cancelled = true }
   }, [bugs, api])
+
+  useEffect(() => {
+    const bugIds = new Set(bugs.map(b => b.id))
+    setExpandedLogcatIds(prev => new Set([...prev].filter(id => bugIds.has(id))))
+  }, [bugs])
 
   function toggleAll() {
     setChecked(allChecked ? new Set() : new Set(bugs.map(b => b.id)))
@@ -663,6 +675,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             isChecked={checked.has(b.id)}
             thumbnailUrl={thumbs[b.id]}
             logcatPreview={logcatPreview[b.id]}
+            logcatExpanded={expandedLogcatIds.has(b.id)}
             nowMs={nowMs}
             onSelect={onSelect}
             onCheckedChange={toggleOne}
@@ -672,6 +685,12 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
+            onToggleLogcat={() => setExpandedLogcatIds(prev => {
+              const next = new Set(prev)
+              if (next.has(b.id)) next.delete(b.id)
+              else next.add(b.id)
+              return next
+            })}
             onExportRequest={(bug) => beginExport({ bugs: [bug], bugIds: [bug.id] })}
           />
         ))}
@@ -717,6 +736,7 @@ interface RowProps {
   isChecked: boolean
   thumbnailUrl?: string
   logcatPreview?: string
+  logcatExpanded: boolean
   nowMs: number
   onSelect(bug: Bug): void
   onCheckedChange(id: string): void
@@ -726,10 +746,11 @@ interface RowProps {
   tester: string
   severities: SeveritySettings
   visibleSeverities: BugSeverity[]
+  onToggleLogcat(): void
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -958,8 +979,20 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
 
           {logcatPreview && (
             <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`}>
-              <div className="mb-1 text-zinc-500">logcat preview</div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-zinc-400">{logcatPreview}</pre>
+              <button
+                type="button"
+                onClick={onToggleLogcat}
+                className="mb-1 flex w-full items-center justify-between gap-2 text-left text-zinc-500 hover:text-zinc-300"
+              >
+                <span>{t('bug.logcatPreview')}</span>
+                <span>{logcatExpanded ? t('bug.collapseLogcat') : t('bug.expandLogcat')}</span>
+              </button>
+              <pre
+                className={`overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-zinc-400 ${logcatExpanded ? 'overflow-y-auto' : 'overflow-y-hidden'}`}
+                style={{ maxHeight: `${logcatExpanded ? LOGCAT_EXPANDED_LINES : LOGCAT_COLLAPSED_LINES}rem` }}
+              >
+                {logcatExpanded ? logcatPreview : latestLogcatLines(logcatPreview, LOGCAT_COLLAPSED_LINES)}
+              </pre>
             </div>
           )}
 

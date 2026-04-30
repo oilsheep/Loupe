@@ -19,6 +19,10 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [build, setBuild] = useState(recent[0] ?? '')
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
+  const [logcatPackageName, setLogcatPackageName] = useState('')
+  const [logcatTagFilter, setLogcatTagFilter] = useState('Unity')
+  const [logcatMinPriority, setLogcatMinPriority] = useState('V')
+  const [logcatLineCount, setLogcatLineCount] = useState(50)
   const [recordPcScreen, setRecordPcScreen] = useState(connectionMode === 'pc')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,6 +43,10 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         tester: tester.trim(),
         recordPcScreen,
         pcCaptureSourceName: sourceName,
+        logcatPackageName: connectionMode === 'pc' ? undefined : logcatPackageName.trim(),
+        logcatTagFilter: connectionMode === 'pc' ? undefined : logcatTagFilter.trim(),
+        logcatMinPriority: connectionMode === 'pc' ? undefined : logcatMinPriority,
+        logcatLineCount: connectionMode === 'pc' ? undefined : logcatLineCount,
       })
       pushRecent(build.trim())
       goRecording(session)
@@ -100,6 +108,62 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
           className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
         />
       </div>
+
+      {connectionMode !== 'pc' && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-zinc-400">{t('new.logcatPackage')}</label>
+            <input
+              value={logcatPackageName}
+              onChange={e => setLogcatPackageName(e.target.value)}
+              placeholder={t('new.logcatPackagePlaceholder')}
+              data-testid="logcat-package"
+              className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+            <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.logcatPackageHelp')}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.logcatTag')}</label>
+              <input
+                value={logcatTagFilter}
+                onChange={e => setLogcatTagFilter(e.target.value)}
+                data-testid="logcat-tag"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.logcatLevel')}</label>
+              <select
+                value={logcatMinPriority}
+                onChange={e => setLogcatMinPriority(e.target.value)}
+                data-testid="logcat-level"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                {['V', 'D', 'I', 'W', 'E', 'F'].map(level => (
+                  <option key={level} value={level}>{t('new.logcatLevelOption', { level })}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {connectionMode !== 'pc' && (
+        <div>
+          <label className="text-xs text-zinc-400">{t('new.logcatLines')}</label>
+          <select
+            value={logcatLineCount}
+            onChange={e => setLogcatLineCount(Number(e.target.value))}
+            data-testid="logcat-lines"
+            className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            {[10, 25, 50, 100, 200].map(count => (
+              <option key={count} value={count}>{t('new.logcatLinesOption', { count })}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {error && <div className="rounded bg-red-950 px-3 py-2 text-xs text-red-200">{error}</div>}
 

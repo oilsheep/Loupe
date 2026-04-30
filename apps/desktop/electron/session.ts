@@ -35,6 +35,7 @@ export interface SessionDeps {
 
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const DEFAULT_MARKER_LOGCAT_LINES = 50
 
 function scrcpyWindowTitle(model: string): string {
   return `Loupe - ${model}`
@@ -54,6 +55,11 @@ function pcPlatformLabel(): string {
   if (process.platform === 'darwin') return 'macOS'
   if (process.platform === 'win32') return 'Windows'
   return process.platform
+}
+
+function sanitizeLogcatLineCount(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_MARKER_LOGCAT_LINES
+  return Math.max(10, Math.min(500, Math.round(value as number)))
 }
 
 /**
@@ -78,6 +84,10 @@ export interface StartArgs {
   tester?: string
   recordPcScreen?: boolean
   pcCaptureSourceName?: string
+  logcatPackageName?: string
+  logcatTagFilter?: string
+  logcatMinPriority?: string
+  logcatLineCount?: number
 }
 
 export interface MarkBugArgs {
@@ -93,8 +103,8 @@ export interface AddMarkerArgs {
 }
 
 export class SessionManager {
-  private static readonly MARKER_LOGCAT_LINES = 5
   private active: Session | null = null
+  private activeLogcatLineCount = DEFAULT_MARKER_LOGCAT_LINES
   private capture: typeof defaultCapture
   private prepareVideo: (inputPath: string) => Promise<void>
   private now: () => number
@@ -127,6 +137,7 @@ export class SessionManager {
       : await adb.getDeviceInfo(args.deviceId)
     const startedAt = this.now()
     const id = this.makeSessionId(args.buildVersion, startedAt)
+    this.activeLogcatLineCount = sanitizeLogcatLineCount(args.logcatLineCount)
     paths.ensureSessionDirs(id)
     const sess: Session = {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
@@ -377,7 +388,7 @@ export class SessionManager {
 
     if (session.connectionMode !== 'pc') {
       try {
-        logcat.dumpRecentLinesToFile(logcatPath, SessionManager.MARKER_LOGCAT_LINES)
+        logcat.dumpRecentLinesToFile(logcatPath, this.activeLogcatLineCount)
         logcatRel = `logcat/${bugId}.txt`
       } catch (err) {
         console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)

@@ -152,7 +152,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string;
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>

@@ -91,6 +91,18 @@ export function Home() {
           </button>
         </div>
 
+        <section className="mb-6 border border-zinc-800 bg-zinc-900/40 p-4">
+          <h3 className="mb-3 text-sm font-medium text-zinc-300">{t('home.newSession')}</h3>
+          {selected
+            ? <NewSessionForm api={api} deviceId={selected.id} connectionMode={selected.mode} sourceName={selected.label} />
+            : (
+              <div className="border border-dashed border-zinc-800 p-4 text-sm text-zinc-500">
+                {t('home.selectPrompt')}
+              </div>
+            )
+          }
+        </section>
+
         {!selected && (
           <section className="mb-6 border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="max-w-2xl">
@@ -221,16 +233,6 @@ export function Home() {
             </button>
           </div>
         </div>
-
-        <h3 className="mb-4 text-sm font-medium text-zinc-300">{t('home.newSession')}</h3>
-        {selected
-          ? <NewSessionForm api={api} deviceId={selected.id} connectionMode={selected.mode} sourceName={selected.label} />
-          : (
-            <div className="border border-dashed border-zinc-800 p-4 text-sm text-zinc-500">
-              {t('home.selectPrompt')}
-            </div>
-          )
-        }
       </main>
     </div>
   )

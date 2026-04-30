@@ -206,7 +206,11 @@ app.whenReady().then(async () => {
   const origStart = manager.start.bind(manager)
   manager.start = async (args) => {
     if (args.connectionMode !== 'pc') {
-      ;(manager as any).deps.logcat = new LogcatBuffer(runner, args.deviceId)
+      ;(manager as any).deps.logcat = new LogcatBuffer(runner, args.deviceId, {
+        packageName: args.logcatPackageName,
+        tagFilter: args.logcatTagFilter,
+        minPriority: args.logcatMinPriority,
+      })
     }
     return origStart(args)
   }

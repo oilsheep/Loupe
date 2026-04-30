@@ -235,11 +235,21 @@ describe('BugList', () => {
     await waitFor(() => expect(screen.getByTestId('thumb-b1')).toBeTruthy())
   })
 
-  it('renders a one-line logcat preview when bug has logcatRel', async () => {
+  it('renders a collapsible logcat preview when bug has logcatRel', async () => {
     const api = fakeApi()
-    api.bug.getLogcatPreview = vi.fn().mockResolvedValue('line 4\nline 5\nFATAL EXCEPTION: main') as any
+    api.bug.getLogcatPreview = vi.fn().mockResolvedValue(Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n')) as any
     render(<BugList api={api} sessionId="s1" bugs={[bug({ logcatRel: 'logcat/b1.txt' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
-    await waitFor(() => expect(api.bug.getLogcatPreview).toHaveBeenCalledWith({ sessionId: 's1', relPath: 'logcat/b1.txt', maxLines: 5 }))
-    await waitFor(() => expect(screen.getByTestId('logcat-preview-b1').textContent).toContain('FATAL EXCEPTION: main'))
+    await waitFor(() => expect(api.bug.getLogcatPreview).toHaveBeenCalledWith({ sessionId: 's1', relPath: 'logcat/b1.txt' }))
+    const preview = screen.getByTestId('logcat-preview-b1')
+    const pre = preview.querySelector('pre')!
+    await waitFor(() => expect(pre.textContent).toContain('line 12'))
+    expect(pre.textContent).toBe('line 11\nline 12')
+    expect(pre.style.maxHeight).toBe('2rem')
+    expect(pre.className).toContain('overflow-y-hidden')
+    fireEvent.click(screen.getByText('expand'))
+    expect(pre.textContent).toContain('line 1')
+    expect(pre.textContent).toContain('line 12')
+    expect(pre.style.maxHeight).toBe('10rem')
+    expect(pre.className).toContain('overflow-y-auto')
   })
 })
