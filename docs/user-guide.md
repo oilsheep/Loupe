@@ -1,6 +1,6 @@
 # Loupe QA Recorder User Guide
 
-This guide explains how to install Loupe, record PC screens or Android devices, mark bugs, review markers, and export clips.
+This guide explains how to install Loupe, record PC/Mac screens, single windows, or Android devices, mark bugs, review markers, and export clips.
 
 ## 1. Install Loupe
 
@@ -14,21 +14,33 @@ Loupe ships with the required Windows binaries for Android control, screen mirro
 
 Loupe supports two recording source types:
 
-- **PC screen**: record one full monitor. This is useful for PC builds, browser tests, admin tools, or workflows that are not on an Android device.
+- **PC/Mac screen or window**: record one full monitor, or capture a single application window. This is useful for PC builds, browser tests, admin tools, or workflows that are not on an Android device.
 - **Android device**: record and control an Android device over USB or Wi-Fi debugging.
 
-### PC Screen Recording
+### PC/Mac Screen Or Window Recording
 
 1. In the left panel, locate **PC recording**.
-2. Select the monitor you want to record.
-3. Confirm the thin green frame appears on that monitor.
-4. Enter the build or test version in the session form.
-5. Press **Start session**.
-6. Loupe changes the frame to red while recording.
-7. Add markers with the hotkeys or colored label buttons.
-8. Press **Stop** when finished.
+2. Choose the **Entire Screen** or **Window** tab.
+3. Select the screen or window card you want to record.
+4. For full-screen capture, confirm the thin green frame appears on that monitor.
+5. Enter the build or test version in the session form.
+6. Press **Start session**.
+7. Loupe changes the full-screen frame to red while recording. Single-window capture does not show a frame.
+8. Add markers with the hotkeys or colored label buttons.
+9. Press **Stop** when finished.
 
-PC recording currently supports full-screen monitor capture only. Window/application capture is not exposed in this version.
+Single-window capture records only the selected window. If that window is minimized, hidden by the system, or using protected content, the recording may turn black or stop updating.
+
+### macOS Permission
+
+The first time macOS records a screen or window, it may require Screen Recording permission:
+
+1. Open **System Settings**.
+2. Go to **Privacy & Security > Screen Recording**.
+3. Allow the Loupe app, or allow the Terminal / development tool that launched Loupe.
+4. Restart Loupe.
+
+If recording starts but no image is captured, check this permission first.
 
 ## 3. Prepare an Android Device
 
@@ -72,12 +84,12 @@ If auto-discovery does not find the phone, type the Wireless debugging IP:port i
 
 ## 4. Start a Session
 
-1. Select a PC screen or Android device.
+1. Select a PC/Mac screen, PC/Mac window, or Android device.
 2. Enter the build or test version.
 3. Optionally enter a test note.
 4. Press **Start session**.
 
-Loupe begins recording and shows a recording indicator. Android sessions open a controllable mirror window; PC sessions record the selected full monitor.
+Loupe begins recording and shows a recording indicator. Android sessions open a controllable mirror window; PC/Mac sessions record the selected full monitor or single window.
 
 ## 5. Add Markers While Recording
 
@@ -129,7 +141,7 @@ Exported clips and preview sheets include a caption area with:
 
 ```text
 Severity / Marker note
-Build / Android OS or Windows / Device or PC screen
+Build / Android OS, Windows, or macOS / Device, PC screen, or window
 Tester / Computer timestamp
 ```
 
@@ -160,6 +172,12 @@ If the linked video is missing, Loupe asks the user to locate it manually.
 - Re-select the target monitor in the left panel.
 - Confirm the green frame appears only on the intended monitor.
 - If the recording still clips incorrectly, check Windows display scaling and monitor arrangement.
+
+### Window recording is black or stops updating
+
+- Make sure the target window is not minimized.
+- On macOS, confirm Screen Recording permission is granted.
+- Avoid protected video or elevated/admin windows when possible.
 
 ### The Android device is not detected
 
