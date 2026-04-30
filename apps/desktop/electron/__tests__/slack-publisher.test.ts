@@ -95,18 +95,18 @@ describe('Slack publisher', () => {
       const result = await publishManifestToSlack({
         manifest,
         manifestPaths: { jsonPath, csvPath, reportPdfPath, summaryTextPath },
-        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: ['U123'], mentionAliases: {} },
         fetchImpl,
       })
 
       expect(result).toEqual({ channelId: 'C123', rootTs: '123.456', markerThreadTs: {}, mode: 'single-thread', uploadErrors: [] })
       const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
       expect(messageCalls).toHaveLength(1)
-      expect(formBody(messageCalls[0][1]).get('text')).toBe('summary text from file')
+      expect(formBody(messageCalls[0][1]).get('text')).toBe('<@U123>\nsummary text from file')
       const completeCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))
       expect(completeCalls).toHaveLength(2)
       expect(formBody(completeCalls[0][1]).get('initial_comment')).toBe('Detailed PDF report')
-      expect(formBody(completeCalls[1][1]).get('initial_comment')).toBe('[Critical] login crash')
+      expect(formBody(completeCalls[1][1]).get('initial_comment')).toBe('<@U123>\n[Critical] login crash')
       const uploadFilenames = fetchImpl.mock.calls
         .filter(([url]) => String(url).endsWith('/files.getUploadURLExternal'))
         .map(([, init]) => formBody(init).get('filename'))

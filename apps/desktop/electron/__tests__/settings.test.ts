@@ -21,7 +21,8 @@ describe('SettingsStore', () => {
         mentionIdentities: [],
       })
 
-      expect(store.get().slack).toEqual({ botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+      expect(store.get().slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+      expect(store.get().slack.channels).toEqual([])
       expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
     } finally {
@@ -52,14 +53,17 @@ describe('SettingsStore', () => {
       })
 
       expect(settings.exportRoot).toBe('/default')
-      expect(settings.slack).toEqual({
+      expect(settings.slack).toMatchObject({
         botToken: ' xoxb-test ',
+        userToken: '',
+        publishIdentity: 'user',
         channelId: ' C123 ',
         mentionUserIds: ['U123', 'U456'],
         mentionAliases: { U123: 'Miki', U456: 'QA Lead' },
         mentionUsers: [],
         usersFetchedAt: null,
       })
+      expect(settings.slack.channels).toEqual([])
       expect(store.get().slack.channelId).toBe(' C123 ')
     } finally {
       rmSync(root, { recursive: true, force: true })

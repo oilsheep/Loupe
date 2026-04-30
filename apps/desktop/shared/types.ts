@@ -32,7 +32,19 @@ export interface HotkeySettings {
 
 export interface SlackPublishSettings {
   botToken: string
+  userToken?: string
+  publishIdentity?: 'bot' | 'user'
   channelId: string
+  oauthClientId?: string
+  oauthClientSecret?: string
+  oauthRedirectUri?: string
+  oauthUserId?: string
+  oauthTeamId?: string
+  oauthTeamName?: string
+  oauthConnectedAt?: string | null
+  oauthUserScopes?: string[]
+  channels?: SlackChannel[]
+  channelsFetchedAt?: string | null
   mentionUserIds?: string[]
   mentionAliases?: Record<string, string>
   mentionUsers?: SlackMentionUser[]
@@ -47,6 +59,14 @@ export interface SlackMentionUser {
   email?: string
   deleted?: boolean
   isBot?: boolean
+}
+
+export interface SlackChannel {
+  id: string
+  name: string
+  isPrivate?: boolean
+  isArchived?: boolean
+  isMember?: boolean
 }
 
 export interface MentionIdentity {
@@ -186,6 +206,7 @@ export type SlackThreadMode = 'single-thread' | 'per-marker-thread'
 
 export interface ExportPublishOptions {
   target: PublishTarget
+  targets?: PublishTarget[]
   slackThreadMode?: SlackThreadMode
   gitlabMode?: GitLabPublishMode
 }
@@ -304,6 +325,8 @@ export interface DesktopApi {
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>
     refreshSlackUsers():                                            Promise<AppSettings>
+    refreshSlackChannels():                                         Promise<AppSettings>
+    startSlackUserOAuth(settings: SlackPublishSettings):             Promise<AppSettings>
     refreshGitLabUsers():                                           Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
@@ -317,6 +340,7 @@ export interface DesktopApi {
   onBugExportProgress(cb: (progress: ExportProgress) => void):    () => void
   /** Renderer subscribes to potentially slow session loading/asset repair progress. */
   onSessionLoadProgress(cb: (progress: SessionLoadProgress) => void): () => void
+  onSlackOAuthCompleted(cb: (result: { ok: boolean; settings?: AppSettings; error?: string }) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>
 }
