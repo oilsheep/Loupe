@@ -47,7 +47,8 @@ Loupe uses this redirect URI:
 http://127.0.0.1:38988/oauth/google/callback
 ```
 
-For a **Desktop app** OAuth client, Google does not require manually adding this redirect URI in the client settings. Keep Loupe's configured redirect URI unchanged unless the app code is also changed.
+Keep Loupe's configured redirect URI unchanged unless the app code is also changed.
+Unlike Slack and GitLab, Google Desktop OAuth should use the loopback redirect. Do not set this to `loupe://google-oauth`; Google rejects arbitrary custom schemes for this client flow.
 
 ## 4. Configure Build-Time Secrets
 

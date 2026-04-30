@@ -188,7 +188,7 @@ export interface GitLabPublishSettings {
 - `authType`: `pat` 時用 `PRIVATE-TOKEN` header；`oauth` 時用 `Authorization: Bearer ...`。
 - `oauthClientId`: GitLab OAuth Application ID。
 - `oauthClientSecret`: confidential OAuth application 才需要；non-confidential + PKCE 可留空。
-- `oauthRedirectUri`: 預設 `http://127.0.0.1:38987/oauth/gitlab/callback`，必須登錄在 GitLab OAuth application。
+- `oauthRedirectUri`: 預設 `loupe://gitlab-oauth`，必須登錄在 GitLab OAuth application。
 - `projectId`: GitLab project ID 或 URL-encoded path。
 - `mode`: 預設匯出模式；匯出 dialog 可覆蓋。
 - `emailLookup`: 預設 `off`；選 `admin-users-api` 時會用 self-managed admin token 嘗試從 `/users/:id` 補 email。
@@ -202,7 +202,7 @@ export interface GitLabPublishSettings {
 設定 UI 放在 Home 的 Publish settings 區塊，和 Slack 並列：
 
 - GitLab base URL、project ID、token。
-- GitLab auth：Personal access token / OAuth。OAuth 使用 authorization code + PKCE；GitLab OAuth application scope 建議 `api`，Redirect URI 填 Loupe UI 顯示的 localhost URI。
+- GitLab auth：Personal access token / OAuth。OAuth 使用 authorization code + PKCE；GitLab OAuth application scope 建議 `api`，Redirect URI 填 Loupe UI 顯示的 `loupe://gitlab-oauth`。
 - Labels input。
 - GitLab fallback username input。
 - GitLab email lookup：`off` / `admin-users-api`。
@@ -233,6 +233,7 @@ Google Drive publish 採「完整 local export folder + optional Google Sheet ap
 OAuth 使用 authorization code + PKCE：
 
 - Redirect URI 預設 `http://127.0.0.1:38988/oauth/google/callback`。
+- Google Desktop OAuth 使用 loopback redirect；不要改成 `loupe://google-oauth`，Google 會以 `invalid_request` 擋下任意 custom scheme。
 - Scopes:
   - `openid email profile`
   - `https://www.googleapis.com/auth/drive.file`

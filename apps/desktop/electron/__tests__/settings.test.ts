@@ -23,7 +23,7 @@ describe('SettingsStore', () => {
 
       expect(store.get().slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
       expect(store.get().slack.channels).toEqual([])
-      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
+      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -102,7 +102,7 @@ describe('SettingsStore', () => {
         authType: 'pat',
         oauthClientId: '',
         oauthClientSecret: '',
-        oauthRedirectUri: '',
+        oauthRedirectUri: 'loupe://gitlab-oauth',
         projectId: 'group/project',
         mode: 'per-marker-issue',
         emailLookup: 'off',

@@ -297,7 +297,7 @@ export function Home() {
       authType: input.authType ?? 'pat',
       oauthClientId: input.oauthClientId?.trim() ?? '',
       oauthClientSecret: input.oauthClientSecret?.trim() ?? '',
-      oauthRedirectUri: input.oauthRedirectUri?.trim() || 'http://127.0.0.1:38987/oauth/gitlab/callback',
+      oauthRedirectUri: input.oauthRedirectUri?.trim() || 'loupe://gitlab-oauth',
       projectId: input.projectId.trim(),
       labels: parseListInput(gitlabLabelsInput),
       mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),

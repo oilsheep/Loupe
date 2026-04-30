@@ -99,13 +99,30 @@ const exportControllers = new Map<string, AbortController>()
 let pendingSlackOAuth: { state: string; codeVerifier: string; createdAt: number } | null = null
 let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
 let gitlabOAuthCancel: (() => void) | null = null
+let gitlabOAuthCallbackHandler: ((url: string) => void) | null = null
 let googleOAuthCancel: (() => void) | null = null
 
+const DEFAULT_GITLAB_OAUTH_REDIRECT_URI = 'loupe://gitlab-oauth'
+const DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:38988/oauth/google/callback'
+
 export function handleProtocolUrl(url: string): boolean {
-  if (!url.startsWith('loupe://slack-oauth')) return false
-  if (!slackOAuthCallbackHandler) return false
-  void slackOAuthCallbackHandler(url)
-  return true
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'loupe:') return false
+    if (parsed.hostname === 'slack-oauth') {
+      if (!slackOAuthCallbackHandler) return false
+      void slackOAuthCallbackHandler(url)
+      return true
+    }
+    if (parsed.hostname === 'gitlab-oauth') {
+      if (!gitlabOAuthCallbackHandler) return false
+      gitlabOAuthCallbackHandler(url)
+      return true
+    }
+  } catch {
+    return false
+  }
+  return false
 }
 
 export interface IpcDeps {
@@ -185,15 +202,14 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
   const clientId = settings.oauthClientId?.trim() || ''
   const clientSecret = settings.oauthClientSecret?.trim() || ''
-  const redirectUri = settings.oauthRedirectUri?.trim() || 'http://127.0.0.1:38987/oauth/gitlab/callback'
+  const redirectUri = settings.oauthRedirectUri?.trim() || DEFAULT_GITLAB_OAUTH_REDIRECT_URI
   if (!baseUrl) throw new Error('GitLab base URL is missing')
   if (!clientId) throw new Error('GitLab OAuth client ID is missing')
 
   const redirect = new URL(redirectUri)
-  if (redirect.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(redirect.hostname)) {
-    throw new Error('GitLab OAuth redirect URI must be a localhost HTTP URL')
+  if (redirect.protocol !== 'loupe:' || redirect.hostname !== 'gitlab-oauth') {
+    throw new Error('GitLab OAuth redirect URI must be loupe://gitlab-oauth')
   }
-  const port = Number(redirect.port || 80)
   const state = base64Url(randomBytes(24))
   const verifier = base64Url(randomBytes(48))
   const challenge = base64Url(createHash('sha256').update(verifier).digest())
@@ -205,47 +221,37 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
       settled = true
       clearTimeout(timeout)
       gitlabOAuthCancel = null
-      server.close()
+      gitlabOAuthCallbackHandler = null
       fn()
     }
     const timeout = setTimeout(() => {
       finish(() => reject(new Error('GitLab OAuth timed out')))
     }, 30000)
     timeout.unref?.()
-    const server = createServer((req, res) => {
+    gitlabOAuthCallbackHandler = (callbackUrl) => {
       try {
-        const url = new URL(req.url || '/', redirect.origin)
-        if (url.pathname !== redirect.pathname) {
-          res.writeHead(404).end('Not found')
-          return
-        }
+        const url = new URL(callbackUrl)
+        if (url.protocol !== redirect.protocol || url.hostname !== redirect.hostname) return
         const error = url.searchParams.get('error')
         if (error) throw new Error(url.searchParams.get('error_description') || error)
         if (url.searchParams.get('state') !== state) throw new Error('GitLab OAuth state mismatch')
         const receivedCode = url.searchParams.get('code')
         if (!receivedCode) throw new Error('GitLab OAuth code is missing')
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end('<!doctype html><meta charset="utf-8"><title>Loupe</title><p>GitLab OAuth connected. You can return to Loupe.</p>')
         finish(() => resolve(receivedCode))
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
-        res.end(err instanceof Error ? err.message : String(err))
         finish(() => reject(err))
       }
-    })
-    server.on('error', error => finish(() => reject(error)))
-    server.listen(port, redirect.hostname, () => {
-      gitlabOAuthCancel = () => finish(() => reject(new Error('GitLab OAuth cancelled')))
-      const authorize = new URL(`${baseUrl}/oauth/authorize`)
-      authorize.searchParams.set('client_id', clientId)
-      authorize.searchParams.set('redirect_uri', redirectUri)
-      authorize.searchParams.set('response_type', 'code')
-      authorize.searchParams.set('scope', 'api')
-      authorize.searchParams.set('state', state)
-      authorize.searchParams.set('code_challenge', challenge)
-      authorize.searchParams.set('code_challenge_method', 'S256')
-      void shell.openExternal(authorize.toString())
-    })
+    }
+    gitlabOAuthCancel = () => finish(() => reject(new Error('GitLab OAuth cancelled')))
+    const authorize = new URL(`${baseUrl}/oauth/authorize`)
+    authorize.searchParams.set('client_id', clientId)
+    authorize.searchParams.set('redirect_uri', redirectUri)
+    authorize.searchParams.set('response_type', 'code')
+    authorize.searchParams.set('scope', 'api')
+    authorize.searchParams.set('state', state)
+    authorize.searchParams.set('code_challenge', challenge)
+    authorize.searchParams.set('code_challenge_method', 'S256')
+    void shell.openExternal(authorize.toString())
   })
 
   const body = new URLSearchParams({
@@ -277,7 +283,7 @@ async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<Goog
   googleOAuthCancel?.()
   const clientId = settings.oauthClientId?.trim() || ''
   const clientSecret = settings.oauthClientSecret?.trim() || ''
-  const redirectUri = settings.oauthRedirectUri?.trim() || 'http://127.0.0.1:38988/oauth/google/callback'
+  const redirectUri = settings.oauthRedirectUri?.trim() || DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
   if (!clientId) throw new Error('Google OAuth client ID is missing')
 
   const redirect = new URL(redirectUri)
