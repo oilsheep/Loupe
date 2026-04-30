@@ -139,7 +139,7 @@ describe('Slack publisher', () => {
       expect(result.markerThreadTs.b1).toBe('123.456')
       const messageCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))
       expect(messageCalls).toHaveLength(2)
-      expect(formBody(messageCalls[0]?.[1]).get('text')).toBe('[major] login crash')
+      expect(formBody(messageCalls[0]?.[1]).get('text')).toBe('[Critical] login crash')
       expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('RAM: 8.0G')
       expect(formBody(messageCalls[1]?.[1]).get('text')).toContain('Graphic Device: Qualcomm Adreno 740')
       expect(formBody(messageCalls[1]?.[1]).get('thread_ts')).toBe('123.456')

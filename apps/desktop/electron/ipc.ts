@@ -1194,7 +1194,8 @@ export function registerIpc(deps: IpcDeps): void {
       const inputPath = sessionVideoInputPath(session, deps.paths)
       const tileSize = await contactSheetTileSize(deps.runner, inputPath)
       const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
-      const severityStyle = deps.settings.get().severities[bug.severity]
+      const severities = deps.settings.get().severities
+      const severityStyle = severities[bug.severity]
       const telemetryLine = telemetryLineForMarker(deps.paths, session.id, bug.offsetMs)
       const clipOptions = {
         inputPath,
@@ -1273,7 +1274,7 @@ export function registerIpc(deps: IpcDeps): void {
         previewPath: imagePath,
         logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, publish: args.publish })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, publish: args.publish, severities })
       if (args.publish?.target === 'slack') {
         await publishManifestToSlack({
           manifest: manifestFiles.manifest,
@@ -1406,7 +1407,7 @@ export function registerIpc(deps: IpcDeps): void {
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
       await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, publish: args.publish })
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, publish: args.publish, severities })
       if (args.publish?.target === 'slack') {
         await publishManifestToSlack({
           manifest: manifestFiles.manifest,

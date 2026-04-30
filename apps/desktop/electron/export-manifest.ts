@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Bug, ExportedMarkerFile, ExportPublishOptions, Session } from '@shared/types'
+import type { Bug, BugSeverity, ExportedMarkerFile, ExportPublishOptions, Session, SeveritySettings } from '@shared/types'
 
 interface BuildExportManifestArgs {
   session: Session
@@ -8,6 +8,7 @@ interface BuildExportManifestArgs {
   files: ExportedMarkerFile[]
   outDir: string
   publish?: ExportPublishOptions
+  severities?: SeveritySettings
   now?: number
 }
 
@@ -38,6 +39,8 @@ export interface ExportManifest {
     id: string
     offsetMs: number
     severity: Bug['severity']
+    severityLabel: string
+    severityColor: string
     note: string
     createdAt: string
     preSec: number
@@ -55,6 +58,26 @@ function isoOrNull(ms: number | null): string | null {
 function csvCell(value: unknown): string {
   const text = value == null ? '' : String(value)
   return `"${text.replace(/"/g, '""')}"`
+}
+
+const DEFAULT_SEVERITY_STYLE: Record<BugSeverity, { label: string; color: string }> = {
+  note: { label: 'note', color: '#a1a1aa' },
+  major: { label: 'Critical', color: '#ff4d4f' },
+  normal: { label: 'Bug', color: '#f59e0b' },
+  minor: { label: 'Polish', color: '#22b8f0' },
+  improvement: { label: 'Note', color: '#22c55e' },
+  custom1: { label: 'custom 1', color: '#8b5cf6' },
+  custom2: { label: 'custom 2', color: '#ec4899' },
+  custom3: { label: 'custom 3', color: '#14b8a6' },
+  custom4: { label: 'custom 4', color: '#eab308' },
+}
+
+function severityStyle(severities: SeveritySettings | undefined, severity: BugSeverity): { label: string; color: string } {
+  const configured = severities?.[severity]
+  return {
+    label: configured?.label?.trim() || DEFAULT_SEVERITY_STYLE[severity]?.label || severity,
+    color: configured?.color || DEFAULT_SEVERITY_STYLE[severity]?.color || '#888888',
+  }
 }
 
 export function buildExportManifest(args: BuildExportManifestArgs): ExportManifest {
@@ -90,6 +113,8 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
         id: bug.id,
         offsetMs: bug.offsetMs,
         severity: bug.severity,
+        severityLabel: severityStyle(args.severities, bug.severity).label,
+        severityColor: severityStyle(args.severities, bug.severity).color,
         note: bug.note,
         createdAt: new Date(bug.createdAt).toISOString(),
         preSec: bug.preSec,
@@ -114,6 +139,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Connection',
       'Marker ID',
       'Severity',
+      'Severity Label',
       'Note',
       'Offset MS',
       'Created At',
@@ -133,6 +159,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       manifest.session.connectionMode,
       marker.id,
       marker.severity,
+      marker.severityLabel,
       marker.note,
       marker.offsetMs,
       marker.createdAt,
@@ -148,7 +175,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
 
 function markerTitle(marker: ExportManifest['markers'][number]): string {
   const note = marker.note.trim() || 'No note'
-  return `[${marker.severity}] ${note}`
+  return `[${marker.severityLabel || marker.severity}] ${note}`
 }
 
 export function slackSessionMessage(manifest: ExportManifest): string {

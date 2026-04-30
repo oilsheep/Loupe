@@ -121,7 +121,7 @@ function validateSettings(settings: SlackPublishSettings): void {
 }
 
 function markerTitle(marker: ExportManifest['markers'][number]): string {
-  return `[${marker.severity}] ${marker.note.trim() || 'No note'}`
+  return `[${marker.severityLabel || marker.severity}] ${marker.note.trim() || 'No note'}`
 }
 
 function deviceDetailLines(session: ExportManifest['session']): string[] {

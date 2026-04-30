@@ -72,6 +72,7 @@ describe('export manifest', () => {
     expect(manifest.markers[0]).toMatchObject({
       id: 'b1',
       severity: 'major',
+      severityLabel: 'Critical',
       note: 'login crash',
       videoPath: '/exports/b1.mp4',
       previewPath: '/exports/b1.jpg',
@@ -124,7 +125,7 @@ describe('export manifest', () => {
       publish: { target: 'slack', slackThreadMode: 'single-thread' },
     })
 
-    expect(slackSessionMessage(manifest)).toContain('1. [major] login crash')
+    expect(slackSessionMessage(manifest)).toContain('1. [Critical] login crash')
     expect(slackThreadPayload(manifest).markers[0]).toMatchObject({
       markerId: 'b1',
       files: ['/exports/b1.mp4', '/exports/b1.jpg', '/exports/b1.logcat.txt'],
