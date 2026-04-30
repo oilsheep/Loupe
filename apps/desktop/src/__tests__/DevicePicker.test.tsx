@@ -77,12 +77,14 @@ describe('DevicePicker', () => {
     expect(onSelect).toHaveBeenCalledWith('screen:1:0', 'pc', 'Entire screen')
   })
 
-  it('does not expose PC window sources', async () => {
+  it('selects PC window as a recording source', async () => {
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
-    await waitFor(() => expect(screen.getByTestId('source-pc-screen:1:0')).toBeTruthy())
-    expect(screen.queryByTestId('source-pc-window:2:0')).toBeNull()
-    expect(screen.queryByText('Chrome')).toBeNull()
+    await waitFor(() => expect(screen.getByText('Window')).toBeTruthy())
+    fireEvent.click(screen.getByText('Window'))
+    await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('source-pc-window:2:0'))
+    expect(onSelect).toHaveBeenCalledWith('window:2:0', 'pc', 'Chrome')
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {

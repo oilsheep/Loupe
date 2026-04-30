@@ -438,6 +438,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
 export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '' }: Props) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [nowMs, setNowMs] = useState(Date.now())
   const [logcatPreview, setLogcatPreview] = useState<Record<string, string>>({})
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
@@ -464,6 +465,13 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
   useEffect(() => {
     api.settings.get().then(settings => setSeverities(settings.severities)).catch(() => {})
   }, [api])
+
+  useEffect(() => {
+    const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)
+    if (!hasPendingThumbnail) return
+    const timer = window.setTimeout(() => setNowMs(Date.now()), 1000)
+    return () => window.clearTimeout(timer)
+  }, [bugs, nowMs])
 
   useEffect(() => api.onBugExportProgress((progress) => {
     setExportProgress(prev => {
@@ -655,6 +663,7 @@ export function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutat
             isChecked={checked.has(b.id)}
             thumbnailUrl={thumbs[b.id]}
             logcatPreview={logcatPreview[b.id]}
+            nowMs={nowMs}
             onSelect={onSelect}
             onCheckedChange={toggleOne}
             onMutated={onMutated}
@@ -708,6 +717,7 @@ interface RowProps {
   isChecked: boolean
   thumbnailUrl?: string
   logcatPreview?: string
+  nowMs: number
   onSelect(bug: Bug): void
   onCheckedChange(id: string): void
   onMutated(): void
@@ -719,7 +729,7 @@ interface RowProps {
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logcatPreview, nowMs, onSelect, onCheckedChange, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -854,7 +864,7 @@ function BugRow({ bug, api, sessionId, isSelected, isChecked, thumbnailUrl, logc
                 className="h-24 w-28 rounded border border-zinc-800 bg-black object-contain"
               />
             )
-            : Date.now() - bug.createdAt < THUMB_PENDING_MS
+            : nowMs - bug.createdAt < THUMB_PENDING_MS
               ? <ThumbnailWaiting label={t('bug.waitingScreenshot')} />
               : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
           }

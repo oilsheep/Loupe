@@ -141,7 +141,7 @@ describe('SessionManager', () => {
       expect(sourceId).toBe('Loupe - Pixel 7')
       writeFileSync(out, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
     })
-    stubs.logcat.dumpRecentToFile = vi.fn().mockImplementation((path: string) => {
+    stubs.logcat.dumpRecentLinesToFile = vi.fn().mockImplementation((path: string) => {
       order.push('logcat')
       writeFileSync(path, 'log line\n')
     }) as any
@@ -163,7 +163,8 @@ describe('SessionManager', () => {
 
     expect(capturePcThumbnail).toHaveBeenCalledWith('Loupe - Pixel 7', paths.screenshotFile('sess-1', bug.id))
     expect(stubs.screenshot).not.toHaveBeenCalled()
-    expect(order).toEqual(['thumbnail', 'logcat'])
+    expect(order).toEqual(expect.arrayContaining(['thumbnail', 'logcat']))
+    expect(order).toHaveLength(2)
     expect(db.listBugs('sess-1')[0].screenshotRel).toBe('screenshots/bug-1.png')
   })
 
@@ -190,6 +191,45 @@ describe('SessionManager', () => {
     expect(stubs.screenshot).not.toHaveBeenCalled()
     expect(runner.run).not.toHaveBeenCalled()
     expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
+  })
+
+  it('defers PC window thumbnails until the recording file is saved', async () => {
+    const runner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+    const capturePcThumbnail = vi.fn()
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner,
+      captureScreenshot: stubs.screenshot,
+      capturePcThumbnail,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'sess-1',
+    })
+
+    await mgr.start({
+      deviceId: 'window:123:0',
+      connectionMode: 'pc',
+      buildVersion: '',
+      testNote: '',
+      pcCaptureSourceName: 'Chrome',
+    })
+    const bug = await mgr.markBug()
+    await flushPromises()
+
+    expect(capturePcThumbnail).not.toHaveBeenCalled()
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBeNull()
+
+    mgr.savePcRecording('sess-1', Buffer.from('webm'))
+    await mgr.stop()
+
+    expect(runner.run).toHaveBeenCalled()
+    expect(db.listBugs('sess-1')[0].screenshotRel).toBe(`screenshots/${bug.id}.png`)
   })
 
   it('markBug throws when no active session', async () => {

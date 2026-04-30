@@ -25,6 +25,7 @@ describe('buildClipArgs', () => {
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-crf', '20',
+      '-r', '30',
       '-c:a', 'aac',
       '-b:a', '128k',
       '-avoid_negative_ts', 'make_zero',
@@ -247,6 +248,7 @@ describe('buildIntroClipArgs', () => {
     const filter = args[args.indexOf('-filter_complex') + 1]
     expect(filter).toContain('fade=t=out:st=2.500:d=0.500')
     expect(filter).toContain('[1:v:0]trim=start=5.000:duration=7.000,setpts=PTS-STARTPTS')
+    expect(filter).toContain('setpts=PTS-STARTPTS,fps=30')
     expect(filter).toContain('[1:a:0]atrim=start=5.000:duration=7.000,asetpts=PTS-STARTPTS,adelay=3000|3000[a]')
     expect(filter).toContain('scale=720:1450:force_original_aspect_ratio=decrease')
     expect(filter).toContain('pad=720:1450:(ow-iw)/2:0:color=black')
