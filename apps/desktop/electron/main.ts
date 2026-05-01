@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, globalShortcut, protocol, session as electronSession } from 'electron'
+import { app, BrowserWindow, desktopCapturer, globalShortcut, nativeImage, protocol, session as electronSession } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import * as fs from 'node:fs'
@@ -41,6 +41,23 @@ function registerLoupeProtocolClient(): void {
     return
   }
   app.setAsDefaultProtocolClient('loupe', process.execPath, [app.getAppPath()])
+}
+
+function getAppIconPath(): string | undefined {
+  const candidates = [
+    join(app.getAppPath(), 'build', 'icon.png'),
+    join(__dirname, '..', '..', 'build', 'icon.png'),
+    join(process.resourcesPath, 'build', 'icon.png'),
+  ]
+  return candidates.find(candidate => fs.existsSync(candidate))
+}
+
+function setApplicationIcon(): void {
+  if (process.platform !== 'darwin' || !app.dock) return
+  const iconPath = getAppIconPath()
+  if (!iconPath) return
+  const icon = nativeImage.createFromPath(iconPath)
+  if (!icon.isEmpty()) app.dock.setIcon(icon)
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -103,8 +120,10 @@ function parseRangeHeader(range: string | null, total: number): { start: number;
 }
 
 async function createWindow() {
+  const icon = getAppIconPath()
   win = new BrowserWindow({
     width: 1280, height: 800, backgroundColor: '#0a0a0a',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -121,6 +140,7 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   registerLoupeProtocolClient()
+  setApplicationIcon()
 
   electronSession.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     const sources = await desktopCapturer.getSources({ types: ['screen'] })

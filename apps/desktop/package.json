@@ -43,11 +43,13 @@
   "build": {
     "appId": "com.loupe.qa-recorder",
     "productName": "Loupe QA Recorder",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist"
     },
     "files": [
       "out/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "asarUnpack": [
