@@ -4,7 +4,7 @@ import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createServer } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
-import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
 import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
@@ -94,6 +94,7 @@ export const CHANNEL = {
 
 let pcCaptureFrame: BrowserWindow | null = null
 let pcCaptureFrameToken = 0
+let pcCaptureFrameTimer: NodeJS.Timeout | null = null
 let pcRecordingProcess: ChildProcessByStdio<Writable, null, Readable> | null = null
 let pcRecordingStderr = ''
 const exportControllers = new Map<string, AbortController>()
@@ -105,6 +106,8 @@ let googleOAuthCancel: (() => void) | null = null
 
 const DEFAULT_GITLAB_OAUTH_REDIRECT_URI = 'loupe://gitlab-oauth'
 const DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:38988/oauth/google/callback'
+const MAC_WINDOW_SCRIPT_TIMEOUT_MS = 3000
+const PC_CAPTURE_FRAME_START_TIMEOUT_MS = 3500
 
 export function handleProtocolUrl(url: string): boolean {
   try {
@@ -1084,6 +1087,10 @@ async function listPcCaptureSources(): Promise<PcCaptureSource[]> {
 
 async function hidePcCaptureFrame(): Promise<void> {
   pcCaptureFrameToken += 1
+  if (pcCaptureFrameTimer) {
+    clearInterval(pcCaptureFrameTimer)
+    pcCaptureFrameTimer = null
+  }
   const frame = pcCaptureFrame
   pcCaptureFrame = null
   if (!frame || frame.isDestroyed()) return
@@ -1151,6 +1158,233 @@ function gdigrabWindowInput(source: PcCaptureSource): string {
   const hwnd = match ? Number(match[1]) : NaN
   if (Number.isFinite(hwnd) && hwnd > 0) return `hwnd=0x${hwnd.toString(16)}`
   return `title=${source.name}`
+}
+
+export function parseWindowsWindowHandle(sourceId: string): number | null {
+  const match = sourceId.match(/^window:(\d+):/)
+  if (!match) return null
+  const hwnd = Number(match[1])
+  return Number.isSafeInteger(hwnd) && hwnd > 0 ? hwnd : null
+}
+
+export function parseMacWindowId(sourceId: string): number | null {
+  const match = sourceId.match(/^window:(\d+):/)
+  if (!match) return null
+  const windowId = Number(match[1])
+  return Number.isSafeInteger(windowId) && windowId > 0 ? windowId : null
+}
+
+function execWindowsWindowScript<T>(hwnd: number, body: string): Promise<T> {
+  const script = `
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class LoupeWin32 {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+}
+"@
+    $hwnd = [IntPtr]${hwnd}
+    if (-not [LoupeWin32]::IsWindow($hwnd)) { throw "Window handle is no longer valid." }
+    ${body}
+  `
+  return new Promise<T>((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr.trim() || err.message))
+        return
+      }
+      try {
+        resolve(JSON.parse(stdout.trim()) as T)
+      } catch (parseErr) {
+        reject(parseErr)
+      }
+    })
+  })
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      err => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
+function execMacWindowIdScript(windowId: number, shouldFocus: boolean): Promise<Electron.Rectangle> {
+  const script = `
+import AppKit
+import CoreGraphics
+
+guard CommandLine.arguments.count >= 3,
+      let windowId = UInt32(CommandLine.arguments[1]) else {
+  exit(2)
+}
+
+let shouldFocus = CommandLine.arguments[2] == "1"
+let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowId)) as? [[String: Any]] ?? []
+guard let window = list.first,
+      let bounds = window[kCGWindowBounds as String] as? [String: Any],
+      let x = bounds["X"] as? CGFloat,
+      let y = bounds["Y"] as? CGFloat,
+      let width = bounds["Width"] as? CGFloat,
+      let height = bounds["Height"] as? CGFloat,
+      width > 0,
+      height > 0 else {
+  exit(3)
+}
+
+if shouldFocus,
+   let pid = window[kCGWindowOwnerPID as String] as? pid_t,
+   let app = NSRunningApplication(processIdentifier: pid) {
+  if let bundleIdentifier = app.bundleIdentifier {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = ["-b", bundleIdentifier]
+    try? process.run()
+    process.waitUntilExit()
+  }
+  app.unhide()
+  app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+}
+
+print("\\(Int(x)),\\(Int(y)),\\(Int(width)),\\(Int(height))")
+  `
+  return new Promise<Electron.Rectangle>((resolve, reject) => {
+    execFile('/usr/bin/xcrun', ['swift', '-e', script, String(windowId), shouldFocus ? '1' : '0'], {
+      timeout: MAC_WINDOW_SCRIPT_TIMEOUT_MS,
+      env: { ...process.env, CLANG_MODULE_CACHE_PATH: '/private/tmp/loupe-swift-cache' },
+    }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr.trim() || err.message))
+        return
+      }
+      const parts = stdout.trim().split(',').map(Number)
+      if (parts.length !== 4 || !parts.every(Number.isFinite)) {
+        reject(new Error('Could not parse macOS window bounds.'))
+        return
+      }
+      const [x, y, width, height] = parts
+      if (width <= 0 || height <= 0) {
+        reject(new Error('Selected window has no visible bounds.'))
+        return
+      }
+      resolve({ x, y, width, height })
+    })
+  })
+}
+
+function execMacAccessibilityWindowScript(sourceName: string, shouldFocus: boolean): Promise<Electron.Rectangle> {
+  const script = `
+on run argv
+  set targetName to item 1 of argv
+  set shouldFocus to (item 2 of argv) is "1"
+  tell application "System Events"
+    ignoring case
+      repeat with proc in application processes
+        set procName to name of proc as text
+        repeat with win in windows of proc
+          set winName to name of win as text
+          if winName is not "" and (winName is targetName or winName contains targetName or targetName contains winName or procName is targetName or targetName contains procName) then
+            if shouldFocus then
+              set frontmost of proc to true
+              try
+                perform action "AXRaise" of win
+              end try
+            end if
+            set winPos to position of win
+            set winSize to size of win
+            return ((item 1 of winPos) as text) & "," & ((item 2 of winPos) as text) & "," & ((item 1 of winSize) as text) & "," & ((item 2 of winSize) as text)
+          end if
+        end repeat
+      end repeat
+    end ignoring
+  end tell
+  error "Could not find window: " & targetName
+end run
+  `
+  return new Promise<Electron.Rectangle>((resolve, reject) => {
+    execFile('/usr/bin/osascript', ['-e', script, sourceName, shouldFocus ? '1' : '0'], { timeout: MAC_WINDOW_SCRIPT_TIMEOUT_MS }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr.trim() || err.message))
+        return
+      }
+      const parts = stdout.trim().split(',').map(Number)
+      if (parts.length !== 4 || !parts.every(Number.isFinite)) {
+        reject(new Error('Could not parse macOS window bounds.'))
+        return
+      }
+      const [x, y, width, height] = parts
+      if (width <= 0 || height <= 0) {
+        reject(new Error('Selected window has no visible bounds.'))
+        return
+      }
+      resolve({ x, y, width, height })
+    })
+  })
+}
+
+async function resolvePcCaptureSourceName(sourceId: string): Promise<string | null> {
+  const source = (await listPcCaptureSources()).find(s => s.id === sourceId)
+  return source?.name ?? null
+}
+
+async function getWindowsWindowBounds(hwnd: number): Promise<Electron.Rectangle> {
+  const rect = await execWindowsWindowScript<{ x: number; y: number; width: number; height: number }>(hwnd, `
+    $rect = New-Object LoupeWin32+RECT
+    if (-not [LoupeWin32]::GetWindowRect($hwnd, [ref]$rect)) { throw "Could not read window bounds." }
+    [pscustomobject]@{
+      x = $rect.Left
+      y = $rect.Top
+      width = $rect.Right - $rect.Left
+      height = $rect.Bottom - $rect.Top
+    } | ConvertTo-Json -Compress
+  `)
+  if (rect.width <= 0 || rect.height <= 0) throw new Error('Selected window has no visible bounds.')
+  return screen.screenToDipRect(null, rect)
+}
+
+async function focusPcCaptureSource(sourceId: string, sourceName?: string): Promise<boolean> {
+  if (process.platform === 'win32') {
+    const hwnd = parseWindowsWindowHandle(sourceId)
+    if (!hwnd) return false
+    await execWindowsWindowScript<{ ok: boolean }>(hwnd, `
+      if ([LoupeWin32]::IsIconic($hwnd)) { [void][LoupeWin32]::ShowWindow($hwnd, 9) }
+      [void][LoupeWin32]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0043)
+      [void][LoupeWin32]::SetWindowPos($hwnd, [IntPtr](-2), 0, 0, 0, 0, 0x0043)
+      [void][LoupeWin32]::BringWindowToTop($hwnd)
+      [void][LoupeWin32]::SetForegroundWindow($hwnd)
+      [pscustomobject]@{ ok = $true } | ConvertTo-Json -Compress
+    `)
+    return true
+  }
+  if (process.platform === 'darwin' && sourceId.startsWith('window:')) {
+    const windowId = parseMacWindowId(sourceId)
+    if (windowId) {
+      await execMacWindowIdScript(windowId, true)
+      return true
+    }
+    const name = sourceName?.trim() || await resolvePcCaptureSourceName(sourceId)
+    if (!name) return false
+    await execMacAccessibilityWindowScript(name, true)
+    return true
+  }
+  return false
 }
 
 export function buildMacAvfoundationInputName(source: PcCaptureSource, screenSources: PcCaptureSource[]): string {
@@ -1310,20 +1544,44 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
   const token = pcCaptureFrameToken + 1
   await hidePcCaptureFrame()
   pcCaptureFrameToken = token
-  if (!sourceId.startsWith('screen:')) return false
 
-  const resolvedDisplayId = displayId ?? sourceId.match(/^screen:(\d+):/)?.[1]
-  const display = resolvedDisplayId
-    ? screen.getAllDisplays().find(d => String(d.id) === resolvedDisplayId)
-    : screen.getPrimaryDisplay()
-  if (!display) return false
+  let bounds: Electron.Rectangle | null = null
+  let windowHwnd: number | null = null
+  let macWindowId: number | null = null
+  let windowSourceName: string | null = null
+  if (sourceId.startsWith('screen:')) {
+    const resolvedDisplayId = displayId ?? sourceId.match(/^screen:(\d+):/)?.[1]
+    const display = resolvedDisplayId
+      ? screen.getAllDisplays().find(d => String(d.id) === resolvedDisplayId)
+      : screen.getPrimaryDisplay()
+    if (!display) return false
+    bounds = display.bounds
+  } else {
+    if (process.platform === 'win32') {
+      windowHwnd = parseWindowsWindowHandle(sourceId)
+      if (!windowHwnd) return false
+      await focusPcCaptureSource(sourceId)
+      bounds = await getWindowsWindowBounds(windowHwnd)
+    } else if (process.platform === 'darwin') {
+      macWindowId = parseMacWindowId(sourceId)
+      if (macWindowId) {
+        bounds = await execMacWindowIdScript(macWindowId, true)
+      } else {
+        windowSourceName = await resolvePcCaptureSourceName(sourceId)
+        if (!windowSourceName) return false
+        bounds = await execMacAccessibilityWindowScript(windowSourceName, true)
+      }
+    } else {
+      return false
+    }
+  }
 
   if (pcCaptureFrameToken !== token) return false
   const frame = new BrowserWindow({
-    x: display.bounds.x,
-    y: display.bounds.y,
-    width: display.bounds.width,
-    height: display.bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     frame: false,
     transparent: true,
     resizable: false,
@@ -1351,6 +1609,36 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
   if (pcCaptureFrameToken !== token) {
     if (!frame.isDestroyed()) frame.close()
     return false
+  }
+  if (windowHwnd) {
+    await focusPcCaptureSource(sourceId).catch(() => false)
+  } else if (macWindowId) {
+    await execMacWindowIdScript(macWindowId, true).catch(() => bounds)
+  } else if (windowSourceName && process.platform === 'darwin') {
+    await execMacAccessibilityWindowScript(windowSourceName, true).catch(() => bounds)
+  }
+  if (windowHwnd || macWindowId || (process.platform === 'darwin' && sourceId.startsWith('window:'))) {
+    let updatingWindowFrame = false
+    pcCaptureFrameTimer = setInterval(() => {
+      if (updatingWindowFrame) return
+      updatingWindowFrame = true
+      const nextBounds = windowHwnd
+        ? getWindowsWindowBounds(windowHwnd)
+        : macWindowId
+          ? execMacWindowIdScript(macWindowId, false)
+        : windowSourceName
+          ? execMacAccessibilityWindowScript(windowSourceName, false)
+          : Promise.reject(new Error('Selected window is no longer available.'))
+      void nextBounds.then(nextBounds => {
+        if (pcCaptureFrameToken !== token || frame.isDestroyed()) return
+        frame.setBounds(nextBounds, false)
+        frame.moveTop()
+      }).catch(() => {
+        if (pcCaptureFrameToken === token) void hidePcCaptureFrame()
+      }).finally(() => {
+        updatingWindowFrame = false
+      })
+    }, 750)
   }
   return true
 }
@@ -1425,7 +1713,11 @@ export function registerIpc(deps: IpcDeps): void {
     if (session.connectionMode === 'pc') {
       const outputPath = deps.paths.pcVideoFile(session.id)
       try {
-        await showPcCaptureFrame(args.deviceId, 'red').catch(() => false)
+        await withTimeout(
+          showPcCaptureFrame(args.deviceId, 'red').catch(() => false),
+          PC_CAPTURE_FRAME_START_TIMEOUT_MS,
+          'Timed out while preparing the PC capture frame.',
+        ).catch(() => false)
         if (process.platform !== 'darwin') {
           await startPcFfmpegRecording(args.deviceId, outputPath)
           deps.db.updateSessionPcRecording(session.id, { pcRecordingEnabled: true, pcVideoPath: outputPath })
@@ -1439,6 +1731,13 @@ export function registerIpc(deps: IpcDeps): void {
       }
     }
     dockRecordingPanel(deps.getWindow())
+    if (session.connectionMode === 'pc') {
+      await withTimeout(
+        focusPcCaptureSource(args.deviceId, args.pcCaptureSourceName).catch(() => false),
+        PC_CAPTURE_FRAME_START_TIMEOUT_MS,
+        'Timed out while focusing the PC capture source.',
+      ).catch(() => false)
+    }
     return session
   })
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
