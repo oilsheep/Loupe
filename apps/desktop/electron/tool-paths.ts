@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 
-const TOOL_NAMES = new Set(['adb', 'scrcpy'])
+const TOOL_NAMES = new Set(['adb', 'scrcpy', 'uxplay', 'pymobiledevice3', 'brew', 'git', 'cmake', 'pipx'])
 
 function exeName(cmd: string): string {
   return process.platform === 'win32' ? `${cmd}.exe` : cmd
@@ -12,10 +13,22 @@ function candidateDirs(): string[] {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   return [
     process.env.LOUPE_TOOLS_DIR,
+    join(managedToolsDir(), 'bin'),
     resourcesPath ? join(resourcesPath, 'vendor', 'scrcpy') : null,
     join(process.cwd(), 'vendor', 'scrcpy'),
     join(process.cwd(), 'apps', 'desktop', 'vendor', 'scrcpy'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    join(homedir(), '.local', 'bin'),
   ].filter(Boolean) as string[]
+}
+
+export function managedToolsDir(): string {
+  return process.env.LOUPE_MANAGED_TOOLS_DIR || join(homedir(), '.loupe', 'tools')
+}
+
+export function toolSearchPath(existingPath = process.env.PATH ?? ''): string {
+  return [...candidateDirs(), existingPath].filter(Boolean).join(delimiter)
 }
 
 export function resolveBundledTool(cmd: string): string {
@@ -38,7 +51,7 @@ export function withToolPath(cmd: string, opts: SpawnOptions = {}): SpawnOptions
     env: {
       ...process.env,
       ...opts.env,
-      PATH: `${dir}${delimiter}${opts.env?.PATH ?? process.env.PATH ?? ''}`,
+      PATH: `${dir}${delimiter}${toolSearchPath(opts.env?.PATH ?? process.env.PATH ?? '')}`,
     },
   }
 }

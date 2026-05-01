@@ -13,8 +13,8 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
-import { doctor } from './doctor'
+import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
@@ -24,6 +24,7 @@ import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, l
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
+import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -31,6 +32,11 @@ export const CHANNEL = {
   openPath:                'app:openPath',
   appGetPlatform:          'app:getPlatform',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
+  appStartUxPlayReceiver: 'app:startUxPlayReceiver',
+  appStopUxPlayReceiver:  'app:stopUxPlayReceiver',
+  appGetUxPlayReceiver:   'app:getUxPlayReceiver',
+  appInstallTools:        'app:installTools',
+  appInstallToolsLog:     'app:installToolsLog',
   getPrimaryScreenSource:  'app:getPrimaryScreenSource',
   listPcCaptureSources:   'app:listPcCaptureSources',
   showPcCaptureFrame:     'app:showPcCaptureFrame',
@@ -105,6 +111,7 @@ let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
 let gitlabOAuthCancel: (() => void) | null = null
 let gitlabOAuthCallbackHandler: ((url: string) => void) | null = null
 let googleOAuthCancel: (() => void) | null = null
+let uxPlayReceiver: UxPlayReceiver | null = null
 
 const DEFAULT_GITLAB_OAUTH_REDIRECT_URI = 'loupe://gitlab-oauth'
 const DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:38988/oauth/google/callback'
@@ -1703,6 +1710,21 @@ export function registerIpc(deps: IpcDeps): void {
     })
     return true
   })
+  ipcMain.handle(CHANNEL.appStartUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.start()
+  })
+  ipcMain.handle(CHANNEL.appStopUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.stop()
+  })
+  ipcMain.handle(CHANNEL.appGetUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.status()
+  })
+  ipcMain.handle(CHANNEL.appInstallTools, async (event, names: ToolCheck['name'][]) => installTools(deps.runner, names, {
+    onLog: (log: ToolInstallLog) => event.sender.send(CHANNEL.appInstallToolsLog, log),
+  }))
   ipcMain.handle(CHANNEL.getPrimaryScreenSource, async (): Promise<{ id: string; name: string } | null> => {
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })
     const primaryDisplayId = String(screen.getPrimaryDisplay().id)

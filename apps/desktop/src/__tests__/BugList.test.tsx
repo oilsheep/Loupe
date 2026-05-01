@@ -37,6 +37,10 @@ function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
       openPath: vi.fn().mockResolvedValue(undefined),
       getPlatform: vi.fn().mockResolvedValue('darwin'),
       openIphoneMirroring: vi.fn().mockResolvedValue(true),
+      startUxPlayReceiver: vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS' }),
+      stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
+      getUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
+      installTools: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }),
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null),
       listPcCaptureSources: vi.fn().mockResolvedValue([]),
       showPcCaptureFrame: vi.fn().mockResolvedValue(false),
@@ -86,6 +90,7 @@ function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
+    onToolInstallLog: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }

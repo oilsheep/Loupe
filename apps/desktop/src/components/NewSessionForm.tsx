@@ -71,6 +71,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         tester: tester.trim(),
         recordPcScreen,
         pcCaptureSourceName: sourceName,
+        iosLogCapture: connectionMode === 'ios',
         logcatPackageName: isPcLikeSource ? undefined : logcatPackageName.trim(),
         logcatTagFilter: isPcLikeSource ? undefined : logcatTagFilter.trim(),
         logcatMinPriority: isPcLikeSource ? undefined : logcatMinPriority,

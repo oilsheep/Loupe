@@ -9,6 +9,10 @@ const api: DesktopApi = {
     openPath:         (path) => ipcRenderer.invoke(CHANNEL.openPath, path),
     getPlatform:      () => ipcRenderer.invoke(CHANNEL.appGetPlatform),
     openIphoneMirroring: () => ipcRenderer.invoke(CHANNEL.appOpenIphoneMirroring),
+    startUxPlayReceiver: () => ipcRenderer.invoke(CHANNEL.appStartUxPlayReceiver),
+    stopUxPlayReceiver:  () => ipcRenderer.invoke(CHANNEL.appStopUxPlayReceiver),
+    getUxPlayReceiver:   () => ipcRenderer.invoke(CHANNEL.appGetUxPlayReceiver),
+    installTools:        (names) => ipcRenderer.invoke(CHANNEL.appInstallTools, names),
     getPrimaryScreenSource: () => ipcRenderer.invoke(CHANNEL.getPrimaryScreenSource),
     listPcCaptureSources:  () => ipcRenderer.invoke(CHANNEL.listPcCaptureSources),
     showPcCaptureFrame:    (sourceId, color, displayId) => ipcRenderer.invoke(CHANNEL.showPcCaptureFrame, sourceId, color, displayId),
@@ -94,6 +98,11 @@ const api: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
     ipcRenderer.on(CHANNEL.sessionLoadProgress, handler)
     return () => ipcRenderer.removeListener(CHANNEL.sessionLoadProgress, handler)
+  },
+  onToolInstallLog: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, log: any) => cb(log)
+    ipcRenderer.on(CHANNEL.appInstallToolsLog, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.appInstallToolsLog, handler)
   },
   onSlackOAuthCompleted: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, result: any) => cb(result)

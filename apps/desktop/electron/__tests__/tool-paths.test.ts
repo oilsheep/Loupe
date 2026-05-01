@@ -1,4 +1,4 @@
-import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -17,7 +17,24 @@ describe('tool-paths', () => {
       vi.stubEnv('LOUPE_TOOLS_DIR', dir)
       const opts = withToolPath('scrcpy', { env: { PATH: '/usr/bin' } })
       expect(opts.cwd).toBe(dir)
-      expect(opts.env?.PATH).toBe(`${dir}${delimiter}/usr/bin`)
+      expect(opts.env?.PATH).toContain(dir)
+      expect(opts.env?.PATH?.split(delimiter).at(-1)).toBe('/usr/bin')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves Homebrew commands from the managed tool search path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loupe-tool-'))
+    try {
+      const bin = join(dir, 'bin')
+      mkdirSync(bin)
+      writeFileSync(join(bin, process.platform === 'win32' ? 'brew.exe' : 'brew'), '')
+      vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', dir)
+      const opts = withToolPath('brew', { env: { PATH: '/usr/bin' } })
+      expect(opts.cwd).toBe(bin)
+      expect(opts.env?.PATH).toContain(bin)
+      expect(opts.env?.PATH?.split(delimiter).at(-1)).toBe('/usr/bin')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

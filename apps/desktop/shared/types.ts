@@ -235,6 +235,23 @@ export interface PcCaptureSource {
   thumbnailDataUrl?: string
 }
 
+export interface UxPlayReceiverStatus {
+  running: boolean
+  receiverName: string
+  message?: string
+}
+
+export interface ToolInstallResult {
+  ok: boolean
+  message: string
+  detail: string
+}
+
+export interface ToolInstallLog {
+  stream: 'stdout' | 'stderr' | 'system'
+  text: string
+}
+
 export interface ExportProgress {
   exportId: string
   phase: 'prepare' | 'video' | 'image' | 'complete' | 'error'
@@ -263,6 +280,10 @@ export interface DesktopApi {
     openPath(path: string):                                        Promise<void>
     getPlatform():                                                 Promise<string>
     openIphoneMirroring():                                         Promise<boolean>
+    startUxPlayReceiver():                                         Promise<UxPlayReceiverStatus>
+    stopUxPlayReceiver():                                          Promise<UxPlayReceiverStatus>
+    getUxPlayReceiver():                                           Promise<UxPlayReceiverStatus>
+    installTools(names: ToolCheck['name'][]):                      Promise<ToolInstallResult>
     getPrimaryScreenSource():                                      Promise<{ id: string; name: string } | null>
     listPcCaptureSources():                                        Promise<PcCaptureSource[]>
     showPcCaptureFrame(sourceId: string, color?: 'green' | 'red', displayId?: string): Promise<boolean>
@@ -281,7 +302,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
@@ -343,6 +364,8 @@ export interface DesktopApi {
   onBugExportProgress(cb: (progress: ExportProgress) => void):    () => void
   /** Renderer subscribes to potentially slow session loading/asset repair progress. */
   onSessionLoadProgress(cb: (progress: SessionLoadProgress) => void): () => void
+  /** Renderer subscribes to live output from one-click tool installation. */
+  onToolInstallLog(cb: (log: ToolInstallLog) => void): () => void
   onSlackOAuthCompleted(cb: (result: { ok: boolean; settings?: AppSettings; error?: string }) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>
