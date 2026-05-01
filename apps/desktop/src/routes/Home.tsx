@@ -7,11 +7,12 @@ import { RecentSessions } from '@/components/RecentSessions'
 import type { ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
+import type { RecordingSourceSelection } from '@/lib/recordingSource'
 
 export function Home() {
   const { t } = useI18n()
   const goDraft = useApp(s => s.goDraft)
-  const [selected, setSelected] = useState<{ id: string; mode: 'usb' | 'wifi' | 'pc'; label?: string } | null>(null)
+  const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
 

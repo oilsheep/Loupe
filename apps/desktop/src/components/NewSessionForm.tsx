@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
 import type { DesktopApi } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
+import type { RecordingConnectionMode } from '@/lib/recordingSource'
 
 interface Props {
   api: DesktopApi
   deviceId: string
-  connectionMode: 'usb' | 'wifi' | 'pc'
+  connectionMode: RecordingConnectionMode
   sourceName?: string
 }
 
