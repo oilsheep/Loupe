@@ -45,7 +45,7 @@ export function Home() {
   async function installMissingTools() {
     if (installingTools || missing.length === 0) return
     const names = missing.map(check => check.name)
-    const ok = window.confirm(`Install missing tools with Homebrew/pipx?\n\n${names.join(', ')}`)
+    const ok = window.confirm(`Install missing tools with Homebrew/npm/pipx?\n\n${names.join(', ')}`)
     if (!ok) return
     setInstallingTools(true)
     setToolInstallMessage(null)

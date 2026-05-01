@@ -26,6 +26,7 @@ const api: DesktopApi = {
     pair:        (a)            => ipcRenderer.invoke(CHANNEL.devicePair, a),
     getUserName: (id)           => ipcRenderer.invoke(CHANNEL.deviceGetUserName, id),
     listPackages:(id)           => ipcRenderer.invoke(CHANNEL.deviceListPackages, id),
+    listIosApps: ()             => ipcRenderer.invoke(CHANNEL.deviceListIosApps),
   },
   session: {
     start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),

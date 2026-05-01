@@ -28,15 +28,17 @@ describe('doctor', () => {
       adb: { code: 0, stdout: 'Android Debug Bridge version 1.0.41' },
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
+      ios: { code: 0, stdout: '1.0.211' },
       pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)
-    expect(checks).toHaveLength(4)
+    expect(checks).toHaveLength(5)
     expect(checks.every(c => c.ok)).toBe(true)
     expect(checks[0].version).toContain('1.0.41')
     expect(checks[1].version).toContain('2.7')
     expect(checks[2].version).toContain('/tmp/uxplay')
-    expect(checks[3].version).toContain('Usage: pymobiledevice3')
+    expect(checks[3].version).toContain('1.0.211')
+    expect(checks[4].version).toContain('Usage: pymobiledevice3')
   })
 
   it('reports not ok when binary missing', async () => {
@@ -45,6 +47,7 @@ describe('doctor', () => {
       adb: new Error("ENOENT: spawn adb"),
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
+      ios: { code: 0, stdout: '1.0.211' },
       pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)
@@ -62,6 +65,7 @@ describe('doctor', () => {
       adb: { code: 1, stderr: 'broken' },
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
+      ios: { code: 0, stdout: '1.0.211' },
       pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)

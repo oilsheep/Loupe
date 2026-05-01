@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 
-const TOOL_NAMES = new Set(['adb', 'scrcpy', 'uxplay', 'pymobiledevice3', 'brew', 'git', 'cmake', 'pipx'])
+const TOOL_NAMES = new Set(['adb', 'scrcpy', 'uxplay', 'ios', 'pymobiledevice3', 'brew', 'git', 'cmake', 'npm', 'pipx'])
 
 function exeName(cmd: string): string {
   return process.platform === 'win32' ? `${cmd}.exe` : cmd

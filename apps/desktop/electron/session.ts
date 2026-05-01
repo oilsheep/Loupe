@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
 import type { LogcatBuffer } from './logcat'
-import { IosSyslogBuffer } from './ios-syslog'
+import { IosSyslogBuffer, type IosSyslogStartOptions } from './ios-syslog'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { Paths } from './paths'
@@ -126,6 +126,11 @@ export interface StartArgs {
   logcatMinPriority?: string
   logcatLineCount?: number
   iosLogCapture?: boolean
+  iosLogBundleId?: string
+  iosLogAppName?: string
+  iosLogLaunchApp?: boolean
+  iosLogFilter?: string
+  iosLogMinLevel?: string
 }
 
 export interface MarkBugArgs {
@@ -226,8 +231,21 @@ export class SessionManager {
       this.active = sess
       if (args.iosLogCapture) {
         try {
-          this.activeIosLogCapture = await this.iosSyslog.start()
+          const iosLogOptions: IosSyslogStartOptions = {
+            bundleId: args.iosLogBundleId,
+            ...(args.iosLogAppName ? { appName: args.iosLogAppName } : {}),
+            launchApp: args.iosLogLaunchApp,
+            textFilter: args.iosLogFilter,
+            minLevel: args.iosLogMinLevel,
+          }
+          this.activeIosLogCapture = await this.iosSyslog.start(iosLogOptions)
         } catch (err) {
+          if (args.iosLogLaunchApp && args.iosLogBundleId?.trim()) {
+            this.iosSyslog.stop()
+            this.activeIosLogCapture = false
+            this.active = null
+            throw err
+          }
           console.warn('Loupe: iOS syslog capture is unavailable; continuing without iOS logs', err)
           this.activeIosLogCapture = false
         }

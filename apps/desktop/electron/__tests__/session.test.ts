@@ -269,18 +269,54 @@ describe('SessionManager', () => {
       testNote: '',
       pcCaptureSourceName: 'iPhone Mirroring',
       iosLogCapture: true,
+      iosLogBundleId: 'com.example.game',
+      iosLogLaunchApp: true,
+      iosLogFilter: 'Unity',
+      iosLogMinLevel: 'I',
       logcatLineCount: 25,
     })
     const bug = await mgr.markBug()
     await flushPromises()
 
-    expect(stubs.iosSyslog.start).toHaveBeenCalled()
+    expect(stubs.iosSyslog.start).toHaveBeenCalledWith({
+      bundleId: 'com.example.game',
+      launchApp: true,
+      textFilter: 'Unity',
+      minLevel: 'I',
+    })
     expect(stubs.iosSyslog.dumpRecentLinesToFile).toHaveBeenCalledWith(paths.logcatFile('sess-1', bug.id), 25)
     expect(stubs.logcat.dumpRecentLinesToFile).not.toHaveBeenCalled()
     expect(db.listBugs('sess-1')[0].logcatRel).toBe(`logcat/${bug.id}.txt`)
 
     await mgr.stop()
     expect(stubs.iosSyslog.stop).toHaveBeenCalled()
+  })
+
+  it('fails iOS session start when auto-launching the selected app fails', async () => {
+    stubs.iosSyslog.start = vi.fn().mockRejectedValue(new Error('failed to launch iOS app com.example.game'))
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner: { run: vi.fn() as any, spawn: vi.fn() as any },
+      captureScreenshot: stubs.screenshot,
+      iosSyslog: stubs.iosSyslog,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      makeSessionId: () => 'sess-1',
+    })
+
+    await expect(mgr.start({
+      deviceId: 'window:333:0',
+      connectionMode: 'pc',
+      buildVersion: '',
+      testNote: '',
+      pcCaptureSourceName: 'iPhone Mirroring',
+      iosLogCapture: true,
+      iosLogBundleId: 'com.example.game',
+      iosLogLaunchApp: true,
+    })).rejects.toThrow(/failed to launch/)
+    await expect(mgr.markBug()).rejects.toThrow(/no active/)
   })
 
   it('markBug throws when no active session', async () => {

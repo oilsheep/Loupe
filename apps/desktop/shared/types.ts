@@ -8,6 +8,11 @@ export interface Device {
   userDeviceName?: string
 }
 
+export interface IosAppInfo {
+  bundleId: string
+  name?: string
+}
+
 export type SessionStatus = 'recording' | 'draft'
 export type BugSeverity =
   | 'note'
@@ -299,11 +304,12 @@ export interface DesktopApi {
     /** Fetches the user-set device name (Android Settings → About → Device name). Null if unsupported / unset. */
     getUserName(id: string):                                       Promise<string | null>
     listPackages(id: string):                                      Promise<string[]>
+    listIosApps():                                                 Promise<IosAppInfo[]>
   }
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>

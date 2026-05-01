@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { DesktopApi } from '@shared/types'
+import type { DesktopApi, IosAppInfo } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 
@@ -28,6 +28,13 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatTagFilter, setLogcatTagFilter] = useState('Unity')
   const [logcatMinPriority, setLogcatMinPriority] = useState('V')
   const [logcatLineCount, setLogcatLineCount] = useState(50)
+  const [iosBundleId, setIosBundleId] = useState('')
+  const [iosAppName, setIosAppName] = useState('')
+  const [iosAppOptions, setIosAppOptions] = useState<IosAppInfo[]>([])
+  const [iosAppMenuOpen, setIosAppMenuOpen] = useState(false)
+  const [iosLaunchApp, setIosLaunchApp] = useState(true)
+  const [iosLogFilter, setIosLogFilter] = useState('')
+  const [iosLogMinLevel, setIosLogMinLevel] = useState('V')
   const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +57,20 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     return () => { cancelled = true }
   }, [api, isPcLikeSource, deviceId])
 
+  useEffect(() => {
+    let cancelled = false
+    setIosAppOptions([])
+    if (connectionMode !== 'ios') return
+    api.device.listIosApps()
+      .then(apps => {
+        if (!cancelled) setIosAppOptions(apps)
+      })
+      .catch(() => {
+        if (!cancelled) setIosAppOptions([])
+      })
+    return () => { cancelled = true }
+  }, [api, connectionMode])
+
   const visibleLogcatPackageOptions = useMemo(() => {
     const query = logcatPackageName.trim().toLowerCase()
     const filtered = query
@@ -57,6 +78,20 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       : logcatPackageOptions
     return filtered.slice(0, 80)
   }, [logcatPackageName, logcatPackageOptions])
+
+  const visibleIosAppOptions = useMemo(() => {
+    const query = iosBundleId.trim().toLowerCase()
+    const filtered = query
+      ? iosAppOptions.filter(app => app.bundleId.toLowerCase().includes(query) || (app.name ?? '').toLowerCase().includes(query))
+      : iosAppOptions
+    return filtered.slice(0, 80)
+  }, [iosBundleId, iosAppOptions])
+
+  const resolvedIosAppName = useMemo(() => {
+    const bundleId = iosBundleId.trim()
+    if (!bundleId) return ''
+    return iosAppOptions.find(app => app.bundleId === bundleId)?.name ?? iosAppName.trim()
+  }, [iosAppName, iosAppOptions, iosBundleId])
 
   async function start() {
     if (busy || !deviceId) return
@@ -72,10 +107,15 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         recordPcScreen,
         pcCaptureSourceName: sourceName,
         iosLogCapture: connectionMode === 'ios',
+        iosLogBundleId: connectionMode === 'ios' ? iosBundleId.trim() : undefined,
+        iosLogAppName: connectionMode === 'ios' ? resolvedIosAppName : undefined,
+        iosLogLaunchApp: connectionMode === 'ios' ? iosLaunchApp : undefined,
+        iosLogFilter: connectionMode === 'ios' ? iosLogFilter.trim() : undefined,
+        iosLogMinLevel: connectionMode === 'ios' ? iosLogMinLevel : undefined,
         logcatPackageName: isPcLikeSource ? undefined : logcatPackageName.trim(),
         logcatTagFilter: isPcLikeSource ? undefined : logcatTagFilter.trim(),
         logcatMinPriority: isPcLikeSource ? undefined : logcatMinPriority,
-        logcatLineCount: isPcLikeSource ? undefined : logcatLineCount,
+        logcatLineCount: connectionMode === 'ios' || !isPcLikeSource ? logcatLineCount : undefined,
       })
       pushRecent(build.trim())
       goRecording(session)
@@ -223,6 +263,106 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                 value={logcatLineCount}
                 onChange={e => setLogcatLineCount(Number(e.target.value))}
                 data-testid="logcat-lines"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                {[10, 25, 50, 100, 200].map(count => (
+                  <option key={count} value={count}>{t('new.logcatLinesOption', { count })}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </details>
+      )}
+
+      {connectionMode === 'ios' && (
+        <details className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+          <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('new.advancedIos')}</summary>
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.iosBundleId')}</label>
+              <div className="relative mt-1">
+                <input
+                  value={iosBundleId}
+                  onChange={e => {
+                    const nextBundleId = e.target.value
+                    setIosBundleId(nextBundleId)
+                    setIosAppName(iosAppOptions.find(app => app.bundleId === nextBundleId.trim())?.name ?? '')
+                    setIosAppMenuOpen(true)
+                  }}
+                  onFocus={() => setIosAppMenuOpen(true)}
+                  onBlur={() => window.setTimeout(() => setIosAppMenuOpen(false), 100)}
+                  placeholder={t('new.iosBundleIdPlaceholder')}
+                  data-testid="ios-bundle-id"
+                  className="w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+                {iosAppMenuOpen && visibleIosAppOptions.length > 0 && (
+                  <div
+                    className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl"
+                    data-testid="ios-app-options"
+                  >
+                    {visibleIosAppOptions.map(app => (
+                      <button
+                        key={app.bundleId}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setIosBundleId(app.bundleId)
+                          setIosAppName(app.name ?? '')
+                          setIosAppMenuOpen(false)
+                        }}
+                        className="block w-full truncate px-3 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-800"
+                        data-testid={`ios-app-option-${app.bundleId}`}
+                      >
+                        <span className="font-medium text-zinc-100">{app.name || app.bundleId}</span>
+                        {app.name && <span className="ml-2 font-mono text-zinc-500">{app.bundleId}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.iosBundleIdHelp')}</p>
+            </div>
+            <label className="flex items-start gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={iosLaunchApp}
+                onChange={e => setIosLaunchApp(e.target.checked)}
+                data-testid="ios-launch-app"
+                className="mt-0.5"
+              />
+              <span>{t('new.iosLaunchApp')}</span>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-zinc-400">{t('new.iosLogFilter')}</label>
+                <input
+                  value={iosLogFilter}
+                  onChange={e => setIosLogFilter(e.target.value)}
+                  placeholder={t('new.iosLogFilterPlaceholder')}
+                  data-testid="ios-log-filter"
+                  className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400">{t('new.iosLogLevel')}</label>
+                <select
+                  value={iosLogMinLevel}
+                  onChange={e => setIosLogMinLevel(e.target.value)}
+                  data-testid="ios-log-level"
+                  className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  {['V', 'D', 'I', 'W', 'E', 'F'].map(level => (
+                    <option key={level} value={level}>{t('new.logcatLevelOption', { level })}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.logcatLines')}</label>
+              <select
+                value={logcatLineCount}
+                onChange={e => setLogcatLineCount(Number(e.target.value))}
+                data-testid="ios-log-lines"
                 className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
               >
                 {[10, 25, 50, 100, 200].map(count => (
