@@ -115,6 +115,7 @@ describe('Draft audio analysis settings', () => {
   it('lets the review panel choose the audio analysis language', async () => {
     render(<Draft sessionId="s1" />)
 
+    fireEvent.click(await screen.findByRole('button', { name: /Audio auto-markers/i }))
     const select = await screen.findByLabelText('Audio analysis language')
     expect((select as HTMLSelectElement).value).toBe('auto')
 

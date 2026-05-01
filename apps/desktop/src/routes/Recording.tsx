@@ -58,6 +58,44 @@ function colorOrDefault(severities: SeveritySettings, severity: BugSeverity): st
   return severities[severity]?.color || DEFAULT_SEVERITIES[severity].color
 }
 
+function clipboardHash(value: string): string {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0
+  }
+  return `${value.length}:${hash}`
+}
+
+function clipboardLooksMarkerWorthy(value: string): boolean {
+  const text = value.trim()
+  if (text.length < 24) return false
+  if (text.length > 50_000) return false
+  if (/^https?:\/\/\S+$/i.test(text)) return false
+  if (/^[\w.+-]+@[\w.-]+\.\w+$/.test(text)) return false
+
+  const lines = text.split(/\r?\n/).filter(Boolean)
+  const codePunctuationCount = (text.match(/[{}[\]():=<>/\\]/g) ?? []).length
+  let score = 0
+  if (lines.length >= 2 && text.length >= 40) score += 1
+  if (codePunctuationCount >= 3) score += 1
+  if (/\b(?:error|exception|traceback|stack|warn|warning|fail|failed|fatal|crash|assert|uncaught|typeerror|referenceerror|syntaxerror|networkerror|errno)\b/i.test(text)) score += 2
+  if (/\b(?:console|logcat|debug|info|verbose)\b/i.test(text)) score += 1
+  if (/\b(?:GET|POST|PUT|PATCH|DELETE)\s+\S+|\bstatus\s*[:=]?\s*[45]\d\d\b|\b[45]\d\d\s+(?:error|failed|failure)\b/i.test(text)) score += 1
+  if (/\bat\s+\S+\s*\(|^\s*[{[]|^\s*\d{2}:\d{2}:\d{2}[.\d]*\s+/m.test(text)) score += 1
+  return score >= 2
+}
+
+function clipboardMarkerNote(value: string): string {
+  const lines = value
+    .trim()
+    .split(/\r?\n/)
+    .map(line => line.trimEnd())
+    .filter(Boolean)
+    .slice(0, 8)
+  const snippet = lines.join('\n').slice(0, 700)
+  return `Clipboard console:\n${snippet}`
+}
+
 function HotkeySummary({
   hotkeys,
   severities,
@@ -134,6 +172,11 @@ export function Recording({ session }: { session: Session }) {
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>([])
   const [showHotkeySettings, setShowHotkeySettings] = useState(false)
+  const [clipboardMarkersEnabled, setClipboardMarkersEnabled] = useState(true)
+  const [clipboardStatus, setClipboardStatus] = useState<'watching' | 'marked' | 'ignored' | 'unavailable'>('watching')
+  const lastClipboardHashRef = useRef<string | null>(null)
+  const lastClipboardMarkerAtRef = useRef(0)
+  const clipboardMarkingRef = useRef(false)
 
   const refreshBugs = useCallback(async () => {
     const r = await api.session.get(session.id)
@@ -145,8 +188,8 @@ export function Recording({ session }: { session: Session }) {
     return () => clearInterval(t)
   }, [session.startedAt])
 
-  const markNow = useCallback(async (severity: BugSeverity) => {
-    const bug = await api.session.markBug({ severity })
+  const markNow = useCallback(async (severity: BugSeverity, note?: string) => {
+    const bug = await api.session.markBug({ severity, ...(note ? { note } : {}) })
     setSelectedBugId(bug.id)
     await refreshBugs()
     for (const delay of [300, 1000, 2500]) {
@@ -186,6 +229,55 @@ export function Recording({ session }: { session: Session }) {
       setCustomSlots(visibleCustomSeverities(s.severities))
     })
   }, [])
+
+  useEffect(() => {
+    if (!clipboardMarkersEnabled) {
+      lastClipboardHashRef.current = null
+      return
+    }
+
+    let cancelled = false
+    async function pollClipboard() {
+      try {
+        const text = await api.app.readClipboardText()
+        if (cancelled) return
+        const hash = clipboardHash(text)
+        if (lastClipboardHashRef.current === null) {
+          lastClipboardHashRef.current = hash
+          setClipboardStatus('watching')
+          return
+        }
+        if (hash === lastClipboardHashRef.current) return
+        lastClipboardHashRef.current = hash
+
+        if (!clipboardLooksMarkerWorthy(text)) {
+          setClipboardStatus('ignored')
+          return
+        }
+        const now = Date.now()
+        if (now - lastClipboardMarkerAtRef.current < 5_000 || clipboardMarkingRef.current) {
+          setClipboardStatus('ignored')
+          return
+        }
+
+        clipboardMarkingRef.current = true
+        lastClipboardMarkerAtRef.current = now
+        await markNow('normal', clipboardMarkerNote(text))
+        setClipboardStatus('marked')
+      } catch {
+        if (!cancelled) setClipboardStatus('unavailable')
+      } finally {
+        clipboardMarkingRef.current = false
+      }
+    }
+
+    void pollClipboard()
+    const timer = window.setInterval(() => { void pollClipboard() }, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [clipboardMarkersEnabled, markNow])
 
   useEffect(() => {
     if (!usesRendererPcRecording) return
@@ -427,6 +519,21 @@ export function Recording({ session }: { session: Session }) {
                 MIC recording error: {micRecorderError}
               </div>
             )}
+            <label className="mt-2 inline-flex items-center gap-2 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={clipboardMarkersEnabled}
+                onChange={(e) => {
+                  setClipboardMarkersEnabled(e.target.checked)
+                  setClipboardStatus(e.target.checked ? 'watching' : 'ignored')
+                }}
+                className="h-3.5 w-3.5 accent-blue-600"
+              />
+              <span>{t('record.clipboardMarkers')}</span>
+              <span className={clipboardStatus === 'marked' ? 'text-emerald-300' : clipboardStatus === 'unavailable' ? 'text-amber-300' : 'text-zinc-600'}>
+                {t(`record.clipboardStatus.${clipboardMarkersEnabled ? clipboardStatus : 'off'}`)}
+              </span>
+            </label>
           </div>
           <div className="text-right">
             <div className="font-mono text-2xl tabular-nums text-zinc-100">{fmtElapsed(elapsedMs)}</div>

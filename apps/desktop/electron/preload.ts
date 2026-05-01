@@ -11,6 +11,7 @@ const api: DesktopApi = {
     listPcCaptureSources:  () => ipcRenderer.invoke(CHANNEL.listPcCaptureSources),
     showPcCaptureFrame:    (sourceId, color, displayId) => ipcRenderer.invoke(CHANNEL.showPcCaptureFrame, sourceId, color, displayId),
     hidePcCaptureFrame:    () => ipcRenderer.invoke(CHANNEL.hidePcCaptureFrame),
+    readClipboardText:     () => ipcRenderer.invoke(CHANNEL.readClipboardText),
   },
   device: {
     list:        ()             => ipcRenderer.invoke(CHANNEL.deviceList),

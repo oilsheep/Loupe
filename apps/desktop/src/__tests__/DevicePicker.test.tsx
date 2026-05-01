@@ -16,6 +16,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       ]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(true) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+      readClipboardText: vi.fn().mockResolvedValue('') as any,
     },
     device: {
       list: vi.fn().mockResolvedValue(devices),
@@ -40,9 +41,14 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
 }
 
 describe('DevicePicker', () => {
+  function openAndroidTab() {
+    fireEvent.click(screen.getByRole('button', { name: 'Android devices' }))
+  }
+
   it('renders devices and selects one', async () => {
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([{ id: 'ABC', type: 'usb', state: 'device', model: 'Pixel 7' }])} selectedId={null} onSelect={onSelect} />)
+    openAndroidTab()
     await waitFor(() => expect(screen.getByTestId('device-ABC')).toBeTruthy())
     fireEvent.click(screen.getByTestId('device-ABC'))
     expect(onSelect).toHaveBeenCalledWith('ABC', 'usb')
@@ -51,6 +57,7 @@ describe('DevicePicker', () => {
   it('connect Wi-Fi dispatches device.connect with entered IP', async () => {
     const connect = vi.fn().mockResolvedValue({ ok: true, message: 'connected' })
     render(<DevicePicker api={fakeApi([], connect)} selectedId={null} onSelect={vi.fn()} />)
+    openAndroidTab()
     fireEvent.change(screen.getByTestId('wifi-ip'), { target: { value: '10.0.0.7' } })
     fireEvent.click(screen.getByTestId('wifi-connect'))
     await waitFor(() => expect(connect).toHaveBeenCalledWith('10.0.0.7', undefined))
@@ -58,6 +65,7 @@ describe('DevicePicker', () => {
 
   it('manual Wi-Fi section warns to use the connect port', async () => {
     render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={vi.fn()} />)
+    openAndroidTab()
     expect(screen.getByText(/use the connect port, not the pairing port/i)).toBeTruthy()
     expect(screen.getByPlaceholderText('ip[:connect-port]')).toBeTruthy()
   })
@@ -67,6 +75,7 @@ describe('DevicePicker', () => {
     const getUserName = vi.fn().mockResolvedValue('QA Pixel')
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([], connect, undefined, undefined, getUserName)} selectedId={null} onSelect={onSelect} />)
+    openAndroidTab()
     fireEvent.change(screen.getByTestId('wifi-ip'), { target: { value: '10.0.0.7' } })
     fireEvent.click(screen.getByTestId('wifi-connect'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('10.0.0.7:5555', 'wifi'))
@@ -99,6 +108,7 @@ describe('DevicePicker', () => {
     const mdnsScan = vi.fn().mockResolvedValue(entries)
     render(<DevicePicker api={fakeApi([], undefined, mdnsScan)} selectedId={null} onSelect={vi.fn()} />)
 
+    openAndroidTab()
     fireEvent.click(screen.getByTestId('mdns-scan-button'))
     await waitFor(() => expect(mdnsScan).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByTestId('mdns-entry-192.168.1.42:43615')).toBeTruthy())
@@ -116,6 +126,7 @@ describe('DevicePicker', () => {
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([], connect, mdnsScan)} selectedId={null} onSelect={onSelect} />)
 
+    openAndroidTab()
     fireEvent.click(screen.getByTestId('mdns-scan-button'))
     await waitFor(() => expect(screen.getByTestId('mdns-connect-button-192.168.1.42:43615')).toBeTruthy())
     fireEvent.click(screen.getByTestId('mdns-connect-button-192.168.1.42:43615'))
@@ -131,6 +142,7 @@ describe('DevicePicker', () => {
     const pair = vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' })
     render(<DevicePicker api={fakeApi([], undefined, mdnsScan, pair)} selectedId={null} onSelect={vi.fn()} />)
 
+    openAndroidTab()
     fireEvent.click(screen.getByTestId('mdns-scan-button'))
     await waitFor(() => expect(screen.getByTestId('mdns-pair-button-192.168.1.10:39247')).toBeTruthy())
 
@@ -152,6 +164,7 @@ describe('DevicePicker', () => {
     const pair = vi.fn().mockResolvedValue({ ok: true, message: 'Successfully paired' })
     render(<DevicePicker api={fakeApi([], undefined, mdnsScan, pair)} selectedId={null} onSelect={vi.fn()} />)
 
+    openAndroidTab()
     fireEvent.change(screen.getByTestId('manual-pair-ip-port'), { target: { value: '192.168.1.10:37099' } })
     fireEvent.change(screen.getByTestId('manual-pair-code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByTestId('manual-pair-submit'))

@@ -13,6 +13,7 @@ function fakeApi(markBug = vi.fn().mockResolvedValue({ id: 'b1' })): DesktopApi 
       listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
+      readClipboardText: vi.fn().mockResolvedValue('') as any,
     },
     device: {} as any,
     session: { markBug, updateMetadata: vi.fn() } as any, bug: {} as any,

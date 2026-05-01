@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import type { MouseEvent, ReactNode } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabPublishMode, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { CSSProperties, MouseEvent, ReactNode } from 'react'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -101,6 +101,39 @@ function slackUserLabel(user: SlackMentionUser): string {
   return user.displayName || user.realName || user.name || user.id
 }
 
+function mentionIdentityLabel(identity: MentionIdentity): string {
+  return identity.displayName || identity.email || identity.googleEmail || identity.gitlabUsername || identity.slackUserId || identity.id
+}
+
+function MentionProviderBadges({ hasSlack, hasGitLab, hasGoogle }: { hasSlack: boolean; hasGitLab: boolean; hasGoogle: boolean }) {
+  if (!hasSlack && !hasGitLab && !hasGoogle) {
+    return (
+      <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+        No mappings
+      </span>
+    )
+  }
+  return (
+    <>
+      {hasSlack && (
+        <span className="rounded-full border border-sky-900/70 bg-sky-950/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+          Slack
+        </span>
+      )}
+      {hasGitLab && (
+        <span className="rounded-full border border-orange-900/70 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
+          GitLab
+        </span>
+      )}
+      {hasGoogle && (
+        <span className="rounded-full border border-emerald-900/70 bg-emerald-950/50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+          Google
+        </span>
+      )}
+    </>
+  )
+}
+
 function slackChannelLabel(channel: SlackChannel): string {
   return `${channel.isPrivate ? 'private / ' : '#'}${channel.name}${channel.isMember === false ? ' (not joined)' : ''}`
 }
@@ -128,16 +161,6 @@ function normalizeManualSlackMentions(value: string): string[] {
 
 function formatManualSlackMentions(ids: string[]): string {
   return ids.filter(id => id.startsWith('!')).map(id => id.replace(/^!(here|channel|everyone)$/, '@$1')).join(', ')
-}
-
-function mentionLabel(id: string, users: SlackMentionUser[], aliases: Record<string, string>): string {
-  if (aliases[id]) return aliases[id]
-  if (id === '!here' || id === '!channel' || id === '!everyone') return `@${id.slice(1)}`
-  const user = users.find(candidate => candidate.id === id)
-  if (user) return `@${slackUserLabel(user)}`
-  const subteam = id.match(/^!subteam\^[^|]+(?:\|(.+))?$/)
-  if (subteam) return `@${subteam[1] || id.replace(/^!subteam\^/, '')}`
-  return id
 }
 
 function channelIdFromSettings(slack: Awaited<ReturnType<DesktopApi['settings']['get']>>['slack']): string {
@@ -271,16 +294,21 @@ interface ExportConfirmDialogProps {
   slackConnecting: boolean
   publishSlack: boolean
   publishGitLab: boolean
+  publishGoogleDrive: boolean
   slackThreadMode: SlackThreadMode
   slackChannels: SlackChannel[]
   slackChannelId: string
-  slackUsers: SlackMentionUser[]
+  mentionOptions: MentionOption[]
   slackMentionIds: string[]
   slackMentionAliases: Record<string, string>
   slackManualMentionInput: string
   slackDirectoryRefreshing: boolean
   slackDirectoryError: string
   gitlabMode: GitLabPublishMode
+  gitlabProjectId: string
+  gitlabProjects: GitLabProject[]
+  gitlabProjectsRefreshing: boolean
+  gitlabProjectsError: string
   busy: boolean
   error: string
   canceling: boolean
@@ -298,12 +326,15 @@ interface ExportConfirmDialogProps {
   onConnectSlack(): void
   onPublishSlackChange(value: boolean): void
   onPublishGitLabChange(value: boolean): void
+  onPublishGoogleDriveChange(value: boolean): void
   onSlackThreadModeChange(value: SlackThreadMode): void
   onSlackChannelIdChange(value: string): void
   onSlackMentionIdsChange(value: string[]): void
   onSlackManualMentionInputChange(value: string): void
   onRefreshSlackDirectory(): void
   onGitLabModeChange(value: GitLabPublishMode): void
+  onGitLabProjectIdChange(value: string): void
+  onRefreshGitLabProjects(): void
   onBrowseOutputRoot(): void
   onCancel(): void
   onConfirm(): void
@@ -326,16 +357,21 @@ function ExportConfirmDialog({
   slackConnecting,
   publishSlack,
   publishGitLab,
+  publishGoogleDrive,
   slackThreadMode,
   slackChannels,
   slackChannelId,
-  slackUsers,
+  mentionOptions,
   slackMentionIds,
   slackMentionAliases,
   slackManualMentionInput,
   slackDirectoryRefreshing,
   slackDirectoryError,
   gitlabMode,
+  gitlabProjectId,
+  gitlabProjects,
+  gitlabProjectsRefreshing,
+  gitlabProjectsError,
   busy,
   error,
   canceling,
@@ -353,18 +389,22 @@ function ExportConfirmDialog({
   onConnectSlack,
   onPublishSlackChange,
   onPublishGitLabChange,
+  onPublishGoogleDriveChange,
   onSlackThreadModeChange,
   onSlackChannelIdChange,
   onSlackMentionIdsChange,
   onSlackManualMentionInputChange,
   onRefreshSlackDirectory,
   onGitLabModeChange,
+  onGitLabProjectIdChange,
+  onRefreshGitLabProjects,
   onBrowseOutputRoot,
   onCancel,
   onConfirm,
 }: ExportConfirmDialogProps) {
   const isSlack = publishSlack
   const isGitLab = publishGitLab
+  const isGoogleDrive = publishGoogleDrive
   const { t } = useI18n()
   const progressPct = progress && progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
@@ -535,10 +575,11 @@ function ExportConfirmDialog({
               <div>
                 <div className="text-xs text-zinc-500">Mentions</div>
                 <div className="mt-1">
-                  <SlackMentionComposer
-                    users={slackUsers}
+                  <MentionPicker
+                    options={mentionOptions}
                     selectedIds={slackMentionIds}
                     aliases={slackMentionAliases}
+                    dropdownMode="fixed"
                     onChange={(ids) => {
                       onSlackMentionIdsChange(ids)
                       onSlackManualMentionInputChange(formatManualSlackMentions(ids))
@@ -588,26 +629,72 @@ function ExportConfirmDialog({
             </label>
 
             {isGitLab && (
-            <div className="mt-3 border-t border-sky-900/60 pt-3">
-              <div className="text-xs text-zinc-500">GitLab publish mode</div>
-              <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
-                <button
-                  type="button"
-                  onClick={() => onGitLabModeChange('single-issue')}
-                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                >
-                  Single issue
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onGitLabModeChange('per-marker-issue')}
-                  className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                >
-                  Issue per marker
-                </button>
+              <div className="mt-3 space-y-3 border-t border-sky-900/60 pt-3">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="min-w-0 flex-1 text-xs text-zinc-500">
+                      Project
+                      <GitLabProjectPicker
+                        projects={gitlabProjects}
+                        value={gitlabProjectId}
+                        loading={gitlabProjectsRefreshing}
+                        onOpen={() => {
+                          if (gitlabProjects.length === 0 && !gitlabProjectsRefreshing) onRefreshGitLabProjects()
+                        }}
+                        onChange={onGitLabProjectIdChange}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={onRefreshGitLabProjects}
+                      disabled={busy || gitlabProjectsRefreshing}
+                      className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {gitlabProjectsRefreshing ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {gitlabProjectsError && <div className="mt-1 text-xs text-red-300">{gitlabProjectsError}</div>}
+                  {gitlabProjects.length === 0 && !gitlabProjectsError && (
+                    <div className="mt-1 text-xs text-zinc-500">Refresh projects after setting a GitLab token in Publish settings, or enter group/project manually.</div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-xs text-zinc-500">GitLab publish mode</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
+                    <button
+                      type="button"
+                      onClick={() => onGitLabModeChange('single-issue')}
+                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                    >
+                      Single issue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onGitLabModeChange('per-marker-issue')}
+                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
+                    >
+                      Issue per marker
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
             )}
+          </section>
+
+          <section className={`rounded border p-3 ${isGoogleDrive ? 'border-emerald-700 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-medium text-zinc-200">Google Drive</span>
+                <span className="mt-1 block text-xs text-zinc-500">Upload the full local export folder to the configured Drive folder and update Google Sheet rows when enabled.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={isGoogleDrive}
+                onChange={(e) => onPublishGoogleDriveChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-blue-600"
+              />
+            </label>
           </section>
         </div>
 
@@ -804,165 +891,22 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
   )
 }
 
-interface MentionPickerProps {
-  users: SlackMentionUser[]
-  selectedIds: string[]
-  aliases: Record<string, string>
-  onChange(ids: string[]): void
-}
-
-interface SlackMentionComposerProps {
-  users: SlackMentionUser[]
-  selectedIds: string[]
-  aliases: Record<string, string>
-  onChange(ids: string[]): void
-}
-
-type MentionSuggestion = {
+interface MentionOption {
   id: string
   label: string
   detail: string
+  hasSlack: boolean
+  hasGitLab: boolean
+  hasGoogle: boolean
+  slackUserId?: string
 }
 
-const SPECIAL_MENTION_SUGGESTIONS: MentionSuggestion[] = [
-  { id: '!here', label: '@here', detail: 'notify active channel members' },
-  { id: '!channel', label: '@channel', detail: 'notify all channel members' },
-  { id: '!everyone', label: '@everyone', detail: 'workspace-wide alert' },
-]
-
-function normalizeMentionDraft(value: string): string {
-  const trimmed = value.trim().replace(/,$/, '').trim()
-  if (!trimmed) return ''
-  const subteam = trimmed.match(/^<!?(subteam\^[^>|]+)(?:\|([^>]+))?>$/)
-  if (subteam) return `!${subteam[1]}${subteam[2] ? `|${subteam[2]}` : ''}`
-  const special = normalizeManualSlackMentions(trimmed)
-  if (special.length > 0) return special[0]
-  return ''
-}
-
-function SlackMentionComposer({ users, selectedIds, aliases, onChange }: SlackMentionComposerProps) {
-  const [draft, setDraft] = useState('')
-  const [open, setOpen] = useState(false)
-  const [activeIndex, setActiveIndex] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const selected = new Set(selectedIds)
-  const query = draft.trim().replace(/^@/, '').toLowerCase()
-  const userSuggestions: MentionSuggestion[] = users
-    .filter(user => !selected.has(user.id))
-    .filter(user => {
-      if (!query) return true
-      return [slackUserLabel(user), user.name, user.realName, user.displayName, user.id]
-        .some(text => text.toLowerCase().includes(query))
-    })
-    .slice(0, 8)
-    .map(user => ({ id: user.id, label: `@${slackUserLabel(user)}`, detail: user.id }))
-  const specialSuggestions = SPECIAL_MENTION_SUGGESTIONS
-    .filter(item => !selected.has(item.id))
-    .filter(item => !query || item.label.toLowerCase().includes(query) || item.id.toLowerCase().includes(query))
-  const suggestions = [...specialSuggestions, ...userSuggestions]
-  const showSuggestions = open && draft.trim().startsWith('@') && suggestions.length > 0
-  const activeSuggestion = suggestions[Math.min(activeIndex, Math.max(0, suggestions.length - 1))]
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(event: globalThis.MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  function addMention(id: string) {
-    const next = Array.from(new Set([...selectedIds, id]))
-    onChange(next)
-    setDraft('')
-    setOpen(false)
-    setActiveIndex(0)
-  }
-
-  function removeMention(id: string) {
-    onChange(selectedIds.filter(item => item !== id))
-  }
-
-  function commitDraft() {
-    if (activeSuggestion && draft.trim().startsWith('@')) {
-      addMention(activeSuggestion.id)
-      return
-    }
-    const normalized = normalizeMentionDraft(draft)
-    if (normalized) addMention(normalized)
-    else setDraft('')
-  }
-
-  return (
-    <div ref={rootRef} className="relative" data-row-click-ignore="true">
-      <div
-        className="flex min-h-10 w-full flex-wrap items-center gap-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-200 outline-none focus-within:ring-1 focus-within:ring-blue-600"
-        onClick={() => inputRef.current?.focus()}
-      >
-        {selectedIds.map(id => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => removeMention(id)}
-            className="max-w-40 truncate rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-red-900/70"
-            title="Remove mention"
-          >
-            {mentionLabel(id, users, aliases)} x
-          </button>
-        ))}
-        <input
-          ref={inputRef}
-          value={draft}
-          onFocus={() => setOpen(true)}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            setOpen(true)
-            setActiveIndex(0)
-          }}
-          onKeyDown={(event) => {
-            if ((event.key === ',' || event.key === ' ') && draft.trim()) {
-              event.preventDefault()
-              commitDraft()
-            } else if (event.key === 'Enter' && draft.trim()) {
-              event.preventDefault()
-              commitDraft()
-            } else if (event.key === 'ArrowDown' && showSuggestions) {
-              event.preventDefault()
-              setActiveIndex(index => Math.min(index + 1, suggestions.length - 1))
-            } else if (event.key === 'ArrowUp' && showSuggestions) {
-              event.preventDefault()
-              setActiveIndex(index => Math.max(index - 1, 0))
-            } else if (event.key === 'Backspace' && !draft && selectedIds.length > 0) {
-              removeMention(selectedIds[selectedIds.length - 1])
-            }
-          }}
-          onBlur={() => {
-            if (draft.trim()) commitDraft()
-          }}
-          placeholder={selectedIds.length === 0 ? '@name, @here, @channel, <!subteam^S123|qa-team>' : '@tag more'}
-          className="min-w-40 flex-1 bg-transparent px-1 py-1 text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
-        />
-      </div>
-      {showSuggestions && (
-        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion.id}
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => addMention(suggestion.id)}
-              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${index === activeIndex ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
-            >
-              <span className="min-w-0 truncate">{suggestion.label}</span>
-              <span className="shrink-0 text-[11px] text-zinc-500">{suggestion.detail}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+interface MentionPickerProps {
+  options: MentionOption[]
+  selectedIds: string[]
+  aliases: Record<string, string>
+  dropdownMode?: 'absolute' | 'fixed'
+  onChange(ids: string[]): void
 }
 
 interface SlackChannelPickerProps {
@@ -972,6 +916,15 @@ interface SlackChannelPickerProps {
   loading?: boolean
   onOpen?(): void
   onChange(id: string): void
+}
+
+interface GitLabProjectPickerProps {
+  projects: GitLabProject[]
+  value: string
+  disabled?: boolean
+  loading?: boolean
+  onOpen?(): void
+  onChange(projectId: string): void
 }
 
 function SlackChannelPicker({ channels, value, disabled = false, loading = false, onOpen, onChange }: SlackChannelPickerProps) {
@@ -1057,32 +1010,162 @@ function SlackChannelPicker({ channels, value, disabled = false, loading = false
   )
 }
 
-function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerProps) {
+function GitLabProjectPicker({ projects, value, disabled = false, loading = false, onOpen, onChange }: GitLabProjectPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
-  const selected = new Set(selectedIds)
-  const labels = selectedIds.map(id => aliases[id] || users.find(user => user.id === id)?.displayName || users.find(user => user.id === id)?.realName || users.find(user => user.id === id)?.name || id)
+  const selected = projects.find(project => project.pathWithNamespace === value)
   const normalizedQuery = query.trim().toLowerCase()
-  const filteredUsers = normalizedQuery
-    ? users.filter(user => [
-        slackUserLabel(user),
-        user.name,
-        user.realName,
-        user.displayName,
-        user.id,
-      ].some(value => value.toLowerCase().includes(normalizedQuery)))
-    : users
+  const filteredProjects = normalizedQuery
+    ? projects.filter(project => [
+        project.name,
+        project.nameWithNamespace,
+        project.pathWithNamespace,
+      ].some(text => text.toLowerCase().includes(normalizedQuery)))
+    : projects
+  const canUseQuery = query.trim() && !projects.some(project => project.pathWithNamespace === query.trim())
 
-  function toggle(id: string) {
+  useEffect(() => {
+    if (!open) return
+    function onDoc(event: globalThis.MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  function toggleOpen() {
+    if (disabled) return
+    setOpen(prev => {
+      const next = !prev
+      if (next) {
+        setQuery(value)
+        onOpen?.()
+      }
+      return next
+    })
+  }
+
+  function commitProject(projectId: string) {
+    onChange(projectId)
+    setQuery(projectId)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative mt-1" data-row-click-ignore="true">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={toggleOpen}
+        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-900 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
+      >
+        <span className="min-w-0 truncate">{selected ? selected.nameWithNamespace : (value || (loading ? 'Loading projects...' : 'Select GitLab project'))}</span>
+        <span className="shrink-0 text-zinc-500">v</span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">
+          <div className="border-b border-zinc-800 p-2">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && query.trim()) commitProject(query.trim())
+              }}
+              autoFocus
+              placeholder="Search or enter group/project"
+              className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto py-1">
+            {loading && (
+              <div className="px-3 py-2 text-sm text-zinc-500">Loading projects...</div>
+            )}
+            {!loading && canUseQuery && (
+              <button
+                type="button"
+                onClick={() => commitProject(query.trim())}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-blue-100 hover:bg-zinc-800"
+              >
+                <span className="min-w-0 truncate">Use {query.trim()}</span>
+                <span className="shrink-0 text-[11px] text-zinc-500">custom</span>
+              </button>
+            )}
+            {!loading && filteredProjects.length === 0 && !canUseQuery && (
+              <div className="px-3 py-2 text-sm text-zinc-500">{projects.length === 0 ? 'No projects loaded' : 'No matching projects'}</div>
+            )}
+            {filteredProjects.map(project => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => commitProject(project.pathWithNamespace)}
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${project.pathWithNamespace === value ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
+              >
+                <span className="min-w-0 truncate">{project.nameWithNamespace}</span>
+                <span className="max-w-32 shrink-0 truncate text-[11px] text-zinc-500">{project.pathWithNamespace}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute', onChange }: MentionPickerProps) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [fixedMenuStyle, setFixedMenuStyle] = useState<CSSProperties | undefined>(undefined)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = new Set(selectedIds)
+  const optionMap = new Map(options.map(option => [option.id, option]))
+  const slackOptionMap = new Map(options.flatMap(option => option.slackUserId ? [[option.slackUserId, option] as const] : []))
+  const labels = selectedIds.map(id => aliases[id] || optionMap.get(id)?.label || slackOptionMap.get(id)?.label || id)
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredOptions = normalizedQuery
+    ? options.filter(option => [
+        option.label,
+        option.detail,
+        option.id,
+        option.hasSlack ? 'slack' : '',
+        option.hasGitLab ? 'gitlab' : '',
+        option.hasGoogle ? 'google' : '',
+      ].some(value => value.toLowerCase().includes(normalizedQuery)))
+    : options
+
+  function optionSelected(option: MentionOption): boolean {
+    return selected.has(option.id) || Boolean(option.slackUserId && selected.has(option.slackUserId))
+  }
+
+  function toggle(option: MentionOption) {
     const next = new Set(selected)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
+    if (optionSelected(option)) {
+      next.delete(option.id)
+      if (option.slackUserId) next.delete(option.slackUserId)
+    } else {
+      next.add(option.id)
+    }
     onChange([...next])
   }
 
   useEffect(() => {
     if (!open) return
+    function updateFixedMenuStyle() {
+      if (dropdownMode !== 'fixed') return
+      const rect = rootRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const gap = 4
+      const margin = 16
+      const width = Math.min(320, window.innerWidth - margin * 2)
+      const maxHeight = Math.min(256, window.innerHeight - margin * 2)
+      const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+      const opensAbove = rect.bottom + gap + maxHeight > window.innerHeight - margin && rect.top > window.innerHeight - rect.bottom
+      const top = opensAbove
+        ? Math.max(margin, rect.top - gap - maxHeight)
+        : Math.min(rect.bottom + gap, window.innerHeight - margin - maxHeight)
+      setFixedMenuStyle({ position: 'fixed', top, left, width, maxHeight })
+    }
+    updateFixedMenuStyle()
     function onPointerDown(event: PointerEvent) {
       const target = event.target as Node | null
       if (target && rootRef.current?.contains(target)) return
@@ -1093,11 +1176,15 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', updateFixedMenuStyle)
+    window.addEventListener('scroll', updateFixedMenuStyle, true)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', updateFixedMenuStyle)
+      window.removeEventListener('scroll', updateFixedMenuStyle, true)
     }
-  }, [open])
+  }, [dropdownMode, open])
 
   return (
     <div ref={rootRef} className="relative" data-row-click-ignore="true">
@@ -1109,8 +1196,11 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
         {labels.length > 0 ? `Mention: ${labels.join(', ')}` : 'Mention people'}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
-          {users.length > 0 && (
+        <div
+          style={dropdownMode === 'fixed' ? fixedMenuStyle : undefined}
+          className={`${dropdownMode === 'fixed' ? 'fixed z-[70]' : 'absolute z-20 mt-1 w-80'} max-h-64 max-w-[calc(100vw-2rem)] overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl`}
+        >
+          {options.length > 0 && (
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -1119,20 +1209,25 @@ function MentionPicker({ users, selectedIds, aliases, onChange }: MentionPickerP
               autoFocus
             />
           )}
-          {users.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack users in Publish settings.</div>
-          ) : filteredUsers.length === 0 ? (
+          {options.length === 0 ? (
+            <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack or GitLab users in Publish settings.</div>
+          ) : filteredOptions.length === 0 ? (
             <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
-          ) : filteredUsers.map(user => (
-            <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
+          ) : filteredOptions.map(option => (
+            <label key={option.id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
               <input
                 type="checkbox"
-                checked={selected.has(user.id)}
-                onChange={() => toggle(user.id)}
-                className="h-4 w-4 accent-blue-600"
+                checked={optionSelected(option)}
+                onChange={() => toggle(option)}
+                className="mt-0.5 h-4 w-4 accent-blue-600"
               />
-              <span className="min-w-0 flex-1 truncate">{slackUserLabel(user)}</span>
-              <span className="shrink-0 text-[10px] text-zinc-600">{user.id}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{option.label}</span>
+                <span className="mt-1 flex flex-wrap gap-1">
+                  <MentionProviderBadges hasSlack={option.hasSlack} hasGitLab={option.hasGitLab} hasGoogle={option.hasGoogle} />
+                </span>
+              </span>
+              <span className="max-w-24 shrink-0 truncate text-[10px] text-zinc-600">{option.detail || option.id}</span>
             </label>
           ))}
         </div>
@@ -1208,6 +1303,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [rememberOriginalFilesWarning, setRememberOriginalFilesWarning] = useState(false)
   const [publishSlack, setPublishSlack] = useState(false)
   const [publishGitLab, setPublishGitLab] = useState(false)
+  const [publishGoogleDrive, setPublishGoogleDrive] = useState(false)
   const [slackSettings, setSlackSettings] = useState<SlackPublishSettings | null>(null)
   const [slackConnecting, setSlackConnecting] = useState(false)
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
@@ -1218,14 +1314,54 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [slackDirectoryRefreshing, setSlackDirectoryRefreshing] = useState(false)
   const [slackDirectoryError, setSlackDirectoryError] = useState('')
   const slackDirectoryRefreshPromiseRef = useRef<Promise<Awaited<ReturnType<DesktopApi['settings']['get']> | null>> | null>(null)
+  const [gitlabSettings, setGitLabSettings] = useState<GitLabPublishSettings | null>(null)
   const [gitlabMode, setGitLabMode] = useState<GitLabPublishMode>('single-issue')
+  const [gitlabProjectId, setGitLabProjectId] = useState('')
+  const [gitlabProjects, setGitLabProjects] = useState<GitLabProject[]>([])
+  const [gitlabProjectsRefreshing, setGitLabProjectsRefreshing] = useState(false)
+  const [gitlabProjectsError, setGitLabProjectsError] = useState('')
   const [exportError, setExportError] = useState('')
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
   const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
+  const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
   const visibleSeverityList = useMemo(() => visibleSeverities(severities), [severities])
+  const mentionOptions = useMemo<MentionOption[]>(() => {
+    const options = mentionIdentities.map(identity => {
+      const details = [
+        identity.email || identity.googleEmail || '',
+        identity.gitlabUsername ? `@${identity.gitlabUsername}` : '',
+        identity.slackUserId || '',
+      ].filter(Boolean)
+      return {
+        id: identity.id,
+        label: mentionIdentityLabel(identity),
+        detail: details.join(' / '),
+        hasSlack: Boolean(identity.slackUserId),
+        hasGitLab: Boolean(identity.gitlabUsername),
+        hasGoogle: Boolean(identity.googleEmail),
+        slackUserId: identity.slackUserId,
+      }
+    })
+    const identityIds = new Set(options.map(option => option.id))
+    const identitySlackIds = new Set(options.map(option => option.slackUserId).filter(Boolean))
+    for (const user of slackUsers) {
+      if (identityIds.has(user.id) || identitySlackIds.has(user.id)) continue
+      options.push({
+        id: user.id,
+        label: slackUserLabel(user),
+        detail: user.id,
+        hasSlack: true,
+        hasGitLab: false,
+        hasGoogle: false,
+        slackUserId: user.id,
+      })
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label))
+  }, [mentionIdentities, slackUsers])
+  const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     api.settings.get().then(settings => {
@@ -1239,6 +1375,10 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setSlackUsers([...fetchedUsers, ...fallbackUsers])
       setSlackAliases(settings.slack.mentionAliases ?? {})
       setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
+      setGitLabSettings(settings.gitlab)
+      setGitLabProjectId(settings.gitlab.projectId)
+      setGitLabMode(settings.gitlab.mode)
+      setMentionIdentities(settings.mentionIdentities ?? [])
     }).catch(() => {})
   }, [api])
 
@@ -1323,6 +1463,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setSlackUsers([...fetchedUsers, ...fallbackUsers])
     setSlackAliases(settings.slack.mentionAliases ?? {})
     setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
+    setMentionIdentities(settings.mentionIdentities ?? [])
   }
 
   async function refreshSlackDirectoryForExport(): Promise<Awaited<ReturnType<DesktopApi['settings']['get']>> | null> {
@@ -1369,6 +1510,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       return
     }
     setSlackDirectoryError('')
+    setGitLabProjectsError('')
     setExportRoot(settings.exportRoot)
     setExportReportTitle('Loupe QA Report')
     setExportBuildVersion(buildVersion)
@@ -1382,12 +1524,15 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setRememberOriginalFilesWarning(false)
     setPublishSlack(false)
     setPublishGitLab(false)
+    setPublishGoogleDrive(false)
     setSlackThreadMode('per-marker-thread')
     setSlackSettings(settings.slack)
     setSlackChannelId(channelIdFromSettings(settings.slack))
     setSlackMentionIds(settings.slack.mentionUserIds ?? [])
     setSlackManualMentionInput(formatManualSlackMentions(settings.slack.mentionUserIds ?? []))
     applySlackDirectory(settings)
+    setGitLabSettings(settings.gitlab)
+    setGitLabProjectId(settings.gitlab.projectId)
     setGitLabMode(settings.gitlab.mode)
     setExportError('')
     setExportProgress(null)
@@ -1424,6 +1569,31 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     await beginExport({ bugs, bugIds })
   }
 
+  async function refreshGitLabProjectsForExport() {
+    const sourceSettings = gitlabSettings ?? (await api.settings.get()).gitlab
+    const nextGitLab = {
+      ...sourceSettings,
+      projectId: gitlabProjectId.trim() || sourceSettings.projectId,
+      mode: gitlabMode,
+    }
+    setGitLabProjectsRefreshing(true)
+    setGitLabProjectsError('')
+    try {
+      const projects = await withTimeout(
+        api.settings.listGitLabProjects(nextGitLab),
+        15000,
+        'GitLab project loading timed out. Try Refresh again in a minute.',
+      )
+      setGitLabSettings(nextGitLab)
+      setGitLabProjects([...projects].sort((a, b) => a.nameWithNamespace.localeCompare(b.nameWithNamespace)))
+      if (projects.length === 0) setGitLabProjectsError('GitLab connected, but no projects were returned.')
+    } catch (err) {
+      setGitLabProjectsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGitLabProjectsRefreshing(false)
+    }
+  }
+
   useImperativeHandle(ref, () => ({
     exportAll: () => { void exportAll() },
     exporting,
@@ -1439,6 +1609,10 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     }
     if (publishSlack && !slackChannelId.trim()) {
       setExportError('Select a Slack channel before exporting.')
+      return
+    }
+    if (publishGitLab && !gitlabProjectId.trim()) {
+      setExportError('Select a GitLab project before exporting.')
       return
     }
     if (exportIncludeOriginalFiles && !skipOriginalFilesWarning && localStorage.getItem(ORIGINAL_FILES_WARNING_KEY) !== '1') {
@@ -1486,10 +1660,22 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
         setSlackMentionIds(currentSettings.slack.mentionUserIds ?? [])
         setSlackManualMentionInput(formatManualSlackMentions(currentSettings.slack.mentionUserIds ?? []))
       }
+      if (publishGitLab && gitlabProjectId.trim()) {
+        const nextGitLab: GitLabPublishSettings = {
+          ...currentSettings.gitlab,
+          projectId: gitlabProjectId.trim(),
+          mode: gitlabMode,
+        }
+        currentSettings = await api.settings.setGitLab(nextGitLab)
+        setGitLabSettings(currentSettings.gitlab)
+        setGitLabProjectId(currentSettings.gitlab.projectId)
+        setGitLabMode(currentSettings.gitlab.mode)
+      }
       onMutated()
       const targets: PublishTarget[] = [
         ...(publishSlack ? ['slack' as const] : []),
         ...(publishGitLab ? ['gitlab' as const] : []),
+        ...(publishGoogleDrive ? ['google-drive' as const] : []),
       ]
       const publish = {
         target: targets[0] ?? 'local',
@@ -1572,7 +1758,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
-            slackUsers={slackUsers}
+            mentionOptions={mentionOptions}
             slackAliases={slackAliases}
             onToggleLogcat={() => setExpandedLogcatIds(prev => {
               const next = new Set(prev)
@@ -1602,16 +1788,21 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           slackConnecting={slackConnecting}
           publishSlack={publishSlack}
           publishGitLab={publishGitLab}
+          publishGoogleDrive={publishGoogleDrive}
           slackThreadMode={slackThreadMode}
           slackChannels={slackChannels}
           slackChannelId={slackChannelId}
-          slackUsers={slackUsers}
+          mentionOptions={mentionOptions}
           slackMentionIds={slackMentionIds}
           slackMentionAliases={slackAliases}
           slackManualMentionInput={slackManualMentionInput}
           slackDirectoryRefreshing={slackDirectoryRefreshing}
           slackDirectoryError={slackDirectoryError}
           gitlabMode={gitlabMode}
+          gitlabProjectId={gitlabProjectId}
+          gitlabProjects={gitlabProjects}
+          gitlabProjectsRefreshing={gitlabProjectsRefreshing}
+          gitlabProjectsError={gitlabProjectsError}
           busy={exporting}
           error={exportError}
           canceling={cancelingExport}
@@ -1628,13 +1819,19 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
           onConnectSlack={() => { void connectSlackForExport() }}
           onPublishSlackChange={setPublishSlack}
-          onPublishGitLabChange={setPublishGitLab}
+          onPublishGitLabChange={(value) => {
+            setPublishGitLab(value)
+            if (value && gitlabProjects.length === 0 && !gitlabProjectsRefreshing) void refreshGitLabProjectsForExport()
+          }}
+          onPublishGoogleDriveChange={setPublishGoogleDrive}
           onSlackThreadModeChange={setSlackThreadMode}
           onSlackChannelIdChange={setSlackChannelId}
           onSlackMentionIdsChange={setSlackMentionIds}
           onSlackManualMentionInputChange={setSlackManualMentionInput}
           onRefreshSlackDirectory={() => { void refreshSlackDirectoryForExport() }}
           onGitLabModeChange={setGitLabMode}
+          onGitLabProjectIdChange={setGitLabProjectId}
+          onRefreshGitLabProjects={() => { void refreshGitLabProjectsForExport() }}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={cancelExport}
           onConfirm={confirmExport}
@@ -1668,13 +1865,13 @@ interface RowProps {
   tester: string
   severities: SeveritySettings
   visibleSeverities: BugSeverity[]
-  slackUsers: SlackMentionUser[]
+  mentionOptions: MentionOption[]
   slackAliases: Record<string, string>
   onToggleLogcat(): void
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, slackUsers, slackAliases, onToggleLogcat, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, mentionOptions, slackAliases, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -1890,9 +2087,10 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
           </div>
 
           <MentionPicker
-            users={slackUsers}
+            options={mentionOptions}
             selectedIds={mentionUserIds}
             aliases={slackAliases}
+            dropdownMode="fixed"
             onChange={changeMentions}
           />
 

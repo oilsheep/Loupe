@@ -47,7 +47,8 @@ Loupe uses this redirect URI:
 http://127.0.0.1:38988/oauth/google/callback
 ```
 
-For a **Desktop app** OAuth client, Google does not require manually adding this redirect URI in the client settings. Keep Loupe's configured redirect URI unchanged unless the app code is also changed.
+Keep Loupe's configured redirect URI unchanged unless the app code is also changed.
+Unlike Slack and GitLab, Google Desktop OAuth should use the loopback redirect. Do not set this to `loupe://google-oauth`; Google rejects arbitrary custom schemes for this client flow.
 
 ## 4. Configure Build-Time Secrets
 
@@ -64,7 +65,6 @@ Use this format:
 ```text
 LOUPE_GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
 LOUPE_GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
-LOUPE_GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:38988/oauth/google/callback
 ```
 
 `apps/desktop/.env.local` is ignored by git. `apps/desktop/.env.example` is the committed template.
@@ -74,7 +74,6 @@ For CI/release builds, configure these as secret variables:
 ```text
 LOUPE_GOOGLE_OAUTH_CLIENT_ID
 LOUPE_GOOGLE_OAUTH_CLIENT_SECRET
-LOUPE_GOOGLE_OAUTH_REDIRECT_URI
 ```
 
 Then build normally:

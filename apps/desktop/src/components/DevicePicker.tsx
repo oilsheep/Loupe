@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { Device, DesktopApi, MdnsEntry, PcCaptureSource } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
+import type { SelectRecordingSource } from '@/lib/recordingSource'
+import { PcCaptureSourceSection } from '@/components/source/PcCaptureSourceSection'
+import { AndroidDeviceList } from '@/components/source/AndroidDeviceList'
+import { AndroidWifiSection } from '@/components/source/AndroidWifiSection'
 
 interface Props {
   api: DesktopApi
   selectedId: string | null
-  onSelect(id: string, mode: 'usb' | 'wifi' | 'pc', label?: string): void
+  onSelect: SelectRecordingSource
 }
 
 const LABEL_KEY = 'loupe.deviceLabels'
+type SourceTab = 'pc' | 'android'
 
 function readLabels(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LABEL_KEY) ?? '{}') } catch { return {} }
@@ -41,6 +46,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [pcSources, setPcSources] = useState<PcCaptureSource[]>([])
   const [pcSourcesLoading, setPcSourcesLoading] = useState(false)
   const [pcSourceTab, setPcSourceTab] = useState<'screen' | 'window'>('screen')
+  const [sourceTab, setSourceTab] = useState<SourceTab>('pc')
 
   async function refresh() {
     try {
@@ -79,10 +85,6 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     }
   }, [devices, api, userNames])
 
-  function displayName(d: Device): string {
-    return labels[d.id] || userNames[d.id] || d.model || d.id
-  }
-
   function upsertConnectedDevice(id: string, mode: 'usb' | 'wifi', label?: string) {
     setDevices(prev => {
       const next = prev.some(d => d.id === id)
@@ -97,6 +99,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     upsertConnectedDevice(id, mode)
     setError(null)
     setConnectionStatus(t('device.connected', { name: userNames[id] || labels[id] || id }))
+    setSourceTab('android')
     onSelect(id, mode)
     api.device.getUserName(id).then(name => {
       if (!name) return
@@ -231,13 +234,10 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     })
   }
 
-  function selectPcSource(source: PcCaptureSource) {
-    onSelect(source.id, 'pc', source.name)
-    if (source.type === 'screen') void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
-    else void api.app.hidePcCaptureFrame()
+  const selectPcSource: SelectRecordingSource = (id, mode, label) => {
+    if (mode === 'pc') setSourceTab('pc')
+    onSelect(id, mode, label)
   }
-
-  const pcTabSources = pcSources.filter(source => source.type === pcSourceTab)
 
   return (
     <div className="space-y-3">
@@ -253,275 +253,72 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         </div>
       )}
 
-      <div className="rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-200">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-medium">{t('device.pcRecording')}</div>
-            <div className="mt-0.5 text-xs text-zinc-500">{t('device.pcHelp')}</div>
-          </div>
+      <div className="grid grid-cols-2 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+        {([
+          ['pc', t('device.pcRecording')],
+          ['android', t('device.androidDevices')],
+        ] as const).map(([tab, label]) => (
           <button
+            key={tab}
             type="button"
-            onClick={refreshPcSources}
-            disabled={pcSourcesLoading}
-            className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+            onClick={() => setSourceTab(tab)}
+            className={`rounded px-2 py-1.5 ${sourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
-            {pcSourcesLoading ? t('device.loading') : t('common.refresh')}
+            {label}
           </button>
-        </div>
-        <div className="mt-3 grid grid-cols-2 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
-          {(['screen', 'window'] as const).map(tab => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setPcSourceTab(tab)}
-              className={`rounded px-2 py-1.5 ${pcSourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              {tab === 'screen' ? t('device.entireScreen') : t('device.window')}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 grid max-h-72 grid-cols-2 gap-2 overflow-auto pr-1">
-          {pcTabSources.length === 0 && (
-            <div className="col-span-2 text-xs text-zinc-500">
-              {pcSourcesLoading
-                ? t('device.loadingSources')
-                : pcSourceTab === 'screen'
-                  ? t('device.noScreens')
-                  : t('device.noWindows')}
-            </div>
-          )}
-          {pcTabSources.map(source => {
-            const isSel = selectedId === source.id
-            return (
-              <button
-                key={source.id}
-                type="button"
-                data-testid={`source-pc-${source.id}`}
-                onClick={() => selectPcSource(source)}
-                className={`min-w-0 rounded border p-2 text-left text-xs
-                  ${isSel ? 'border-blue-500 bg-blue-950/70 text-white' : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-800'}`}
-              >
-                <div className="aspect-video overflow-hidden rounded bg-zinc-900">
-                  {source.thumbnailDataUrl
-                    ? <img src={source.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
-                    : <div className="h-full w-full bg-zinc-800" />}
-                </div>
-                <div className="mt-2 truncate">{source.name}</div>
-              </button>
-            )
-          })}
-        </div>
+        ))}
       </div>
 
-      <div className="space-y-1">
-        <div className="text-xs font-medium text-zinc-500">{t('device.androidDevices')}</div>
-        {devices.length === 0 && <div className="text-xs text-zinc-500">{t('device.noDevices')}</div>}
-        {devices.map(d => {
-          const isSel = selectedId === d.id
-          const isEditing = editingLabel === d.id
-          const subtitle = [
-            d.type.toUpperCase(),
-            d.state,
-            userNames[d.id],
-            d.model,
-            d.id,
-          ].filter(Boolean).join(' / ')
-          return (
-            <div
-              key={d.id}
-              data-testid={`device-${d.id}`}
-              onClick={() => d.state === 'device' && markConnected(d.id, d.type)}
-              className={`rounded px-3 py-2 text-sm
-                ${isSel ? 'bg-blue-700 text-white' : 'bg-zinc-900 text-zinc-200'}
-                ${d.state !== 'device' ? 'opacity-50' : 'cursor-pointer hover:bg-zinc-800'}`}
-            >
-              <div className="flex items-center gap-2">
-                {isEditing ? (
-                  <input
-                    autoFocus
-                    value={labelDraft}
-                    onChange={e => setLabelDraft(e.target.value)}
-                    onBlur={() => commitLabel(d.id)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                      if (e.key === 'Escape') setEditingLabel(null)
-                    }}
-                    placeholder={t('device.labelPlaceholder')}
-                    data-testid={`label-input-${d.id}`}
-                    className="flex-1 rounded bg-zinc-800 px-2 py-0.5 text-zinc-100 outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      d.state === 'device' && markConnected(d.id, d.type)
-                    }}
-                    disabled={d.state !== 'device'}
-                    className="flex-1 truncate text-left font-medium"
-                    data-testid={`device-select-${d.id}`}
-                  >
-                    {displayName(d)}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    isEditing ? commitLabel(d.id) : startEditLabel(d.id)
-                  }}
-                  data-testid={`label-edit-${d.id}`}
-                  title={t('device.editLabel')}
-                  className="text-xs text-zinc-400 hover:text-zinc-200"
-                >
-                  {isEditing ? t('device.save') : labels[d.id] ? t('device.rename') : t('device.label')}
-                </button>
-              </div>
-              <div className="mt-0.5 flex items-center gap-2 truncate text-xs text-zinc-400">
-                {isSel && <span className="rounded bg-emerald-900 px-1.5 py-0.5 text-emerald-200">{t('common.connected')}</span>}
-                <span className="truncate">{subtitle}</span>
-              </div>
-              {isSel && (
-                <div className="mt-1 text-[11px] text-blue-200">
-                  {t('device.selectedHelp')}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="space-y-2 border-t border-zinc-800 pt-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-400">{t('device.wifiAuto')}</span>
-          <button
-            onClick={runMdnsScan}
-            disabled={mdnsScanning}
-            data-testid="mdns-scan-button"
-            className="rounded bg-teal-700 px-3 py-1 text-xs text-white hover:bg-teal-600 disabled:opacity-50"
-          >
-            {mdnsScanning ? t('device.scanning') : t('device.scanWifi')}
-          </button>
-        </div>
-
-        {mdnsEntries !== null && mdnsEntries.length === 0 && (
-          <div className="text-xs text-zinc-500">{t('device.noWifiDevices')}</div>
-        )}
-
-        {mdnsEntries !== null && mdnsEntries.length > 0 && (
-          <div className="space-y-1">
-            {mdnsEntries.map(entry => (
-              <div
-                key={`${entry.type}-${entry.ipPort}`}
-                data-testid={`mdns-entry-${entry.ipPort}`}
-                className="space-y-1 rounded bg-zinc-900 px-3 py-2"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <span className="font-mono text-xs text-zinc-100">{entry.ipPort}</span>
-                    <span className={`ml-2 text-xs ${entry.type === 'pair' ? 'text-amber-400' : 'text-teal-400'}`}>
-                      {entry.type === 'pair' ? t('device.needsPairing') : t('device.ready')}
-                    </span>
-                  </div>
-                  {entry.type === 'connect' ? (
-                    <button
-                      onClick={() => connectMdnsEntry(entry)}
-                      data-testid={`mdns-connect-button-${entry.ipPort}`}
-                      className="rounded bg-teal-700 px-3 py-1 text-xs text-white hover:bg-teal-600"
-                    >
-                      {t('device.connectButton')}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => togglePairForm(entry.ipPort)}
-                      data-testid={`mdns-pair-button-${entry.ipPort}`}
-                      className="rounded bg-amber-700 px-3 py-1 text-xs text-white hover:bg-amber-600"
-                    >
-                      {t('device.pair')}
-                    </button>
-                  )}
-                </div>
-                {entry.type === 'pair' && entry.ipPort in pairCodes && (
-                  <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <input
-                      value={pairCodes[entry.ipPort] ?? ''}
-                      onChange={e => setPairCode(entry.ipPort, e.target.value)}
-                      placeholder={t('device.codePlaceholder')}
-                      maxLength={6}
-                      data-testid={`mdns-pair-code-${entry.ipPort}`}
-                      className="min-w-0 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    <button
-                      onClick={() => submitPair(entry)}
-                      disabled={pairingInFlight.has(entry.ipPort)}
-                      data-testid={`mdns-pair-submit-${entry.ipPort}`}
-                      className="whitespace-nowrap rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50"
-                    >
-                      {pairingInFlight.has(entry.ipPort) ? t('device.pairing') : t('device.submit')}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="border-t border-zinc-800 pt-3">
-        <label className="text-xs text-zinc-400">Pair Android manually (use the pairing address and six-digit code)</label>
-        <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)_auto] gap-2">
-          <input
-            value={manualPairIpPort}
-            onChange={e => setManualPairIpPort(e.target.value)}
-            placeholder="ip:pairing-port"
-            data-testid="manual-pair-ip-port"
-            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+      {sourceTab === 'pc' ? (
+        <PcCaptureSourceSection
+          api={api}
+          selectedId={selectedId}
+          sources={pcSources}
+          loading={pcSourcesLoading}
+          activeTab={pcSourceTab}
+          onTabChange={setPcSourceTab}
+          onRefresh={refreshPcSources}
+          onSelect={selectPcSource}
+        />
+      ) : (
+        <>
+          <AndroidDeviceList
+            devices={devices}
+            selectedId={selectedId}
+            userNames={userNames}
+            labels={labels}
+            editingLabel={editingLabel}
+            labelDraft={labelDraft}
+            onSelectDevice={device => markConnected(device.id, device.type)}
+            onStartEditLabel={startEditLabel}
+            onCommitLabel={commitLabel}
+            onLabelDraftChange={setLabelDraft}
+            onCancelEditLabel={() => setEditingLabel(null)}
           />
-          <input
-            value={manualPairCode}
-            onChange={e => setManualPairCode(e.target.value)}
-            placeholder="6-digit code"
-            maxLength={6}
-            data-testid="manual-pair-code"
-            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
-          />
-          <button
-            onClick={submitManualPair}
-            disabled={manualPairBusy}
-            data-testid="manual-pair-submit"
-            className="whitespace-nowrap rounded bg-amber-700 px-3 py-1 text-sm text-white hover:bg-amber-600 disabled:opacity-50"
-          >
-            {manualPairBusy ? 'pairing...' : 'pair'}
-          </button>
-        </div>
-        <div className="mt-1 text-[11px] text-zinc-500">
-          Use the address shown under Android Wireless debugging → Pair device with pairing code. After pairing, connect with the ready/connect address.
-        </div>
-      </div>
 
-      <div className="border-t border-zinc-800 pt-3">
-        <label className="text-xs text-zinc-400">Add Wi-Fi device manually (use the connect port, not the pairing port)</label>
-        <div className="mt-1 flex gap-2">
-          <input
-            value={wifiIp}
-            onChange={e => setWifiIp(e.target.value)}
-            placeholder={t('device.wifiConnectPlaceholder')}
-            data-testid="wifi-ip"
-            className="flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+          <AndroidWifiSection
+            wifiIp={wifiIp}
+            wifiBusy={wifiBusy}
+            mdnsEntries={mdnsEntries}
+            mdnsScanning={mdnsScanning}
+            pairCodes={pairCodes}
+            pairingInFlight={pairingInFlight}
+            manualPairIpPort={manualPairIpPort}
+            manualPairCode={manualPairCode}
+            manualPairBusy={manualPairBusy}
+            onWifiIpChange={setWifiIp}
+            onAddWifi={addWifi}
+            onRunMdnsScan={runMdnsScan}
+            onConnectMdnsEntry={connectMdnsEntry}
+            onTogglePairForm={togglePairForm}
+            onPairCodeChange={setPairCode}
+            onSubmitPair={submitPair}
+            onManualPairIpPortChange={setManualPairIpPort}
+            onManualPairCodeChange={setManualPairCode}
+            onSubmitManualPair={submitManualPair}
           />
-          <button
-            onClick={addWifi}
-            disabled={wifiBusy}
-            data-testid="wifi-connect"
-            className="rounded bg-blue-700 px-3 py-1 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {wifiBusy ? t('device.connecting') : t('common.connect')}
-          </button>
-        </div>
-        <div className="mt-1 text-[11px] text-zinc-500">
-          {t('device.wifiManualHelp')}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }

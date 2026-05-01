@@ -27,9 +27,10 @@ export default defineConfig(({ mode }) => {
     main: {
       plugins: [externalizeDepsPlugin()],
       define: {
+        __LOUPE_SLACK_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? ''),
+        __LOUPE_SLACK_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? ''),
-        __LOUPE_GOOGLE_OAUTH_REDIRECT_URI__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_REDIRECT_URI ?? process.env.LOUPE_GOOGLE_OAUTH_REDIRECT_URI ?? ''),
       },
       build: {
         outDir: 'out/main',

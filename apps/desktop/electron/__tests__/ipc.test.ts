@@ -19,7 +19,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { buildMacAvfoundationInputName, isUnsupportedGdigrabDrawMouseError, recoverProjectMicAudioPath } from '../ipc'
+import { buildMacAvfoundationInputName, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
 import type { PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
@@ -67,5 +67,29 @@ describe('recoverProjectMicAudioPath', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('parseWindowsWindowHandle', () => {
+  it('extracts HWND values from Electron window source ids', () => {
+    expect(parseWindowsWindowHandle('window:123456:0')).toBe(123456)
+  })
+
+  it('ignores non-window and invalid source ids', () => {
+    expect(parseWindowsWindowHandle('screen:1:0')).toBeNull()
+    expect(parseWindowsWindowHandle('window:not-a-number:0')).toBeNull()
+    expect(parseWindowsWindowHandle('window:0:0')).toBeNull()
+  })
+})
+
+describe('parseMacWindowId', () => {
+  it('extracts CGWindowID values from Electron window source ids', () => {
+    expect(parseMacWindowId('window:98765:0')).toBe(98765)
+  })
+
+  it('ignores non-window and invalid source ids', () => {
+    expect(parseMacWindowId('screen:1:0')).toBeNull()
+    expect(parseMacWindowId('window:not-a-number:0')).toBeNull()
+    expect(parseMacWindowId('window:0:0')).toBeNull()
   })
 })

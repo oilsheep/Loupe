@@ -33,7 +33,7 @@ OAuth requires a GitLab OAuth application. Loupe uses authorization code with PK
 5. Set **Redirect URI** to:
 
 ```text
-http://127.0.0.1:38987/oauth/gitlab/callback
+loupe://gitlab-oauth
 ```
 
 6. Select scope:
@@ -177,10 +177,10 @@ This is GitLab's OAuth `client_id`. Create a GitLab OAuth application and copy *
 Make sure the GitLab OAuth application Redirect URI exactly matches:
 
 ```text
-http://127.0.0.1:38987/oauth/gitlab/callback
+loupe://gitlab-oauth
 ```
 
-Also make sure another app is not already using port `38987`.
+Also make sure Loupe is registered as the `loupe://` protocol handler on your OS. The packaged app registers this automatically when it starts.
 
 ### OAuth token exchange says client authentication failed
 
