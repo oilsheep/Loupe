@@ -3,6 +3,7 @@ import type { Session } from '@shared/types'
 
 type View =
   | { name: 'home' }
+  | { name: 'tools' }
   | { name: 'recording'; session: Session }
   | { name: 'draft'; sessionId: string }
 
@@ -10,6 +11,7 @@ interface AppState {
   view: View
   recentBuilds: string[]
   goHome(): void
+  goTools(): void
   goRecording(s: Session): void
   goDraft(id: string): void
   pushRecentBuild(b: string): void
@@ -24,6 +26,7 @@ export const useApp = create<AppState>((set, get) => ({
   view: { name: 'home' },
   recentBuilds: initialRecent,
   goHome:      () => set({ view: { name: 'home' } }),
+  goTools:     () => set({ view: { name: 'tools' } }),
   goRecording: (session) => set({ view: { name: 'recording', session } }),
   goDraft:     (sessionId) => set({ view: { name: 'draft', sessionId } }),
   pushRecentBuild: (b) => {

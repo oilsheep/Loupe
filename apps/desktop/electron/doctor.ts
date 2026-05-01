@@ -6,7 +6,7 @@ import type { SpawnOptions } from 'node:child_process'
 import { managedToolsDir, resolveBundledTool, toolSearchPath } from './tool-paths'
 
 export interface ToolCheck {
-  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'pymobiledevice3'
+  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios'
   ok: boolean
   version?: string
   error?: string
@@ -17,7 +17,6 @@ const TOOLS: { name: ToolCheck['name']; cmd: string; args: string[] }[] = [
   { name: 'scrcpy',          cmd: 'scrcpy',          args: ['--version'] },
   { name: 'uxplay',          cmd: 'uxplay',          args: [] },
   { name: 'go-ios',          cmd: 'ios',             args: ['--version'] },
-  { name: 'pymobiledevice3', cmd: 'pymobiledevice3', args: ['-h'] },
 ]
 
 function installHint(name: ToolCheck['name']): string | null {
@@ -26,20 +25,17 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'scrcpy') return 'Install with: brew install scrcpy'
     if (name === 'uxplay') return 'Use Loupe’s installer to build UxPlay from source, or install uxplay manually and make sure it is on PATH.'
     if (name === 'go-ios') return 'Install with: npm install -g go-ios'
-    return 'Install with: brew install pipx && pipx install pymobiledevice3'
   }
   if (process.platform === 'linux') {
     if (name === 'adb') return 'Install Android Platform Tools and ensure adb is on PATH.'
     if (name === 'scrcpy') return 'Install scrcpy and ensure it is on PATH.'
     if (name === 'uxplay') return 'Install UxPlay and ensure it is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and ensure the ios command is on PATH.'
-    return 'Install pymobiledevice3 and ensure it is on PATH.'
   }
   if (process.platform === 'win32') {
     if (name === 'adb' || name === 'scrcpy') return 'Packaged Windows builds include bundled Android tools; dev builds still require adb/scrcpy on PATH unless you point LOUPE_TOOLS_DIR at a tool folder.'
     if (name === 'uxplay') return 'Install UxPlay and make sure uxplay.exe is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and make sure ios.exe is on PATH.'
-    return 'Install pymobiledevice3 and make sure it is on PATH.'
   }
   return null
 }
@@ -139,20 +135,12 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
   const brewPackages = unique.flatMap(name => {
     if (name === 'adb') return ['android-platform-tools']
     if (name === 'scrcpy') return ['scrcpy']
-    if (name === 'pymobiledevice3') return ['pipx']
     return []
   })
   if (brewPackages.length > 0) {
     const result = await brewRun(runner, ['install', ...[...new Set(brewPackages)]], options.onLog)
     detail.push(commandSummary('brew', ['install', ...[...new Set(brewPackages)]], result))
     if (result.code !== 0) return { ok: false, message: 'Tool installation failed.', detail: detail.join('\n\n') }
-  }
-  if (unique.includes('pymobiledevice3')) {
-    const result = await runInstallCommand(runner, 'pipx', ['install', 'pymobiledevice3'], undefined, options.onLog)
-    detail.push(commandSummary('pipx', ['install', 'pymobiledevice3'], result))
-    if (result.code !== 0 && !/already seems to be installed|already installed/i.test(`${result.stdout}\n${result.stderr}`)) {
-      return { ok: false, message: 'pymobiledevice3 installation failed.', detail: detail.join('\n\n') }
-    }
   }
   if (unique.includes('go-ios')) {
     const npmCheck = await runner.run('npm', ['--version']).catch(err => ({

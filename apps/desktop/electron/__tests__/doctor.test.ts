@@ -29,16 +29,14 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
-      pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)
-    expect(checks).toHaveLength(5)
+    expect(checks).toHaveLength(4)
     expect(checks.every(c => c.ok)).toBe(true)
     expect(checks[0].version).toContain('1.0.41')
     expect(checks[1].version).toContain('2.7')
     expect(checks[2].version).toContain('/tmp/uxplay')
     expect(checks[3].version).toContain('1.0.211')
-    expect(checks[4].version).toContain('Usage: pymobiledevice3')
   })
 
   it('reports not ok when binary missing', async () => {
@@ -48,7 +46,6 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
-      pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)
     expect(checks[0].ok).toBe(false)
@@ -66,7 +63,6 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
-      pymobiledevice3: { code: 0, stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...' },
     })
     const checks = await doctor(r)
     expect(checks[0].ok).toBe(false)
@@ -101,13 +97,12 @@ describe('doctor', () => {
       spawn: vi.fn() as any,
     }
 
-    const result = await installTools(r, ['adb', 'uxplay', 'pymobiledevice3'])
+    const result = await installTools(r, ['adb', 'uxplay'])
 
     expect(result.ok).toBe(true)
     expect(calls).toEqual([
       { cmd: 'brew', args: ['--version'] },
-      { cmd: 'brew', args: ['install', 'android-platform-tools', 'pipx'] },
-      { cmd: 'pipx', args: ['install', 'pymobiledevice3'] },
+      { cmd: 'brew', args: ['install', 'android-platform-tools'] },
       { cmd: 'brew', args: ['install', 'cmake', 'git', 'libplist', 'openssl@3', 'pkg-config', 'gstreamer'] },
       { cmd: 'git', args: expect.arrayContaining(['clone', '--depth', '1', 'https://github.com/FDH2/UxPlay.git']) },
       { cmd: 'cmake', args: expect.arrayContaining(['-DCMAKE_INSTALL_PREFIX=/tmp/loupe-test-tools']) },
