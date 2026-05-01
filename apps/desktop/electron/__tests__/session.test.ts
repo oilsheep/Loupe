@@ -296,7 +296,7 @@ describe('SessionManager', () => {
       pcRecordingEnabled: false,
       pcVideoPath: null,
       micAudioPath: null,
-      micAudioDurationMs: null,
+      micAudioDurationMs: null, micAudioStartOffsetMs: null,
     }
     const bug = {
       id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, severity: 'normal' as const,

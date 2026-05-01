@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,6 +31,7 @@ function session(): Session {
     pcVideoPath: null,
     micAudioPath: null,
     micAudioDurationMs: null,
+    micAudioStartOffsetMs: null,
   }
 }
 

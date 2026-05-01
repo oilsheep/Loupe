@@ -70,7 +70,13 @@ const api: DesktopApi = {
     refreshGitLabUsers: ()       => ipcRenderer.invoke(CHANNEL.settingsRefreshGitLabUsers),
     setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
+    setAudioAnalysis:  (settings) => ipcRenderer.invoke(CHANNEL.settingsSetAudioAnalysis, settings),
+    chooseWhisperModel: ()       => ipcRenderer.invoke(CHANNEL.settingsChooseWhisperModel),
     chooseExportRoot: ()        => ipcRenderer.invoke(CHANNEL.settingsChooseExportRoot),
+  },
+  audioAnalysis: {
+    analyzeSession: (sessionId) => ipcRenderer.invoke(CHANNEL.audioAnalysisAnalyzeSession, sessionId),
+    cancel: (sessionId) => ipcRenderer.invoke(CHANNEL.audioAnalysisCancel, sessionId),
   },
   onBugMarkRequested: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, severity: any) => cb(severity)
@@ -91,6 +97,11 @@ const api: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
     ipcRenderer.on(CHANNEL.sessionLoadProgress, handler)
     return () => ipcRenderer.removeListener(CHANNEL.sessionLoadProgress, handler)
+  },
+  onAudioAnalysisProgress: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: any) => cb(progress)
+    ipcRenderer.on(CHANNEL.audioAnalysisProgress, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.audioAnalysisProgress, handler)
   },
   onSlackOAuthCompleted: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, result: any) => cb(result)

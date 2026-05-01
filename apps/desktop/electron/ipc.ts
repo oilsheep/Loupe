@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow, desktopCapturer, dialog, screen, shell } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, extname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createServer } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
@@ -13,7 +13,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
 import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
@@ -24,6 +24,7 @@ import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, l
 import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
+import { AudioAnalyzer } from './audio-analysis/analyzer'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -88,7 +89,12 @@ export const CHANNEL = {
   settingsRefreshGitLabUsers:'settings:refreshGitLabUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
+  settingsSetAudioAnalysis:'settings:setAudioAnalysis',
+  settingsChooseWhisperModel:'settings:chooseWhisperModel',
   settingsChooseExportRoot:'settings:chooseExportRoot',
+  audioAnalysisAnalyzeSession:'audioAnalysis:analyzeSession',
+  audioAnalysisCancel:  'audioAnalysis:cancel',
+  audioAnalysisProgress:   'audioAnalysis:progress',
 } as const
 
 let pcCaptureFrame: BrowserWindow | null = null
@@ -96,6 +102,7 @@ let pcCaptureFrameToken = 0
 let pcRecordingProcess: ChildProcessByStdio<Writable, null, Readable> | null = null
 let pcRecordingStderr = ''
 const exportControllers = new Map<string, AbortController>()
+const audioAnalysisControllers = new Map<string, AbortController>()
 let pendingSlackOAuth: { state: string; codeVerifier: string; createdAt: number } | null = null
 let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
 let gitlabOAuthCancel: (() => void) | null = null
@@ -396,6 +403,54 @@ function exportReportDir(outDir: string): string {
   return join(outDir, 'report')
 }
 
+function srtTimestamp(ms: number): string {
+  const clamped = Math.max(0, Math.round(ms))
+  const hours = Math.floor(clamped / 3_600_000)
+  const minutes = Math.floor((clamped % 3_600_000) / 60_000)
+  const seconds = Math.floor((clamped % 60_000) / 1000)
+  const millis = clamped % 1000
+  const pad = (value: number, size = 2) => String(value).padStart(size, '0')
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)},${pad(millis, 3)}`
+}
+
+function transcriptSubtitleText(paths: Paths, session: Session): string | null {
+  const transcriptPath = join(paths.sessionDir(session.id), 'analysis', 'audio-transcript.normalized.json')
+  if (!existsSync(transcriptPath)) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(transcriptPath, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parsed)) return null
+  const micOffsetMs = Math.max(0, session.micAudioStartOffsetMs ?? 0)
+  const durationMs = Math.max(0, session.durationMs ?? 0)
+  const entries = parsed
+    .map((segment: any) => {
+      const text = String(segment?.text ?? '').replace(/\s+/g, ' ').trim()
+      if (!text) return null
+      const startMs = Math.max(0, Math.round(Number(segment?.startMs ?? 0) + micOffsetMs))
+      const rawEndMs = Math.max(startMs + 250, Math.round(Number(segment?.endMs ?? segment?.startMs ?? 0) + micOffsetMs))
+      const endMs = durationMs > 0 ? Math.min(durationMs, rawEndMs) : rawEndMs
+      if (endMs <= startMs) return null
+      return { startMs, endMs, text }
+    })
+    .filter((entry: { startMs: number; endMs: number; text: string } | null): entry is { startMs: number; endMs: number; text: string } => Boolean(entry))
+  if (entries.length === 0) return null
+  return entries
+    .map((entry, index) => `${index + 1}\n${srtTimestamp(entry.startMs)} --> ${srtTimestamp(entry.endMs)}\n${entry.text}\n`)
+    .join('\n')
+}
+
+function writeSessionTranscriptSubtitle(outDir: string, paths: Paths, session: Session): string | null {
+  const text = transcriptSubtitleText(paths, session)
+  if (!text) return null
+  mkdirSync(outDir, { recursive: true })
+  const outputPath = join(outDir, 'transcript.srt')
+  writeFileSync(outputPath, text, 'utf8')
+  return outputPath
+}
+
 function exportOriginalsDir(outDir: string): string {
   return join(outDir, 'originals')
 }
@@ -417,6 +472,17 @@ function copyRecordingFileToDir(targetDir: string, sourcePath: string | null | u
   const outputPath = join(targetDir, `${targetStem}${ext}`)
   copyFileSync(sourcePath, outputPath)
   return outputPath
+}
+
+export function recoverProjectMicAudioPath(projectPath: string, currentPath: string | null | undefined): string | null {
+  if (currentPath && existsSync(currentPath)) return currentPath
+  const projectDir = dirname(projectPath)
+  const candidates = [
+    join(projectDir, 'session-mic.webm'),
+    join(projectDir, 'originals', 'session-mic.webm'),
+    join(projectDir, 'records', 'session-mic.webm'),
+  ]
+  return candidates.find(existsSync) ?? null
 }
 
 async function mergeOriginalRecordingAudio(runner: IProcessRunner, ffmpegPath: string, videoPath: string, micAudioPath: string, outputPath: string): Promise<void> {
@@ -1468,9 +1534,9 @@ export function registerIpc(deps: IpcDeps): void {
     const bytes = Buffer.from(args.base64, 'base64')
     return deps.manager.savePcRecording(args.sessionId, bytes)
   })
-  ipcMain.handle(CHANNEL.sessionSaveMicRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string> => {
+  ipcMain.handle(CHANNEL.sessionSaveMicRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string> => {
     const bytes = Buffer.from(args.base64, 'base64')
-    return deps.manager.saveMicRecording(args.sessionId, bytes, args.durationMs)
+    return deps.manager.saveMicRecording(args.sessionId, bytes, args.durationMs, args.startOffsetMs ?? 0)
   })
   ipcMain.handle(CHANNEL.sessionOpenProject, async (): Promise<Session | null> => {
     const win = deps.getWindow()
@@ -1479,15 +1545,18 @@ export function registerIpc(deps: IpcDeps): void {
       : dialog.showOpenDialog({ title: 'Open Loupe session', properties: ['openFile'], filters: [{ name: 'Loupe session', extensions: ['loupe'] }] }))
     if (pick.canceled || pick.filePaths.length === 0) return null
 
-    const project = readProjectFile(pick.filePaths[0])
+    const projectPath = pick.filePaths[0]
+    const project = readProjectFile(projectPath)
+    const recoveredMicAudioPath = recoverProjectMicAudioPath(projectPath, project.session.micAudioPath)
     let session: Session = {
       ...project.session,
       tester: project.session.tester ?? '',
       videoPath: project.session.videoPath ?? null,
       pcRecordingEnabled: project.session.pcRecordingEnabled ?? false,
       pcVideoPath: project.session.pcVideoPath ?? null,
-      micAudioPath: project.session.micAudioPath ?? null,
+      micAudioPath: recoveredMicAudioPath,
       micAudioDurationMs: project.session.micAudioDurationMs ?? null,
+      micAudioStartOffsetMs: project.session.micAudioStartOffsetMs ?? null,
     }
     const currentVideoPath = session.connectionMode === 'pc' ? session.pcVideoPath : session.videoPath
     if (!currentVideoPath || !existsSync(currentVideoPath)) {
@@ -1505,13 +1574,16 @@ export function registerIpc(deps: IpcDeps): void {
       session = session.connectionMode === 'pc'
         ? { ...session, pcVideoPath: videoPick.filePaths[0] }
         : { ...session, videoPath: videoPick.filePaths[0] }
-      writeProjectFile(pick.filePaths[0], session, project.bugs)
+      writeProjectFile(projectPath, session, project.bugs)
+    } else if (recoveredMicAudioPath !== (project.session.micAudioPath ?? null)) {
+      writeProjectFile(projectPath, session, project.bugs)
     }
     deps.manager.importProject(session, project.bugs.map(b => ({
       ...b,
       sessionId: session.id,
       audioRel: b.audioRel ?? null,
       audioDurationMs: b.audioDurationMs ?? null,
+      source: b.source ?? (b.note?.trimStart().startsWith('[Audio]') ? 'audio-auto' : 'manual'),
     })))
     return session
   })
@@ -1704,6 +1776,16 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsSetLocale, async (_e, locale: AppLocale) => deps.settings.setLocale(locale))
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))
+  ipcMain.handle(CHANNEL.settingsSetAudioAnalysis, async (_e, audioAnalysis: AudioAnalysisSettings) => deps.settings.setAudioAnalysis(audioAnalysis))
+  ipcMain.handle(CHANNEL.settingsChooseWhisperModel, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
+    const win = deps.getWindow()
+    const pick = await (win
+      ? dialog.showOpenDialog(win, { title: 'Choose whisper.cpp model', properties: ['openFile'], filters: [{ name: 'Whisper models', extensions: ['bin'] }, { name: 'All files', extensions: ['*'] }] })
+      : dialog.showOpenDialog({ title: 'Choose whisper.cpp model', properties: ['openFile'], filters: [{ name: 'Whisper models', extensions: ['bin'] }, { name: 'All files', extensions: ['*'] }] }))
+    if (pick.canceled || pick.filePaths.length === 0) return null
+    const current = deps.settings.get().audioAnalysis
+    return deps.settings.setAudioAnalysis({ ...current, modelPath: pick.filePaths[0] })
+  })
   ipcMain.handle(CHANNEL.settingsChooseExportRoot, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
     const win = deps.getWindow()
     const pick = await (win
@@ -1713,7 +1795,54 @@ export function registerIpc(deps: IpcDeps): void {
     return deps.settings.setExportRoot(pick.filePaths[0])
   })
 
-  ipcMain.handle(CHANNEL.bugAddMarker, async (_e, args: { sessionId: string; offsetMs: number; severity?: any; note?: string }) => {
+  ipcMain.handle(CHANNEL.audioAnalysisAnalyzeSession, async (event, sessionId: string) => {
+    audioAnalysisControllers.get(sessionId)?.abort()
+    const controller = new AbortController()
+    audioAnalysisControllers.set(sessionId, controller)
+    const analyzer = new AudioAnalyzer({
+      paths: deps.paths,
+      runner: deps.runner,
+      manager: deps.manager,
+      settings: deps.settings,
+    })
+    try {
+      return await analyzer.analyzeSession(sessionId, progress => {
+        event.sender.send(CHANNEL.audioAnalysisProgress, progress)
+      }, controller.signal)
+    } catch (err) {
+      if (controller.signal.aborted) {
+        event.sender.send(CHANNEL.audioAnalysisProgress, {
+          sessionId,
+          phase: 'error',
+          message: 'Audio analysis cancelled',
+          detail: 'Microphone audio analysis was skipped.',
+          current: 0,
+          total: 1,
+          generated: 0,
+        })
+        throw new Error('Audio analysis cancelled')
+      }
+      event.sender.send(CHANNEL.audioAnalysisProgress, {
+        sessionId,
+        phase: 'error',
+        message: 'Audio analysis failed',
+        detail: err instanceof Error ? err.message : String(err),
+        current: 0,
+        total: 1,
+        generated: 0,
+      })
+      throw err
+    } finally {
+      if (audioAnalysisControllers.get(sessionId) === controller) {
+        audioAnalysisControllers.delete(sessionId)
+      }
+    }
+  })
+  ipcMain.handle(CHANNEL.audioAnalysisCancel, async (_event, sessionId: string): Promise<void> => {
+    audioAnalysisControllers.get(sessionId)?.abort()
+  })
+
+  ipcMain.handle(CHANNEL.bugAddMarker, async (_e, args: { sessionId: string; offsetMs: number; severity?: any; note?: string; preSec?: number; postSec?: number; source?: Bug['source'] }) => {
     return deps.manager.addMarker(args)
   })
   ipcMain.handle(CHANNEL.bugSaveAudio, async (_e, args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }) => {
@@ -1829,6 +1958,7 @@ export function registerIpc(deps: IpcDeps): void {
         severityColor: clipOptions.severityColor,
         telemetryLine,
       }], pdfPath, reportTitle)
+      const transcriptSubtitlePath = writeSessionTranscriptSubtitle(outDir, deps.paths, session)
       const file: ExportedMarkerFile = {
         bugId: bug.id,
         videoPath: outputPath,
@@ -1845,7 +1975,7 @@ export function registerIpc(deps: IpcDeps): void {
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
-      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputPath}\n${pdfPath}`, total, total, 1, 1))
+      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [outputPath, pdfPath, transcriptSubtitlePath].filter(Boolean).join('\n'), total, total, 1, 1))
       return outputPath
     } catch (err) {
       if (controller.signal.aborted) {
@@ -1877,6 +2007,8 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'No markers found', 'Copying the full-length recording and session audio into records.', 0, 2, 0, 0))
         throwIfExportCancelled(exportId, controller.signal)
         const outputs = exportFullRecordingFilesToRecords({ recordsDir, session, paths: deps.paths })
+        const transcriptSubtitlePath = writeSessionTranscriptSubtitle(outDir, deps.paths, session)
+        if (transcriptSubtitlePath) outputs.push(transcriptSubtitlePath)
         emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Full recording exported', recordsDir, 2, 2, 0, 0))
         return outputs
       }
@@ -1978,6 +2110,7 @@ export function registerIpc(deps: IpcDeps): void {
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
       const summaryTextPath = await writeSummaryText(outDir, session, reportEntries, pdfPath, reportTitle)
+      const transcriptSubtitlePath = writeSessionTranscriptSubtitle(outDir, deps.paths, session)
       if (args.includeOriginalFiles) {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
@@ -1988,7 +2121,8 @@ export function registerIpc(deps: IpcDeps): void {
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
-      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputs.length} clip${outputs.length === 1 ? '' : 's'} exported.\n${pdfPath}`, total, total, bugs.length, bugs.length))
+      if (transcriptSubtitlePath) outputs.push(transcriptSubtitlePath)
+      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputs.length} file${outputs.length === 1 ? '' : 's'} exported.\n${pdfPath}`, total, total, bugs.length, bugs.length))
       return outputs
     } catch (err) {
       if (controller.signal.aborted) {

@@ -23,7 +23,7 @@ function session(over: Partial<Session> = {}): Session {
     pcRecordingEnabled: false,
     pcVideoPath: null,
     micAudioPath: null,
-    micAudioDurationMs: null,
+    micAudioDurationMs: null, micAudioStartOffsetMs: null,
     ...over,
   }
 }

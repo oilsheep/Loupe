@@ -9,6 +9,7 @@ export interface Device {
 }
 
 export type SessionStatus = 'recording' | 'draft'
+export type MarkerSource = 'manual' | 'audio-auto'
 export type BugSeverity =
   | 'note'
   | 'major'
@@ -132,6 +133,15 @@ export interface GooglePublishSettings {
   sheetName?: string
 }
 
+export interface AudioAnalysisSettings {
+  enabled: boolean
+  engine: 'whisper-cpp' | 'faster-whisper'
+  modelPath: string
+  language: string
+  triggerKeywords: string
+  showTriggerWords: boolean
+}
+
 export interface GoogleDriveFolder {
   id: string
   name: string
@@ -154,6 +164,7 @@ export interface AppSettings {
   hotkeys: HotkeySettings
   locale: AppLocale
   severities: SeveritySettings
+  audioAnalysis: AudioAnalysisSettings
   slack: SlackPublishSettings
   gitlab: GitLabPublishSettings
   google: GooglePublishSettings
@@ -180,6 +191,9 @@ export interface Session {
   pcVideoPath: string | null
   micAudioPath: string | null
   micAudioDurationMs: number | null
+  micAudioStartOffsetMs: number | null
+  /** Transient recording preference for the active renderer session. Older/saved sessions may omit it. */
+  micRecordingRequested?: boolean
 }
 
 export interface Bug {
@@ -199,6 +213,8 @@ export interface Bug {
   postSec: number
   /** Mention identity ids. Legacy sessions may contain Slack user ids. */
   mentionUserIds?: string[]
+  /** Origin of the marker. Missing in legacy sessions and treated as manual. */
+  source?: MarkerSource
 }
 
 export type PublishTarget = 'local' | 'slack' | 'gitlab' | 'google-drive'
@@ -256,6 +272,26 @@ export interface SessionLoadProgress {
   total: number
 }
 
+export interface AudioAnalysisProgress {
+  sessionId: string
+  phase: 'prepare' | 'transcribe' | 'detect' | 'save' | 'complete' | 'error'
+  message: string
+  detail?: string
+  current: number
+  total: number
+  generated: number
+}
+
+export interface AudioAnalysisResult {
+  sessionId: string
+  transcriptPath: string
+  generated: number
+  merged: number
+  removedAutoMarkers: number
+  segments: number
+  error?: string
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   app: {
@@ -278,7 +314,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; pcCaptureSourceName?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; pcCaptureSourceName?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
@@ -288,10 +324,10 @@ export interface DesktopApi {
     openProject():                                                 Promise<Session | null>
     updateMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }): Promise<void>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
-    saveMicRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
+    saveMicRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string>
   }
   bug: {
-    addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string }): Promise<Bug>
+    addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string; preSec?: number; postSec?: number }): Promise<Bug>
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
     update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }): Promise<void>
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
@@ -330,7 +366,13 @@ export interface DesktopApi {
     refreshGitLabUsers():                                           Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
+    setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>
+    chooseWhisperModel():                                          Promise<AppSettings | null>
     chooseExportRoot():                                            Promise<AppSettings | null>
+  }
+  audioAnalysis: {
+    analyzeSession(sessionId: string):                             Promise<AudioAnalysisResult>
+    cancel(sessionId: string):                                     Promise<void>
   }
   /** Renderer subscribes to this to know when the global bug-mark hotkey fired in main. */
   onBugMarkRequested(cb: (severity: BugSeverity) => void):         () => void   // returns unsubscribe
@@ -340,6 +382,8 @@ export interface DesktopApi {
   onBugExportProgress(cb: (progress: ExportProgress) => void):    () => void
   /** Renderer subscribes to potentially slow session loading/asset repair progress. */
   onSessionLoadProgress(cb: (progress: SessionLoadProgress) => void): () => void
+  /** Renderer subscribes to offline mic transcription and auto-marker progress. */
+  onAudioAnalysisProgress(cb: (progress: AudioAnalysisProgress) => void): () => void
   onSlackOAuthCompleted(cb: (result: { ok: boolean; settings?: AppSettings; error?: string }) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>

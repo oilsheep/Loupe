@@ -105,6 +105,7 @@ export interface StartArgs {
   buildVersion: string
   testNote: string
   tester?: string
+  recordMic?: boolean
   recordPcScreen?: boolean
   pcCaptureSourceName?: string
   logcatPackageName?: string
@@ -123,6 +124,9 @@ export interface AddMarkerArgs {
   offsetMs: number
   severity?: BugSeverity
   note?: string
+  source?: Bug['source']
+  preSec?: number
+  postSec?: number
 }
 
 export class SessionManager {
@@ -175,6 +179,8 @@ export class SessionManager {
       pcVideoPath: null,
       micAudioPath: null,
       micAudioDurationMs: null,
+      micAudioStartOffsetMs: null,
+      micRecordingRequested: Boolean(args.recordMic),
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
@@ -229,6 +235,7 @@ export class SessionManager {
       createdAt: this.now(),
       preSec: 5, postSec: 5,
       mentionUserIds: [],
+      source: 'manual',
     }
     db.insertBug(bug)
     this.persistProject(sess.id)
@@ -343,9 +350,10 @@ export class SessionManager {
       audioRel: null,
       audioDurationMs: null,
       createdAt: this.now(),
-      preSec: 5,
-      postSec: 5,
+      preSec: args.preSec ?? 5,
+      postSec: args.postSec ?? 5,
       mentionUserIds: [],
+      source: args.source ?? 'manual',
     }
     this.deps.db.insertBug(bug)
     this.persistProject(session.id)
@@ -371,7 +379,7 @@ export class SessionManager {
     this.persistProject(sessionId)
     return out
   }
-  saveMicRecording(sessionId: string, bytes: Buffer, durationMs: number): string {
+  saveMicRecording(sessionId: string, bytes: Buffer, durationMs: number, startOffsetMs = 0): string {
     const session = this.deps.db.getSession(sessionId)
     if (!session) throw new Error('session not found')
     this.deps.paths.ensureSessionDirs(sessionId)
@@ -380,6 +388,7 @@ export class SessionManager {
     this.deps.db.updateSessionMicRecording(sessionId, {
       micAudioPath: out,
       micAudioDurationMs: Math.max(0, Math.round(durationMs)),
+      micAudioStartOffsetMs: Math.max(0, Math.round(startOffsetMs)),
     })
     this.persistProject(sessionId)
     return out
@@ -404,6 +413,11 @@ export class SessionManager {
     const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
     this.deps.db.deleteBug(id)
     if (session?.session_id) this.persistProject(session.session_id)
+  }
+  deleteAutoAudioMarkers(sessionId: string): number {
+    const removed = this.deps.db.deleteBugsBySourceForSession(sessionId, 'audio-auto')
+    if (removed > 0) this.persistProject(sessionId)
+    return removed
   }
 
   importProject(session: Session, bugs: Bug[]): void {

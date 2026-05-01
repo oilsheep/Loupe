@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -21,6 +21,15 @@ export const DEFAULT_SEVERITIES: SeveritySettings = {
   custom2: { label: '', color: '#ec4899' },
   custom3: { label: '', color: '#14b8a6' },
   custom4: { label: '', color: '#eab308' },
+}
+
+export const DEFAULT_AUDIO_ANALYSIS: AudioAnalysisSettings = {
+  enabled: true,
+  engine: 'faster-whisper',
+  modelPath: 'small',
+  language: 'auto',
+  triggerKeywords: '記錄, 紀錄, 记录, 標記, record, mark, log, 記録, マーク, ログ, 기록, 마크, 로그, grabar, marcar, registrar',
+  showTriggerWords: false,
 }
 
 const REQUIRED_SEVERITY_KEYS: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
@@ -330,6 +339,28 @@ function normalizeGoogle(raw?: Partial<GooglePublishSettings>): GooglePublishSet
   }
 }
 
+function normalizeAudioAnalysis(raw?: Partial<AudioAnalysisSettings>): AudioAnalysisSettings {
+  const configuredModel = typeof raw?.modelPath === 'string' ? raw.modelPath.trim() : ''
+  const triggerKeywords = typeof raw?.triggerKeywords === 'string' && raw.triggerKeywords.trim()
+    ? raw.triggerKeywords.trim()
+    : DEFAULT_AUDIO_ANALYSIS.triggerKeywords
+  const engine = raw?.engine === 'whisper-cpp' && configuredModel
+    ? 'whisper-cpp'
+    : 'faster-whisper'
+  return {
+    enabled: true,
+    engine,
+    modelPath: configuredModel
+      ? configuredModel
+      : engine === 'faster-whisper'
+        ? 'small'
+        : '',
+    language: typeof raw?.language === 'string' && raw.language.trim() ? raw.language.trim() : 'auto',
+    triggerKeywords,
+    showTriggerWords: raw?.showTriggerWords === true,
+  }
+}
+
 function normalizeLocale(raw?: string): AppLocale {
   if (raw === 'system' || raw === 'en' || raw === 'zh-TW' || raw === 'zh-CN' || raw === 'ja' || raw === 'ko' || raw === 'es') return raw
   return 'system'
@@ -370,6 +401,7 @@ export class SettingsStore {
         hotkeys: normalizeHotkeys(raw.hotkeys),
         locale: normalizeLocale(raw.locale),
         severities: normalizeSeverities(raw.severities),
+        audioAnalysis: normalizeAudioAnalysis(raw.audioAnalysis),
         slack,
         gitlab,
         google,
@@ -432,6 +464,12 @@ export class SettingsStore {
 
   setSeverities(severities: SeveritySettings): AppSettings {
     const next = { ...this.get(), severities: normalizeSeverities(severities) }
+    this.write(next)
+    return next
+  }
+
+  setAudioAnalysis(audioAnalysis: AudioAnalysisSettings): AppSettings {
+    const next = { ...this.get(), audioAnalysis: normalizeAudioAnalysis(audioAnalysis) }
     this.write(next)
     return next
   }

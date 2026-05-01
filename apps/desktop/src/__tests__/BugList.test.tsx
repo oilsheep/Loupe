@@ -1,6 +1,7 @@
+import { createRef } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { BugList } from '@/components/BugList'
+import { BugList, type BugListHandle } from '@/components/BugList'
 import type { Bug, DesktopApi, MentionIdentity } from '@shared/types'
 
 const bug = (over: Partial<Bug> = {}): Bug => ({
@@ -27,7 +28,7 @@ const mentionIdentities: MentionIdentity[] = []
 
 function fakeApi(options: { slack?: any } = {}): DesktopApi {
   const slack = options.slack ?? { botToken: '', channelId: '' }
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, mentionIdentities }
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, audioAnalysis: { enabled: true, engine: 'whisper-cpp' as const, modelPath: '', language: 'auto', triggerKeywords: '記錄, 紀錄, record, mark', showTriggerWords: false }, slack, gitlab, google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' }, mentionIdentities }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -75,12 +76,16 @@ function fakeApi(options: { slack?: any } = {}): DesktopApi {
       refreshGitLabUsers: vi.fn().mockResolvedValue(settings) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
+      setAudioAnalysis: vi.fn() as any,
+      chooseWhisperModel: vi.fn() as any,
       chooseExportRoot: vi.fn() as any,
     },
+    audioAnalysis: { analyzeSession: vi.fn() as any, cancel: vi.fn() as any },
     onBugMarkRequested: () => () => {},
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
+    onAudioAnalysisProgress: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
@@ -104,7 +109,7 @@ describe('BugList', () => {
   it('interactive controls do not trigger row select', () => {
     const onSelect = vi.fn()
     render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={onSelect} onMutated={vi.fn()} />)
-    fireEvent.click(screen.getByLabelText('Select marker 0:05'))
+    fireEvent.change(screen.getByTestId('severity-select-b1'), { target: { value: 'minor' } })
     fireEvent.click(screen.getByTestId('export-b1'))
     expect(onSelect).not.toHaveBeenCalled()
   })
@@ -130,10 +135,29 @@ describe('BugList', () => {
     await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ note: 'line 1\nline 2' })))
   })
 
-  it('checks markers by default for export', async () => {
-    render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
-    const checkbox = await screen.findByLabelText('Select marker 0:05') as HTMLInputElement
-    await waitFor(() => expect(checkbox.checked).toBe(true))
+  it('exports all markers by default through the list handle', async () => {
+    const api = fakeApi()
+    const ref = createRef<BugListHandle>()
+    render(
+      <BugList
+        ref={ref}
+        api={api}
+        sessionId="s1"
+        bugs={[bug(), bug({ id: 'b2', offsetMs: 8000 })]}
+        selectedBugId={null}
+        onSelect={vi.fn()}
+        onMutated={vi.fn()}
+        tester="Avery"
+      />
+    )
+    await waitFor(() => expect(ref.current).toBeTruthy())
+    ref.current!.exportAll()
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('confirm-export'))
+    await waitFor(() => expect(api.bug.exportClips).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 's1',
+      bugIds: ['b1', 'b2'],
+    })))
   })
 
   it('changing pre slider saves preSec immediately', async () => {
@@ -281,10 +305,12 @@ describe('BugList', () => {
 
   it('exports the full recording when there are no markers', async () => {
     const api = fakeApi()
+    const ref = createRef<BugListHandle>()
     api.bug.exportClips = vi.fn().mockResolvedValue(['/path/records/full-recording.mp4', '/path/records/session-mic.webm']) as any
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<BugList api={api} sessionId="s1" bugs={[]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
-    fireEvent.click(screen.getByText('Export recording'))
+    render(<BugList ref={ref} api={api} sessionId="s1" bugs={[]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    await waitFor(() => expect(ref.current).toBeTruthy())
+    ref.current!.exportAll()
     await screen.findByTestId('export-dialog')
     expect(screen.getByText('Export full recording')).toBeTruthy()
     fireEvent.click(screen.getByTestId('confirm-export'))

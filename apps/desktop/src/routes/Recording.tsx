@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Bug, BugSeverity, HotkeySettings, Session, SeveritySettings } from '@shared/types'
+import type { AudioAnalysisProgress, Bug, BugSeverity, HotkeySettings, Session, SeveritySettings } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { BugList } from '@/components/BugList'
@@ -9,6 +9,11 @@ function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000)
   const m = Math.floor(s / 60), r = s % 60
   return `${m.toString().padStart(2, '0')}:${r.toString().padStart(2, '0')}`
+}
+
+function progressPercent(progress: AudioAnalysisProgress | null): number {
+  if (!progress || progress.total <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((progress.current / progress.total) * 100)))
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -39,6 +44,7 @@ const HOTKEY_SEVERITIES: Array<{ key: keyof HotkeySettings; severity: BugSeverit
   { key: 'major', severity: 'major' },
 ]
 const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
+const BACKGROUND_ANALYSIS_KEY_PREFIX = 'loupe.audioAnalysis.background.'
 
 function visibleCustomSeverities(severities: SeveritySettings): BugSeverity[] {
   return CUSTOM_SEVERITIES.filter(key => severities[key]?.label?.trim())
@@ -115,8 +121,16 @@ export function Recording({ session }: { session: Session }) {
   const micRecorderRef = useRef<MediaRecorder | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
   const micChunksRef = useRef<Blob[]>([])
+  const micStartedAtRef = useRef<number | null>(null)
+  const micStartOffsetMsRef = useRef<number>(0)
   const [micRecorderError, setMicRecorderError] = useState<string | null>(null)
   const [micRecording, setMicRecording] = useState(false)
+  const [postAnalysisStatus, setPostAnalysisStatus] = useState<string | null>(null)
+  const [postAnalysisPrompt, setPostAnalysisPrompt] = useState<{
+    sessionId: string
+    progress: AudioAnalysisProgress | null
+    error: string | null
+  } | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>([])
   const [showHotkeySettings, setShowHotkeySettings] = useState(false)
@@ -147,6 +161,24 @@ export function Recording({ session }: { session: Session }) {
     goDraft(interrupted.id)
   }), [goDraft, session.id])
   useEffect(() => { refreshBugs() }, [refreshBugs])
+  useEffect(() => api.onAudioAnalysisProgress((progress) => {
+    setPostAnalysisPrompt(prev => {
+      if (!prev || prev.sessionId !== progress.sessionId) return prev
+      return {
+        ...prev,
+        progress,
+        error: progress.phase === 'error' ? (progress.detail ?? progress.message) : prev.error,
+      }
+    })
+  }), [])
+  useEffect(() => {
+    if (!postAnalysisPrompt?.progress || postAnalysisPrompt.progress.phase !== 'complete') return
+    const timer = window.setTimeout(() => {
+      sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`)
+      goDraft(postAnalysisPrompt.sessionId)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [goDraft, postAnalysisPrompt?.progress, postAnalysisPrompt?.sessionId])
   useEffect(() => {
     api.settings.get().then(s => {
       setHotkeys(s.hotkeys)
@@ -208,6 +240,7 @@ export function Recording({ session }: { session: Session }) {
     let cancelled = false
 
     async function startMicRecording() {
+      if (!session.micRecordingRequested) return
       try {
         const mediaDevices = navigator.mediaDevices
         if (!mediaDevices?.getUserMedia) return
@@ -226,7 +259,10 @@ export function Recording({ session }: { session: Session }) {
         recorder.ondataavailable = event => {
           if (event.data.size > 0) micChunksRef.current.push(event.data)
         }
+        const micStartedAt = Date.now()
         recorder.start(1000)
+        micStartedAtRef.current = micStartedAt
+        micStartOffsetMsRef.current = Math.max(0, micStartedAt - session.startedAt)
         setMicRecording(true)
         setMicRecorderError(null)
       } catch (e) {
@@ -239,11 +275,11 @@ export function Recording({ session }: { session: Session }) {
       cancelled = true
       micStreamRef.current?.getTracks().forEach(track => track.stop())
     }
-  }, [])
+  }, [session.micRecordingRequested, session.startedAt])
 
-  async function stopAndSaveMicRecording() {
+  async function stopAndSaveMicRecording(): Promise<boolean> {
     const recorder = micRecorderRef.current
-    if (!recorder || recorder.state === 'inactive') return
+    if (!recorder || recorder.state === 'inactive') return false
     const stopped = new Promise<void>(resolve => {
       recorder.addEventListener('stop', () => resolve(), { once: true })
     })
@@ -252,14 +288,17 @@ export function Recording({ session }: { session: Session }) {
     await stopped
     setMicRecording(false)
     const blob = new Blob(micChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-    if (blob.size <= 0) return
+    if (blob.size <= 0) return false
     const base64 = await blobToBase64(blob)
+    const micStartedAt = micStartedAtRef.current ?? session.startedAt
     await api.session.saveMicRecording({
       sessionId: session.id,
       base64,
       mimeType: blob.type,
-      durationMs: Math.max(0, Date.now() - session.startedAt),
+      durationMs: Math.max(0, Date.now() - micStartedAt),
+      startOffsetMs: micStartOffsetMsRef.current,
     })
+    return true
   }
 
   async function saveHotkeys(next: HotkeySettings) {
@@ -285,8 +324,9 @@ export function Recording({ session }: { session: Session }) {
     setStopping(true)
     try {
       await api.app.hidePcCaptureFrame()
-      await stopAndSaveMicRecording().catch(e => {
+      const savedMic = await stopAndSaveMicRecording().catch(e => {
         setMicRecorderError(e instanceof Error ? e.message : String(e))
+        return false
       })
       const recorder = mediaRecorderRef.current
       if (usesRendererPcRecording && recorder && recorder.state !== 'inactive') {
@@ -306,8 +346,44 @@ export function Recording({ session }: { session: Session }) {
         })
       }
       const updated = await api.session.stop()
+      if (savedMic) {
+        const initialProgress: AudioAnalysisProgress = {
+          sessionId: updated.id,
+          phase: 'prepare',
+          message: 'Preparing microphone audio analysis',
+          detail: 'Please wait while Loupe analyzes the QA microphone recording.',
+          current: 0,
+          total: 4,
+          generated: 0,
+        }
+        setPostAnalysisPrompt({ sessionId: updated.id, progress: initialProgress, error: null })
+        setPostAnalysisStatus('analyzing')
+        void api.audioAnalysis.analyzeSession(updated.id)
+          .catch(e => {
+            const message = e instanceof Error ? e.message : String(e)
+            setMicRecorderError(message)
+            setPostAnalysisPrompt(prev => prev?.sessionId === updated.id ? { ...prev, error: message } : prev)
+          })
+          .finally(() => setPostAnalysisStatus(null))
+        return
+      }
       goDraft(updated.id)
     } finally { setStopping(false) }
+  }
+
+  function continueAnalysisInBackground() {
+    if (!postAnalysisPrompt) return
+    sessionStorage.setItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`, '1')
+    goDraft(postAnalysisPrompt.sessionId)
+  }
+
+  async function abandonPostAnalysis() {
+    if (!postAnalysisPrompt) return
+    const ok = window.confirm('放棄音訊分析？這次 session 會直接進入 review，不會自動產生語音點位。')
+    if (!ok) return
+    await api.audioAnalysis.cancel(postAnalysisPrompt.sessionId).catch(() => {})
+    sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`)
+    goDraft(postAnalysisPrompt.sessionId)
   }
 
   return (
@@ -339,9 +415,13 @@ export function Recording({ session }: { session: Session }) {
                 PC recording error: {pcRecorderError}
               </div>
             )}
-            <div className={`mt-1 text-xs ${micRecording ? 'text-emerald-300' : 'text-zinc-500'}`}>
-              MIC recording: {micRecording ? 'recording' : micRecorderError ? 'unavailable' : 'standby'}
-            </div>
+            {session.micRecordingRequested ? (
+              <div className={`mt-1 text-xs ${micRecording ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                MIC recording: {postAnalysisStatus ?? (micRecording ? 'recording' : micRecorderError ? 'unavailable' : 'standby')}
+              </div>
+            ) : (
+              <div className="mt-1 text-xs text-zinc-600">MIC recording: off</div>
+            )}
             {micRecorderError && (
               <div className="mt-1 text-xs text-amber-300">
                 MIC recording error: {micRecorderError}
@@ -542,6 +622,49 @@ export function Recording({ session }: { session: Session }) {
           autoFocusLatest
         />
       </main>
+      {postAnalysisPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <div className="text-lg font-semibold text-zinc-100">正在分析麥克風音訊</div>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+              Loupe 正在用離線 STT 分析 QA 語音，完成後會自動產生可編輯的音訊點位。你可以等待完成，或先進入 review 讓它在背景處理。
+            </p>
+            <div className="mt-5 rounded border border-zinc-800 bg-zinc-950/60 p-3">
+              <div className="flex items-center justify-between gap-3 text-sm text-zinc-300">
+                <span className="min-w-0 truncate">{postAnalysisPrompt.progress?.message ?? 'Preparing audio analysis'}</span>
+                <span className="font-mono tabular-nums text-zinc-400">{progressPercent(postAnalysisPrompt.progress)}%</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                  style={{ width: `${progressPercent(postAnalysisPrompt.progress)}%` }}
+                />
+              </div>
+              <div className="mt-2 min-h-5 break-words text-xs leading-relaxed text-zinc-500">
+                {postAnalysisPrompt.error
+                  ? postAnalysisPrompt.error
+                  : postAnalysisPrompt.progress?.detail ?? '請稍候，分析期間 session 內容不會遺失。'}
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={abandonPostAnalysis}
+                className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+              >
+                放棄
+              </button>
+              <button
+                type="button"
+                onClick={continueAnalysisInBackground}
+                className="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-600"
+              >
+                背景處理
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

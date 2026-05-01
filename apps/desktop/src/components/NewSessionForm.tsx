@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { DesktopApi } from '@shared/types'
+import type { AudioAnalysisSettings, DesktopApi } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 
 interface Props {
@@ -8,6 +8,55 @@ interface Props {
   deviceId: string
   connectionMode: 'usb' | 'wifi' | 'pc'
   sourceName?: string
+}
+
+const AUDIO_ANALYSIS_LANGUAGE_OPTIONS = [
+  { value: 'auto', label: 'System / Auto' },
+  { value: 'zh', label: 'Chinese' },
+  { value: 'en', label: 'English' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'ko', label: 'Korean' },
+  { value: 'es', label: 'Spanish' },
+]
+
+const TRIGGER_PRESETS: Record<string, { words: string; hint: string }> = {
+  auto: {
+    words: '記錄, 紀錄, 记录, 標記, record, mark, log, 記録, マーク, ログ, 기록, 마크, 로그, grabar, marcar, registrar',
+    hint: 'Say “trigger + label”, for example “record Bug”, “記錄 美術”, “記録 Bug”, or “기록 Bug”.',
+  },
+  zh: {
+    words: '記錄, 紀錄, 记录, 標記',
+    hint: '語音格式：說「觸發詞 + 標籤名稱」，例如「記錄 Bug」、「記錄 美術」。觸發詞和標籤請靠近，後面再描述問題。',
+  },
+  en: {
+    words: 'record, mark, log',
+    hint: 'Say “trigger + label”, for example “record Bug” or “record Critical”. Keep the label close to the trigger, then describe the issue.',
+  },
+  ja: {
+    words: '記録, マーク, ログ',
+    hint: '「記録 Bug」のように、トリガー語 + ラベル名を続けて話してください。',
+  },
+  ko: {
+    words: '기록, 마크, 로그',
+    hint: '“기록 Bug”처럼 트리거 단어 + 라벨명을 이어서 말하세요.',
+  },
+  es: {
+    words: 'grabar, marcar, registrar',
+    hint: 'Di “disparador + etiqueta”, por ejemplo “grabar Bug” o “marcar Critical”.',
+  },
+}
+
+function triggerPreset(language: string): { words: string; hint: string } {
+  return TRIGGER_PRESETS[language] ?? TRIGGER_PRESETS.auto
+}
+
+function normalizeTriggerWords(value: string): string {
+  return value.split(/[,\n，、;；]/u).map(item => item.trim()).filter(Boolean).join(', ').toLowerCase()
+}
+
+function isPresetTriggerWords(value: string): boolean {
+  const normalized = normalizeTriggerWords(value)
+  return Object.values(TRIGGER_PRESETS).some(preset => normalizeTriggerWords(preset.words) === normalized)
 }
 
 export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Props) {
@@ -26,12 +75,37 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatMinPriority, setLogcatMinPriority] = useState('V')
   const [logcatLineCount, setLogcatLineCount] = useState(50)
   const [recordPcScreen, setRecordPcScreen] = useState(connectionMode === 'pc')
+  const [recordMic, setRecordMic] = useState(true)
+  const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
+  const [audioLanguage, setAudioLanguage] = useState('auto')
+  const [triggerKeywords, setTriggerKeywords] = useState(triggerPreset('auto').words)
+  const [triggerWordsCustomized, setTriggerWordsCustomized] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setRecordPcScreen(connectionMode === 'pc')
   }, [connectionMode, deviceId])
+
+  useEffect(() => {
+    let cancelled = false
+    api.settings.get().then(settings => {
+      if (cancelled) return
+      const next = settings.audioAnalysis
+      const language = next.language || 'auto'
+      const keywords = next.triggerKeywords?.trim() || triggerPreset(language).words
+      setAudioSettings(next)
+      setAudioLanguage(language)
+      setTriggerKeywords(keywords)
+      setTriggerWordsCustomized(!isPresetTriggerWords(keywords))
+    }).catch(() => {
+      if (cancelled) return
+      setAudioLanguage('auto')
+      setTriggerKeywords(triggerPreset('auto').words)
+      setTriggerWordsCustomized(false)
+    })
+    return () => { cancelled = true }
+  }, [api])
 
   useEffect(() => {
     let cancelled = false
@@ -60,6 +134,15 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     setBusy(true)
     setError(null)
     try {
+      if (recordMic) {
+        const current = audioSettings ?? (await api.settings.get()).audioAnalysis
+        const saved = await api.settings.setAudioAnalysis({
+          ...current,
+          language: audioLanguage,
+          triggerKeywords: triggerKeywords.trim() || triggerPreset(audioLanguage).words,
+        })
+        setAudioSettings(saved.audioAnalysis)
+      }
       const session = await api.session.start({
         deviceId,
         connectionMode,
@@ -67,6 +150,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         testNote: note.trim(),
         tester: tester.trim(),
         recordPcScreen,
+        recordMic,
         pcCaptureSourceName: sourceName,
         logcatPackageName: connectionMode === 'pc' ? undefined : logcatPackageName.trim(),
         logcatTagFilter: connectionMode === 'pc' ? undefined : logcatTagFilter.trim(),
@@ -81,6 +165,23 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       setBusy(false)
     }
   }
+
+  function changeAudioLanguage(language: string) {
+    const wasPreset = !triggerWordsCustomized && isPresetTriggerWords(triggerKeywords)
+    setAudioLanguage(language)
+    if (wasPreset) {
+      setTriggerKeywords(triggerPreset(language).words)
+      setTriggerWordsCustomized(false)
+    }
+  }
+
+  function useSuggestedTriggers() {
+    setTriggerKeywords(triggerPreset(audioLanguage).words)
+    setTriggerWordsCustomized(false)
+  }
+
+  const suggestedTriggerWords = triggerPreset(audioLanguage).words
+  const triggerMatchesSuggestion = normalizeTriggerWords(triggerKeywords) === normalizeTriggerWords(suggestedTriggerWords)
 
   return (
     <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void start() }}>
@@ -106,6 +207,66 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
           </button>
         </div>
       </div>
+
+      <label className="flex items-start gap-3 rounded border border-sky-900/60 bg-sky-950/20 p-3 text-sm text-zinc-200">
+        <input
+          type="checkbox"
+          aria-label={t('new.micRecordingTitle')}
+          checked={recordMic}
+          onChange={e => setRecordMic(e.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-blue-600"
+        />
+        <span className="min-w-0">
+          <span className="block font-medium">{t('new.micRecordingTitle')}</span>
+          <span className="mt-1 block text-xs leading-5 text-zinc-400">{t('new.micRecordingHelp')}</span>
+          <span className="mt-1 block text-xs leading-5 text-zinc-500">{t('new.voiceCommandHelp')}</span>
+        </span>
+      </label>
+
+      {recordMic && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
+          <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+            <label className="text-xs text-zinc-400">
+              {t('new.speechLanguage')}
+              <select
+                aria-label="Speech language"
+                value={audioLanguage}
+                onChange={e => changeAudioLanguage(e.target.value)}
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                {AUDIO_ANALYSIS_LANGUAGE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-zinc-400">
+              {t('new.triggerWords')}
+              <input
+                aria-label="Trigger words"
+                value={triggerKeywords}
+                onChange={e => {
+                  setTriggerKeywords(e.target.value)
+                  setTriggerWordsCustomized(true)
+                }}
+                placeholder={suggestedTriggerWords}
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs leading-5 text-zinc-500">
+            <span className="text-zinc-400">{triggerPreset(audioLanguage).hint}</span>
+            {!triggerMatchesSuggestion && (
+              <button
+                type="button"
+                onClick={useSuggestedTriggers}
+                className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-zinc-700"
+              >
+                {t('new.useSuggestedTriggers')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.9fr)_minmax(260px,1.1fr)]">
         <label className="text-xs font-semibold text-zinc-200">

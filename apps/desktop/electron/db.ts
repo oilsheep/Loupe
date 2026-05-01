@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
   pc_video_path TEXT,
   mic_audio_path TEXT,
-  mic_audio_duration_ms INTEGER
+  mic_audio_duration_ms INTEGER,
+  mic_audio_start_offset_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS bugs (
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS bugs (
   created_at INTEGER NOT NULL,
   pre_sec INTEGER NOT NULL DEFAULT 5,
   post_sec INTEGER NOT NULL DEFAULT 5,
-  mention_user_ids TEXT NOT NULL DEFAULT '[]'
+  mention_user_ids TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'manual'
 );
 
 CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -60,17 +62,23 @@ function rowToSession(r: any): Session {
     pcVideoPath: r.pc_video_path ?? null,
     micAudioPath: r.mic_audio_path ?? null,
     micAudioDurationMs: r.mic_audio_duration_ms ?? null,
+    micAudioStartOffsetMs: r.mic_audio_start_offset_ms ?? null,
   }
 }
 function rowToBug(r: any): Bug {
+  const note = r.note ?? ''
+  const source = r.source === 'audio-auto' || String(note).trimStart().startsWith('[Audio]')
+    ? 'audio-auto'
+    : 'manual'
   return {
     id: r.id, sessionId: r.session_id, offsetMs: r.offset_ms,
-    severity: r.severity, note: r.note,
+    severity: r.severity, note,
     screenshotRel: r.screenshot_rel, logcatRel: r.logcat_rel,
     audioRel: r.audio_rel ?? null, audioDurationMs: r.audio_duration_ms ?? null,
     createdAt: r.created_at,
     preSec: r.pre_sec, postSec: r.post_sec,
     mentionUserIds: parseJsonStringArray(r.mention_user_ids),
+    source,
   }
 }
 
@@ -99,6 +107,7 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('graphics_device')) db.exec(`ALTER TABLE sessions ADD COLUMN graphics_device TEXT`)
   if (!sessionCols.includes('mic_audio_path')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_path TEXT`)
   if (!sessionCols.includes('mic_audio_duration_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_duration_ms INTEGER`)
+  if (!sessionCols.includes('mic_audio_start_offset_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_start_offset_ms INTEGER`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -122,14 +131,15 @@ function migrate(db: Database.Database): void {
         pc_recording_enabled INTEGER NOT NULL DEFAULT 0,
         pc_video_path TEXT,
         mic_audio_path TEXT,
-        mic_audio_duration_ms INTEGER
+        mic_audio_duration_ms INTEGER,
+        mic_audio_start_offset_ms INTEGER
       );
       INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
                                 ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-                                pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms)
+                                pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms)
       SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
              ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-             pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms FROM sessions;
+             pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
       CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
@@ -143,6 +153,7 @@ function migrate(db: Database.Database): void {
   if (!cols.includes('audio_rel')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_rel TEXT`)
   if (!cols.includes('audio_duration_ms')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_duration_ms INTEGER`)
   if (!cols.includes('mention_user_ids')) db.exec(`ALTER TABLE bugs ADD COLUMN mention_user_ids TEXT NOT NULL DEFAULT '[]'`)
+  if (!cols.includes('source')) db.exec(`ALTER TABLE bugs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`)
 
   const bugTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='bugs'`).get() as { sql?: string } | undefined
   if (!bugTable?.sql?.includes(`'note'`) || bugTable?.sql?.includes(`CHECK(severity IN`)) {
@@ -161,10 +172,11 @@ function migrate(db: Database.Database): void {
         created_at INTEGER NOT NULL,
         pre_sec INTEGER NOT NULL DEFAULT 5,
         post_sec INTEGER NOT NULL DEFAULT 5,
-        mention_user_ids TEXT NOT NULL DEFAULT '[]'
+        mention_user_ids TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL DEFAULT 'manual'
       );
-      INSERT INTO bugs_new (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids)
-      SELECT id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids FROM bugs;
+      INSERT INTO bugs_new (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, source)
+      SELECT id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, source FROM bugs;
       DROP TABLE bugs;
       ALTER TABLE bugs_new RENAME TO bugs;
       CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -182,9 +194,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
-                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms)
+                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms)
     VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs)
+            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       test_note=excluded.test_note,
@@ -203,7 +215,8 @@ export function openDb(file: string) {
       pc_recording_enabled=excluded.pc_recording_enabled,
       pc_video_path=excluded.pc_video_path,
       mic_audio_path=excluded.mic_audio_path,
-      mic_audio_duration_ms=excluded.mic_audio_duration_ms
+      mic_audio_duration_ms=excluded.mic_audio_duration_ms,
+      mic_audio_start_offset_ms=excluded.mic_audio_start_offset_ms
   `)
   const finalizeSessionStmt = db.prepare(`
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
@@ -215,15 +228,15 @@ export function openDb(file: string) {
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
   `)
   const updateSessionMicRecordingStmt = db.prepare(`
-    UPDATE sessions SET mic_audio_path=@micAudioPath, mic_audio_duration_ms=@micAudioDurationMs WHERE id=@id
+    UPDATE sessions SET mic_audio_path=@micAudioPath, mic_audio_duration_ms=@micAudioDurationMs, mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
   `)
   const getSessionStmt   = db.prepare(`SELECT * FROM sessions WHERE id = ?`)
   const listSessionsStmt = db.prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
   const deleteSessionStmt= db.prepare(`DELETE FROM sessions WHERE id = ?`)
 
   const insertBugStmt = db.prepare(`
-    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids)
-    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec, @mentionUserIdsJson)
+    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, source)
+    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec, @mentionUserIdsJson, @source)
     ON CONFLICT(id) DO UPDATE SET
       session_id=excluded.session_id,
       offset_ms=excluded.offset_ms,
@@ -236,13 +249,15 @@ export function openDb(file: string) {
       created_at=excluded.created_at,
       pre_sec=excluded.pre_sec,
       post_sec=excluded.post_sec,
-      mention_user_ids=excluded.mention_user_ids
+      mention_user_ids=excluded.mention_user_ids,
+      source=excluded.source
   `)
   const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, pre_sec=@preSec, post_sec=@postSec, mention_user_ids=@mentionUserIdsJson WHERE id=@id`)
   const updateBugAssetsStmt = db.prepare(`UPDATE bugs SET screenshot_rel=@screenshotRel, logcat_rel=@logcatRel WHERE id=@id`)
   const updateBugAudioStmt = db.prepare(`UPDATE bugs SET audio_rel=@audioRel, audio_duration_ms=@audioDurationMs WHERE id=@id`)
   const deleteBugStmt = db.prepare(`DELETE FROM bugs WHERE id = ?`)
   const deleteBugsForSessionStmt = db.prepare(`DELETE FROM bugs WHERE session_id = ?`)
+  const deleteBugsBySourceForSessionStmt = db.prepare(`DELETE FROM bugs WHERE session_id = ? AND (source = ? OR (? = 'audio-auto' AND LTRIM(note) LIKE '[Audio]%'))`)
   const getBugStmt = db.prepare(`SELECT * FROM bugs WHERE id = ?`)
   const listBugsStmt  = db.prepare(`SELECT * FROM bugs WHERE session_id = ? ORDER BY offset_ms ASC`)
 
@@ -257,6 +272,7 @@ export function openDb(file: string) {
         pcRecordingEnabled: s.pcRecordingEnabled ? 1 : 0,
         micAudioPath: s.micAudioPath ?? null,
         micAudioDurationMs: s.micAudioDurationMs ?? null,
+        micAudioStartOffsetMs: s.micAudioStartOffsetMs ?? null,
       })
     },
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
@@ -268,8 +284,8 @@ export function openDb(file: string) {
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
       updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })
     },
-    updateSessionMicRecording(id: string, patch: { micAudioPath: string | null; micAudioDurationMs: number | null }) {
-      updateSessionMicRecordingStmt.run({ id, ...patch })
+    updateSessionMicRecording(id: string, patch: { micAudioPath: string | null; micAudioDurationMs: number | null; micAudioStartOffsetMs?: number | null }) {
+      updateSessionMicRecordingStmt.run({ id, ...patch, micAudioStartOffsetMs: patch.micAudioStartOffsetMs ?? null })
     },
     getSession(id: string): Session | undefined {
       const r = getSessionStmt.get(id) as any
@@ -279,7 +295,7 @@ export function openDb(file: string) {
       return (listSessionsStmt.all() as any[]).map(rowToSession)
     },
     deleteSession(id: string) { deleteSessionStmt.run(id) },
-    insertBug(b: Bug) { insertBugStmt.run({ ...b, mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []) }) },
+    insertBug(b: Bug) { insertBugStmt.run({ ...b, source: b.source ?? 'manual', mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []) }) },
     updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
       const currentRow = getBugStmt.get(id) as any
       if (!currentRow) return
@@ -294,6 +310,9 @@ export function openDb(file: string) {
     },
     deleteBug(id: string) { deleteBugStmt.run(id) },
     deleteBugsForSession(sessionId: string) { deleteBugsForSessionStmt.run(sessionId) },
+    deleteBugsBySourceForSession(sessionId: string, source: NonNullable<Bug['source']>): number {
+      return Number(deleteBugsBySourceForSessionStmt.run(sessionId, source, source).changes ?? 0)
+    },
     listBugs(sessionId: string): Bug[] {
       return (listBugsStmt.all(sessionId) as any[]).map(rowToBug)
     },

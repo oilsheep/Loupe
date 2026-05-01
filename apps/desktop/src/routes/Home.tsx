@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
-import type { AppLocale, BugSeverity, GitLabPublishSettings, HotkeySettings, Session, SeveritySettings, SlackPublishSettings, ToolCheck } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, GitLabPublishSettings, HotkeySettings, Session, SeveritySettings, SlackPublishSettings, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 
@@ -108,6 +108,7 @@ interface PreferencesDialogProps {
   exportRoot: string
   hotkeys: HotkeySettings
   severities: SeveritySettings
+  audioAnalysis: AudioAnalysisSettings
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
@@ -126,6 +127,8 @@ interface PreferencesDialogProps {
   onSaveHotkeys(value: HotkeySettings): void
   onSeveritiesChange(value: SeveritySettings): void
   onSaveSeverities(value: SeveritySettings): void
+  onAudioAnalysisChange(value: AudioAnalysisSettings): void
+  onSaveAudioAnalysis(value: AudioAnalysisSettings): void
   onResetLabels(): void
   onStartSlackOAuth(): void
   onGitLabChange(value: GitLabPublishSettings): void
@@ -141,6 +144,7 @@ function PreferencesDialog({
   exportRoot,
   hotkeys,
   severities,
+  audioAnalysis,
   slack,
   slackSaved,
   startingSlackOAuth,
@@ -159,6 +163,8 @@ function PreferencesDialog({
   onSaveHotkeys,
   onSeveritiesChange,
   onSaveSeverities,
+  onAudioAnalysisChange,
+  onSaveAudioAnalysis,
   onResetLabels,
   onStartSlackOAuth,
   onGitLabChange,
@@ -254,6 +260,36 @@ function PreferencesDialog({
                     {t('common.browse')}
                   </button>
                 </div>
+              </label>
+            </div>
+          </section>
+
+          <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">Audio analysis</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">Offline QA microphone transcription with faster-whisper.</div>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-xs text-zinc-400">
+                Language
+                <input
+                  value={audioAnalysis.language}
+                  onChange={(e) => onAudioAnalysisChange({ ...audioAnalysis, language: e.target.value })}
+                  onBlur={() => onSaveAudioAnalysis({ ...audioAnalysis, language: audioAnalysis.language.trim() || 'auto' })}
+                  placeholder="auto, zh, en"
+                  className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </label>
+              <label className="block text-xs text-zinc-400">
+                Marker trigger keywords
+                <input
+                  value={audioAnalysis.triggerKeywords}
+                  onChange={(e) => onAudioAnalysisChange({ ...audioAnalysis, triggerKeywords: e.target.value })}
+                  onBlur={() => onSaveAudioAnalysis({ ...audioAnalysis, triggerKeywords: audioAnalysis.triggerKeywords.trim() })}
+                  placeholder="記錄, 紀錄, record, mark"
+                  className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+                <div className="mt-1 text-[11px] leading-4 text-zinc-500">Auto markers trigger only when a keyword is spoken near a label, for example "記錄 Bug" or "record Critical".</div>
               </label>
             </div>
           </section>
@@ -438,6 +474,7 @@ export function Home() {
   const [exportRoot, setExportRoot] = useState('')
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [audioAnalysis, setAudioAnalysis] = useState<AudioAnalysisSettings>(DEFAULT_AUDIO_ANALYSIS)
   const [slack, setSlack] = useState<SlackPublishSettings>({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
   const [slackSaved, setSlackSaved] = useState(false)
   const [startingSlackOAuth, setStartingSlackOAuth] = useState(false)
@@ -455,6 +492,7 @@ export function Home() {
       setExportRoot(s.exportRoot)
       setHotkeys(s.hotkeys)
       setSeverities(s.severities)
+      setAudioAnalysis(s.audioAnalysis)
       setSlack(s.slack)
       setGitLab(s.gitlab)
       setGitLabLabelsInput((s.gitlab.labels ?? []).join(', '))
@@ -529,6 +567,11 @@ export function Home() {
   async function saveSeverities(next: SeveritySettings) {
     const settings = await api.settings.setSeverities(next)
     setSeverities(settings.severities)
+  }
+
+  async function saveAudioAnalysis(next: AudioAnalysisSettings) {
+    const settings = await api.settings.setAudioAnalysis(next)
+    setAudioAnalysis(settings.audioAnalysis)
   }
 
   async function resetDefaultLabels() {
@@ -615,6 +658,7 @@ export function Home() {
             exportRoot={exportRoot}
             hotkeys={hotkeys}
             severities={severities}
+            audioAnalysis={audioAnalysis}
             slack={slack}
             slackSaved={slackSaved}
             startingSlackOAuth={startingSlackOAuth}
@@ -633,6 +677,8 @@ export function Home() {
             onSaveHotkeys={saveHotkeys}
             onSeveritiesChange={setSeverities}
             onSaveSeverities={saveSeverities}
+            onAudioAnalysisChange={setAudioAnalysis}
+            onSaveAudioAnalysis={saveAudioAnalysis}
             onResetLabels={resetDefaultLabels}
             onStartSlackOAuth={startSlackUserOAuth}
             onGitLabChange={(next) => { setGitLab(next); setGitLabSaved(false) }}
@@ -768,6 +814,14 @@ const DEFAULT_SEVERITIES: SeveritySettings = {
   custom2: { label: '', color: '#ec4899' },
   custom3: { label: '', color: '#14b8a6' },
   custom4: { label: '', color: '#eab308' },
+}
+const DEFAULT_AUDIO_ANALYSIS: AudioAnalysisSettings = {
+  enabled: true,
+  engine: 'faster-whisper',
+  modelPath: 'small',
+  language: 'auto',
+  triggerKeywords: '記錄, 紀錄, record, mark, log, 記録, 기록, grabar',
+  showTriggerWords: false,
 }
 const HOTKEY_SEVERITIES: Array<{ key: keyof HotkeySettings; severity: BugSeverity }> = [
   { key: 'improvement', severity: 'improvement' },

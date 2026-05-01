@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
@@ -16,7 +19,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { buildMacAvfoundationInputName, isUnsupportedGdigrabDrawMouseError } from '../ipc'
+import { buildMacAvfoundationInputName, isUnsupportedGdigrabDrawMouseError, recoverProjectMicAudioPath } from '../ipc'
 import type { PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
@@ -48,5 +51,21 @@ describe('buildMacAvfoundationInputName', () => {
       { id: 'window:123:0', name: 'Notes', type: 'window' },
       [],
     )).toThrow(/Window PC recording/)
+  })
+})
+
+describe('recoverProjectMicAudioPath', () => {
+  it('finds session-mic.webm next to an opened legacy project file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-project-mic-'))
+    try {
+      const projectPath = join(root, 'session.loupe')
+      const micPath = join(root, 'session-mic.webm')
+      writeFileSync(projectPath, '{}')
+      writeFileSync(micPath, 'mic')
+
+      expect(recoverProjectMicAudioPath(projectPath, null)).toBe(micPath)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

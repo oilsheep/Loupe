@@ -60,6 +60,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/whisper",
+        "to": "vendor/whisper",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

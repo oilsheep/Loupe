@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from 'react'
-import type { Bug, DesktopApi } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, SeveritySettings } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 
 export interface VideoPlayerHandle {
@@ -8,17 +8,100 @@ export interface VideoPlayerHandle {
   currentTimeMs(): number
 }
 
+export interface TranscriptToken {
+  startMs: number
+  endMs: number
+  text: string
+}
+
+export interface TranscriptSegment {
+  startMs: number
+  endMs: number
+  text: string
+  tokens?: TranscriptToken[]
+}
+
+function alignedChars(value: string): string[] {
+  return Array.from(value.replace(/\s+/g, ''))
+}
+
+function displayTokensForSegment(segment: TranscriptSegment): TranscriptToken[] {
+  if (segment.tokens?.length) return segment.tokens
+  const chars = alignedChars(segment.text)
+  if (!chars.length) return [{ startMs: segment.startMs, endMs: segment.endMs, text: segment.text }]
+  const durationMs = Math.max(chars.length, segment.endMs - segment.startMs)
+  return chars.map((text, index) => {
+    const startMs = Math.round(segment.startMs + (durationMs * index) / chars.length)
+    const endMs = Math.round(segment.startMs + (durationMs * (index + 1)) / chars.length)
+    return { startMs, endMs: Math.max(startMs + 1, endMs), text }
+  })
+}
+
 interface Props {
   api: DesktopApi
   src: string
   micAudioSrc?: string | null
+  micAudioStartOffsetMs?: number | null
+  transcriptSegments?: TranscriptSegment[]
+  severities?: SeveritySettings
   bugs: Bug[]
   durationMs: number
   selectedBugId: string | null
   onMarkerClick(bug: Bug): void
 }
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
+const DEFAULT_SEVERITIES: SeveritySettings = {
+  note: { label: 'note', color: '#a1a1aa' },
+  major: { label: 'Critical', color: '#ff4d4f' },
+  normal: { label: 'Bug', color: '#f59e0b' },
+  minor: { label: 'Polish', color: '#22b8f0' },
+  improvement: { label: 'Note', color: '#22c55e' },
+  custom1: { label: '', color: '#8b5cf6' },
+  custom2: { label: '', color: '#ec4899' },
+  custom3: { label: '', color: '#14b8a6' },
+  custom4: { label: '', color: '#eab308' },
+}
+
+function severityLabel(severities: SeveritySettings | undefined, severity: BugSeverity): string {
+  return severities?.[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity]?.label || severity
+}
+
+function severityColor(severities: SeveritySettings | undefined, severity: BugSeverity): string {
+  return severities?.[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
+}
+
+function PlayIcon({ playing }: { playing: boolean }) {
+  return playing ? (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+      <rect x="5" y="4" width="3.5" height="12" rx="0.8" fill="currentColor" />
+      <rect x="11.5" y="4" width="3.5" height="12" rx="0.8" fill="currentColor" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+      <path d="M6 4.8v10.4c0 .8.9 1.2 1.5.8l8-5.2c.6-.4.6-1.2 0-1.6l-8-5.2c-.6-.4-1.5 0-1.5.8z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+      <path d="M3 8v4h3l4 3V5L6 8H3z" fill="currentColor" />
+      {muted ? (
+        <>
+          <path d="M14 7l3 6M17 7l-3 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M12.5 7.2a4 4 0 010 5.6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M14.7 5.2a7 7 0 010 9.6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, micAudioStartOffsetMs, transcriptSegments = [], severities, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const micAudioRef = useRef<HTMLAudioElement>(null)
   const clipEndMsRef = useRef<number | null>(null)
@@ -26,37 +109,148 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   const [videoSrc, setVideoSrc] = useState(src)
   const [micMuted, setMicMuted] = useState(false)
   const [cursorMs, setCursorMs] = useState(0)
+  const [transcriptCursorMs, setTranscriptCursorMs] = useState(0)
+  const [isTranscriptHovering, setIsTranscriptHovering] = useState(false)
+  const [waveformPeaks, setWaveformPeaks] = useState<number[]>([])
+  const [waveformDurationMs, setWaveformDurationMs] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const syncingMediaRef = useRef(false)
+  const rafRef = useRef<number | null>(null)
   const selectedBug = bugs.find(b => b.id === selectedBugId) ?? null
+  const micOffsetMs = Math.max(0, micAudioStartOffsetMs ?? 0)
+  const sessionTranscriptSegments = transcriptSegments.map(segment => ({
+    ...segment,
+    startMs: segment.startMs + micOffsetMs,
+    endMs: segment.endMs + micOffsetMs,
+    tokens: segment.tokens?.map(token => ({
+      ...token,
+      startMs: token.startMs + micOffsetMs,
+      endMs: token.endMs + micOffsetMs,
+    })),
+  }))
   const cursorPct = durationMs ? Math.max(0, Math.min(100, (cursorMs / durationMs) * 100)) : 0
+  const effectiveTranscriptCursorMs = isTranscriptHovering ? transcriptCursorMs : cursorMs
+  const transcriptCursorPct = durationMs ? Math.max(0, Math.min(100, (effectiveTranscriptCursorMs / durationMs) * 100)) : 0
   const selectionStartPct = selectedBug && durationMs
     ? Math.max(0, Math.min(100, ((selectedBug.offsetMs - selectedBug.preSec * 1000) / durationMs) * 100))
     : 0
   const selectionEndPct = selectedBug && durationMs
     ? Math.max(0, Math.min(100, ((selectedBug.offsetMs + selectedBug.postSec * 1000) / durationMs) * 100))
     : 0
+  const transcriptTokens = sessionTranscriptSegments.flatMap(displayTokensForSegment).filter(token => token.text.trim())
+  const transcriptWindowStart = Math.max(0, effectiveTranscriptCursorMs - 5000)
+  const transcriptWindowEnd = effectiveTranscriptCursorMs + 5000
+
+  function clampSessionMs(ms: number): number {
+    const max = durationMs > 0 ? durationMs : Number.POSITIVE_INFINITY
+    return Math.max(0, Math.min(max, ms))
+  }
+
+  function micTimeForSessionMs(ms: number): number {
+    return Math.max(0, (ms - micOffsetMs) / 1000)
+  }
+
+  function setMicTimeForSessionMs(ms: number, force = false) {
+    const audio = micAudioRef.current
+    if (!audio) return
+    const nextAudioTime = micTimeForSessionMs(ms)
+    if (ms < micOffsetMs) {
+      if (!audio.paused) audio.pause()
+      if (force || audio.currentTime !== 0) audio.currentTime = 0
+      return
+    }
+    if (force || Math.abs(audio.currentTime - nextAudioTime) > 0.12) {
+      audio.currentTime = nextAudioTime
+    }
+  }
+
+  function updatePlaybackCursor(ms: number) {
+    const nextMs = clampSessionMs(ms)
+    setCursorMs(nextMs)
+    setTranscriptCursorMs(nextMs)
+  }
+
+  function seekPlaybackToMs(ms: number, opts: { pause?: boolean; keepClipEnd?: boolean } = {}) {
+    const video = videoRef.current
+    const nextMs = clampSessionMs(ms)
+    if (!opts.keepClipEnd) clipEndMsRef.current = null
+    syncingMediaRef.current = true
+    if (opts.pause) {
+      video?.pause()
+      micAudioRef.current?.pause()
+    }
+    if (video) video.currentTime = nextMs / 1000
+    setMicTimeForSessionMs(nextMs, true)
+    updatePlaybackCursor(nextMs)
+    window.setTimeout(() => { syncingMediaRef.current = false }, 0)
+  }
 
   useImperativeHandle(ref, () => ({
     seekToMs(ms: number) {
-      const v = videoRef.current; if (!v) return
-      const nextMs = Math.max(0, ms)
-      clipEndMsRef.current = null
-      v.currentTime = nextMs / 1000
-      setCursorMs(nextMs)
+      seekPlaybackToMs(ms, { pause: true })
     },
     playWindow(startMs: number, endMs: number) {
-      const v = videoRef.current; if (!v) return
-      const start = Math.max(0, startMs)
-      const end = Math.max(start, endMs)
+      const video = videoRef.current
+      if (!video) return
+      const start = clampSessionMs(startMs)
+      const end = clampSessionMs(Math.max(start, endMs))
       clipEndMsRef.current = end
-      v.currentTime = start / 1000
-      setCursorMs(start)
-      v.play().catch(() => {})
+      seekPlaybackToMs(start, { keepClipEnd: true })
+      video.play().catch(() => {})
     },
     currentTimeMs() {
       const v = videoRef.current
-      return v ? v.currentTime * 1000 : 0
+      return v ? v.currentTime * 1000 : cursorMs
     },
-  }), [])
+  }), [cursorMs, durationMs, micOffsetMs])
+
+  useEffect(() => {
+    const video = videoRef.current
+    const audio = micAudioRef.current
+    if (video) video.playbackRate = playbackRate
+    if (audio) audio.playbackRate = playbackRate
+  }, [playbackRate])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.code !== 'Space' || event.repeat) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input,textarea,select,button,[contenteditable="true"]')) return
+      event.preventDefault()
+      togglePlayback()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  useEffect(() => {
+    if (!isPlaying) {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+      return
+    }
+
+    const tick = () => {
+      const video = videoRef.current
+      if (video) {
+        updatePlaybackCursor(video.currentTime * 1000)
+        syncMicToVideo()
+      }
+      rafRef.current = window.requestAnimationFrame(tick)
+    }
+
+    rafRef.current = window.requestAnimationFrame(tick)
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
+  }, [isPlaying, durationMs, micOffsetMs])
 
   useEffect(() => {
     let cancelled = false
@@ -102,15 +296,60 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
     }
   }, [src])
 
+  useEffect(() => {
+    let cancelled = false
+    if (!micAudioSrc) {
+      setWaveformPeaks([])
+      setWaveformDurationMs(0)
+      return () => { cancelled = true }
+    }
+
+    async function loadWaveform() {
+      try {
+        const response = await fetch(micAudioSrc!, { cache: 'no-store' })
+        if (!response.ok) throw new Error(`mic fetch failed: ${response.status}`)
+        const arrayBuffer = await response.arrayBuffer()
+        const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        if (!AudioContextCtor) return
+        const audioContext = new AudioContextCtor()
+        const buffer = await audioContext.decodeAudioData(arrayBuffer.slice(0))
+        await audioContext.close().catch(() => {})
+        if (cancelled) return
+        const samples = buffer.getChannelData(0)
+        setWaveformDurationMs(buffer.duration * 1000)
+        const bins = 220
+        const next: number[] = []
+        for (let bin = 0; bin < bins; bin += 1) {
+          const start = Math.floor((bin / bins) * samples.length)
+          const end = Math.max(start + 1, Math.floor(((bin + 1) / bins) * samples.length))
+          let peak = 0
+          for (let i = start; i < end; i += 1) peak = Math.max(peak, Math.abs(samples[i] ?? 0))
+          next.push(Math.min(1, peak * 2.4))
+        }
+        setWaveformPeaks(next)
+      } catch (err) {
+        console.warn('Loupe: failed to build mic waveform', err)
+        if (!cancelled) {
+          setWaveformPeaks([])
+          setWaveformDurationMs(0)
+        }
+      }
+    }
+
+    void loadWaveform()
+    return () => { cancelled = true }
+  }, [micAudioSrc])
+
   function stopAtClipEnd() {
     const video = videoRef.current
     const clipEndMs = clipEndMsRef.current
     if (!video || clipEndMs === null) return
-    setCursorMs(video.currentTime * 1000)
+    updatePlaybackCursor(video.currentTime * 1000)
     if (video.currentTime * 1000 >= clipEndMs) {
       video.pause()
       video.currentTime = clipEndMs / 1000
-      setCursorMs(clipEndMs)
+      setMicTimeForSessionMs(clipEndMs, true)
+      updatePlaybackCursor(clipEndMs)
       clipEndMsRef.current = null
     }
   }
@@ -118,39 +357,129 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   function updateCursorFromVideo() {
     const video = videoRef.current
     if (!video) return
-    setCursorMs(video.currentTime * 1000)
+    updatePlaybackCursor(video.currentTime * 1000)
   }
 
   function syncMicToVideo() {
     const video = videoRef.current
     const audio = micAudioRef.current
     if (!video || !audio) return
-    if (Math.abs(audio.currentTime - video.currentTime) > 0.25) audio.currentTime = video.currentTime
+    const videoMs = video.currentTime * 1000
+    const nextAudioTime = micTimeForSessionMs(videoMs)
+    if (videoMs < micOffsetMs) {
+      audio.pause()
+      audio.currentTime = 0
+      return
+    }
+    if (Math.abs(audio.currentTime - nextAudioTime) > 0.12) audio.currentTime = nextAudioTime
+    if (!video.paused && audio.paused) audio.play().catch(() => {})
   }
 
   function playMicWithVideo() {
+    setIsPlaying(true)
     syncMicToVideo()
+    const video = videoRef.current
+    if (video && video.currentTime * 1000 < micOffsetMs) return
+    if (micAudioRef.current) micAudioRef.current.playbackRate = playbackRate
     micAudioRef.current?.play().catch(() => {})
   }
 
   function pauseMicWithVideo() {
+    setIsPlaying(false)
     micAudioRef.current?.pause()
   }
 
-  function seekFromTimeline(e: MouseEvent<HTMLDivElement>) {
+  function togglePlayback() {
     const video = videoRef.current
-    if (!video || durationMs <= 0) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    if (rect.width <= 0) return
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    clipEndMsRef.current = null
-    video.pause()
-    video.currentTime = (durationMs * pct) / 1000
-    setCursorMs(durationMs * pct)
+    if (!video) return
+    if (video.paused) {
+      syncMicToVideo()
+      video.playbackRate = playbackRate
+      video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
   }
 
+  function changePlaybackRate(rate: number) {
+    setPlaybackRate(rate)
+    const video = videoRef.current
+    const audio = micAudioRef.current
+    if (video) video.playbackRate = rate
+    if (audio) audio.playbackRate = rate
+  }
+
+  function seekFromTimeline(e: MouseEvent<HTMLDivElement>) {
+    const ms = timeFromTimelineEvent(e)
+    if (ms === null) return
+    seekPlaybackToMs(ms, { pause: true })
+  }
+
+  function timeFromTimelineEvent(e: MouseEvent<HTMLDivElement>): number | null {
+    if (durationMs <= 0) return null
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return null
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    return durationMs * pct
+  }
+
+  function moveTranscriptCursor(e: MouseEvent<HTMLDivElement>) {
+    const ms = timeFromTimelineEvent(e)
+    if (ms === null) return
+    setTranscriptCursorMs(ms)
+  }
+
+  function seekFromTranscriptTimeline(e: MouseEvent<HTMLDivElement>) {
+    const ms = timeFromTimelineEvent(e)
+    if (ms === null) return
+    seekPlaybackToMs(ms, { pause: true })
+  }
+
+  function syncVideoFromMic() {
+    const audio = micAudioRef.current
+    const video = videoRef.current
+    if (!audio || !video || syncingMediaRef.current) return
+    const sessionMs = audio.currentTime * 1000 + micOffsetMs
+    if (Math.abs(video.currentTime * 1000 - sessionMs) > 250) {
+      video.currentTime = sessionMs / 1000
+      updatePlaybackCursor(sessionMs)
+    }
+  }
+
+  const transportControls = (
+    <div className="flex items-center justify-center gap-1" data-testid="transport-controls">
+      <button
+        type="button"
+        onClick={togglePlayback}
+        className="inline-flex h-7 w-9 items-center justify-center rounded bg-blue-700 text-white hover:bg-blue-600"
+        data-testid="transport-play-pause"
+        aria-label={isPlaying ? 'Pause' : 'Play'}
+        title={isPlaying ? 'Pause' : 'Play'}
+      >
+        <PlayIcon playing={isPlaying} />
+      </button>
+      <div className="flex overflow-hidden rounded border border-zinc-700">
+        {[1, 2, 3].map(rate => (
+          <button
+            key={rate}
+            type="button"
+            onClick={() => changePlaybackRate(rate)}
+            className={`h-7 px-2 text-xs ${
+              playbackRate === rate
+                ? 'bg-amber-400 text-black'
+                : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+            }`}
+            data-testid={`transport-rate-${rate}`}
+          >
+            x{rate}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
-    <div className="flex w-full flex-col gap-2">
+    <div className="flex min-h-0 w-full flex-col gap-2">
       <video
         ref={videoRef}
         src={videoSrc}
@@ -159,8 +488,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
         onPlay={playMicWithVideo}
         onPause={pauseMicWithVideo}
         onTimeUpdate={() => { stopAtClipEnd(); syncMicToVideo() }}
+        onSeeking={() => { updateCursorFromVideo(); syncMicToVideo() }}
         onSeeked={() => { updateCursorFromVideo(); syncMicToVideo() }}
-        onLoadedMetadata={updateCursorFromVideo}
+        onLoadedMetadata={() => { updateCursorFromVideo(); syncMicToVideo() }}
+        onRateChange={(e) => {
+          const nextRate = e.currentTarget.playbackRate
+          setPlaybackRate(nextRate)
+          if (micAudioRef.current) micAudioRef.current.playbackRate = nextRate
+        }}
         onError={(e) => {
           const mediaError = e.currentTarget.error
           console.warn('Loupe: video element failed', {
@@ -169,30 +504,125 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
             src: e.currentTarget.currentSrc,
           })
         }}
-        className="mx-auto block max-h-[calc(100vh-190px)] max-w-full rounded-lg bg-black object-contain"
+        className={`mx-auto block max-w-full rounded-lg bg-black object-contain ${transcriptTokens.length > 0 || micAudioSrc ? 'max-h-[calc(100vh-250px)]' : 'max-h-[calc(100vh-180px)]'}`}
         data-testid="video-el"
       />
-      {micAudioSrc && (
-        <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300" data-testid="mic-track-controls">
-          <audio ref={micAudioRef} src={micAudioSrc} preload="metadata" muted={micMuted} />
-          <div>
-            <div className="font-medium text-zinc-200">Session MIC track</div>
-            <div className="text-zinc-500">Synced with review playback</div>
+      {(transcriptTokens.length > 0 || micAudioSrc) && durationMs > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2" data-testid="transcript-debug">
+          {micAudioSrc && (
+            <audio
+              ref={micAudioRef}
+              src={micAudioSrc}
+              preload="metadata"
+              muted={micMuted}
+              onLoadedMetadata={() => setMicTimeForSessionMs(cursorMs, true)}
+              onSeeked={syncVideoFromMic}
+              onTimeUpdate={syncVideoFromMic}
+            />
+          )}
+          <div className="mb-1 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-[11px] text-zinc-500">
+            <span className="min-w-0 truncate">{transcriptTokens.length > 0 ? 'Transcript / MIC timeline' : 'MIC timeline'}</span>
+            {transportControls}
+            {micAudioSrc && (
+              <button
+                type="button"
+                onClick={() => setMicMuted(v => !v)}
+                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                title={micMuted ? 'Unmute MIC' : 'Mute MIC'}
+                aria-label={micMuted ? 'Unmute MIC' : 'Mute MIC'}
+                data-testid="mic-track-mute"
+              >
+                <SpeakerIcon muted={micMuted} />
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setMicMuted(v => !v)}
-            className="rounded bg-zinc-800 px-2 py-1 text-zinc-200 hover:bg-zinc-700"
-            data-testid="mic-track-mute"
+          {transcriptTokens.length > 0 && (
+            <div className="mb-2 max-h-14 overflow-y-auto rounded bg-zinc-950/50 px-2 py-1 text-xs leading-relaxed text-zinc-500">
+              {transcriptTokens.map((token, index) => {
+                const isActive = token.endMs >= transcriptWindowStart && token.startMs <= transcriptWindowEnd
+                const isCenter = token.startMs <= effectiveTranscriptCursorMs && token.endMs >= effectiveTranscriptCursorMs
+                return (
+                  <span
+                    key={`${token.startMs}-${token.endMs}-${index}`}
+                    className={isCenter
+                      ? 'mx-0.5 rounded bg-amber-400 px-1 font-semibold text-black'
+                      : isActive
+                        ? 'mx-0.5 rounded bg-blue-500/25 px-1 text-blue-100'
+                        : 'mx-0.5'}
+                    title={`${Math.round(token.startMs / 100) / 10}s - ${Math.round(token.endMs / 100) / 10}s`}
+                  >
+                    {token.text}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <div
+            className="relative h-4 cursor-ew-resize rounded bg-zinc-800"
+            data-testid="transcript-timeline"
+            onMouseEnter={() => setIsTranscriptHovering(true)}
+            onMouseLeave={() => setIsTranscriptHovering(false)}
+            onMouseMove={moveTranscriptCursor}
+            onClick={seekFromTranscriptTimeline}
           >
-            {micMuted ? 'Unmute MIC' : 'Mute MIC'}
-          </button>
+            {waveformPeaks.length > 0 && micAudioSrc && (
+              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden rounded opacity-80">
+                {waveformPeaks.map((peak, index) => {
+                  const audioStartMs = micOffsetMs
+                  const audioDurationMs = waveformDurationMs || (durationMs > 0 ? Math.max(0, durationMs - micOffsetMs) : 0)
+                  const left = durationMs > 0 ? ((audioStartMs + (index / waveformPeaks.length) * audioDurationMs) / durationMs) * 100 : 0
+                  const width = durationMs > 0 ? Math.max(0.15, (audioDurationMs / waveformPeaks.length / durationMs) * 100) : 0
+                  return (
+                    <div
+                      key={index}
+                      className="absolute top-1/2 -translate-y-1/2 rounded-sm bg-cyan-400/45"
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        height: `${Math.max(12, peak * 100)}%`,
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            )}
+            <div
+              className="absolute top-1/2 h-3 -translate-y-1/2 rounded bg-blue-500/25 ring-1 ring-blue-300/30"
+              style={{
+                left: `${Math.max(0, ((effectiveTranscriptCursorMs - 5000) / durationMs) * 100)}%`,
+                width: `${Math.max(0, Math.min(100, ((Math.min(durationMs, effectiveTranscriptCursorMs + 5000) - Math.max(0, effectiveTranscriptCursorMs - 5000)) / durationMs) * 100))}%`,
+              }}
+            />
+            {sessionTranscriptSegments.map((segment, index) => {
+              const left = Math.max(0, Math.min(100, (segment.startMs / durationMs) * 100))
+              const right = Math.max(0, Math.min(100, (segment.endMs / durationMs) * 100))
+              return (
+                <div
+                  key={`${segment.startMs}-${segment.endMs}-${index}`}
+                  className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded bg-zinc-500"
+                  style={{ left: `${left}%`, width: `${Math.max(0.4, right - left)}%` }}
+                  title={`${Math.round(segment.startMs / 100) / 10}s - ${Math.round(segment.endMs / 100) / 10}s ${segment.text}`}
+                />
+              )
+            })}
+            <div
+              className="pointer-events-none absolute top-1/2 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.75)]"
+              style={{ left: `${cursorPct}%` }}
+              title="Video playhead"
+            />
+            <div
+              className="pointer-events-none absolute top-1/2 z-20 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.8)]"
+              style={{ left: `${transcriptCursorPct}%` }}
+              title="Transcript debug cursor"
+            />
+          </div>
         </div>
       )}
-      <div className="relative h-4 cursor-pointer rounded bg-zinc-800" data-testid="timeline" onClick={seekFromTimeline}>
+      <div className="relative mb-1 h-8 cursor-pointer" data-testid="timeline" onClick={seekFromTimeline}>
+        <div className="pointer-events-none absolute left-0 right-0 top-1 h-4 rounded bg-zinc-800" />
         {selectedBug && durationMs > 0 && selectionEndPct > selectionStartPct && (
           <div
-            className="absolute top-1/2 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
+            className="absolute top-3 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
             data-testid="selected-clip-window"
             style={{ left: `${selectionStartPct}%`, width: `${selectionEndPct - selectionStartPct}%` }}
             title={`Export range: -${selectedBug.preSec}s / +${selectedBug.postSec}s`}
@@ -200,34 +630,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
         )}
         {durationMs > 0 && (
           <div
-            className="pointer-events-none absolute top-1/2 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+            className="pointer-events-none absolute top-3 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
             data-testid="playhead"
             style={{ left: `${cursorPct}%` }}
           />
         )}
         {bugs.map(b => {
           const left = durationMs ? Math.max(0, Math.min(100, (b.offsetMs / durationMs) * 100)) : 0
-          const colour = b.severity === 'major'
-            ? 'bg-red-500'
-            : b.severity === 'minor'
-              ? 'bg-sky-500'
-              : b.severity === 'improvement'
-                ? 'bg-emerald-500'
-                : b.severity === 'note'
-                  ? 'bg-zinc-300'
-                  : 'bg-amber-500'
           const ring = b.id === selectedBugId ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.75)]' : ''
           const url = thumbs[b.id]
+          const label = severityLabel(severities, b.severity)
           return (
             <div
               key={b.id}
-              className="group absolute top-1/2 -translate-y-1/2"
+              className="group absolute top-3 -translate-y-1/2"
               style={{ left: `calc(${left}% - 2px)` }}
             >
               <button
                 onClick={(e) => { e.stopPropagation(); onMarkerClick(b) }}
                 data-testid={`marker-${b.id}`}
-                className={`block h-3.5 w-1 rounded-sm ${colour} ${ring}`}
+                className={`block h-3.5 w-1 rounded-sm ${ring}`}
+                style={{ backgroundColor: severityColor(severities, b.severity) }}
               />
               <div
                 className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"
@@ -237,13 +660,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
                   ? <img src={url} alt="" className="mb-2 w-full rounded" />
                   : <div className="mb-2 h-20 w-full rounded bg-zinc-800 text-center text-[10px] leading-[5rem] text-zinc-500">no screenshot</div>
                 }
-                <div className="font-mono text-[10px] text-zinc-400">{Math.floor(b.offsetMs / 1000)}s · {b.severity}</div>
+                <div className="font-mono text-[10px] text-zinc-400">{Math.floor(b.offsetMs / 1000)}s - {label}</div>
                 <div className="line-clamp-3 text-xs text-zinc-200">{b.note}</div>
               </div>
             </div>
           )
         })}
       </div>
+      {!(transcriptTokens.length > 0 || micAudioSrc) && (
+        <div className="flex shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-900/70 px-2 py-1">
+          {transportControls}
+        </div>
+      )}
     </div>
   )
 })

@@ -7,7 +7,7 @@ function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
     id: 'sess-1', buildVersion: '1.0.0', testNote: '', tester: '', deviceId: 'ABC', deviceModel: 'Pixel 7',
     androidVersion: '14', connectionMode: 'usb', status: 'recording', durationMs: null,
     startedAt: 1700000000000, endedAt: null, videoPath: null, pcRecordingEnabled: false, pcVideoPath: null,
-    micAudioPath: null, micAudioDurationMs: null, ...over,
+    micAudioPath: null, micAudioDurationMs: null, micAudioStartOffsetMs: null, ...over,
   }
 }
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
@@ -86,6 +86,29 @@ describe('Db', () => {
     db.insertSession(fixSession())
     db.insertBug(fixBug({ severity: 'custom1' }))
     expect(db.listBugs('sess-1')[0].severity).toBe('custom1')
+  })
+
+  it('stores marker source and can delete only audio auto markers', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug({ id: 'manual', source: 'manual' }))
+    db.insertBug(fixBug({ id: 'auto', source: 'audio-auto' }))
+    expect(db.listBugs('sess-1').find(b => b.id === 'auto')?.source).toBe('audio-auto')
+
+    const removed = db.deleteBugsBySourceForSession('sess-1', 'audio-auto')
+
+    expect(removed).toBe(1)
+    expect(db.listBugs('sess-1').map(b => b.id)).toEqual(['manual'])
+  })
+
+  it('deletes legacy audio markers by note prefix when re-analyzing', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug({ id: 'manual', source: 'manual', note: 'real manual' }))
+    db.insertBug(fixBug({ id: 'legacy-auto', source: 'manual', note: '[Audio] old generated marker' }))
+
+    const removed = db.deleteBugsBySourceForSession('sess-1', 'audio-auto')
+
+    expect(removed).toBe(1)
+    expect(db.listBugs('sess-1').map(b => b.id)).toEqual(['manual'])
   })
 
   it('insertBug stores preSec/postSec and rowToBug returns them', () => {

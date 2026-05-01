@@ -1,12 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Bug, BugSeverity, Session, SessionLoadProgress } from '@shared/types'
+import type { AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { VideoPlayer, type VideoPlayerHandle } from '@/components/VideoPlayer'
-import { BugList } from '@/components/BugList'
+import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
+import { BugList, type BugListHandle } from '@/components/BugList'
 import { useI18n } from '@/lib/i18n'
 
-interface Loaded { session: Session; bugs: Bug[]; videoUrl: string; micAudioUrl: string | null }
+interface Loaded { session: Session; bugs: Bug[]; videoUrl: string; micAudioUrl: string | null; transcriptSegments: TranscriptSegment[] }
+
+const AUDIO_ANALYSIS_LANGUAGE_OPTIONS = [
+  { value: 'auto', label: 'System / Auto' },
+  { value: 'zh', label: 'Chinese' },
+  { value: 'en', label: 'English' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'ko', label: 'Korean' },
+  { value: 'es', label: 'Spanish' },
+]
+
+const DEFAULT_SEVERITIES: SeveritySettings = {
+  note: { label: 'note', color: '#a1a1aa' },
+  major: { label: 'Critical', color: '#ff4d4f' },
+  normal: { label: 'Bug', color: '#f59e0b' },
+  minor: { label: 'Polish', color: '#22b8f0' },
+  improvement: { label: 'Note', color: '#22c55e' },
+  custom1: { label: '', color: '#8b5cf6' },
+  custom2: { label: '', color: '#ec4899' },
+  custom3: { label: '', color: '#14b8a6' },
+  custom4: { label: '', color: '#eab308' },
+}
+const PRIMARY_MARKER_SEVERITIES: BugSeverity[] = ['improvement', 'minor', 'normal', 'major']
+const CUSTOM_MARKER_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
+const MARKER_HOTKEY_LABELS: Partial<Record<BugSeverity, string>> = {
+  improvement: 'F6',
+  minor: 'F7',
+  normal: 'F8',
+  major: 'F9',
+}
+const BACKGROUND_ANALYSIS_KEY_PREFIX = 'loupe.audioAnalysis.background.'
+
+function labelOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
+  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity].label
+}
+
+function colorOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
+  return severities[severity]?.color || DEFAULT_SEVERITIES[severity].color
+}
+
+function visibleMarkerSeverities(severities: SeveritySettings): BugSeverity[] {
+  return [
+    ...PRIMARY_MARKER_SEVERITIES,
+    ...CUSTOM_MARKER_SEVERITIES.filter(severity => severities[severity]?.label?.trim()),
+  ]
+}
 
 export function Draft({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
@@ -18,7 +63,16 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [tester, setTester] = useState('')
   const [testNote, setTestNote] = useState('')
   const [loadProgress, setLoadProgress] = useState<SessionLoadProgress | null>(null)
+  const [analysisProgress, setAnalysisProgress] = useState<AudioAnalysisProgress | null>(null)
+  const [analyzingAudio, setAnalyzingAudio] = useState(false)
+  const [backgroundAnalyzingAudio, setBackgroundAnalyzingAudio] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
+  const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
+  const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [metadataOpen, setMetadataOpen] = useState(false)
+  const [audioPanelOpen, setAudioPanelOpen] = useState(false)
   const playerRef = useRef<VideoPlayerHandle>(null)
+  const bugListRef = useRef<BugListHandle>(null)
 
   const refresh = useCallback(async () => {
     const r = await api.session.get(sessionId)
@@ -26,7 +80,18 @@ export function Draft({ sessionId }: { sessionId: string }) {
     const videoRel = r.session.connectionMode === 'pc' && r.session.pcVideoPath ? 'pc-recording.webm' : 'video.mp4'
     const videoUrl = await assetUrl(sessionId, videoRel)
     const micAudioUrl = r.session.micAudioPath ? await assetUrl(sessionId, 'session-mic.webm') : null
-    setData({ session: r.session, bugs: r.bugs, videoUrl, micAudioUrl })
+    let transcriptSegments: TranscriptSegment[] = []
+    try {
+      const transcriptUrl = await assetUrl(sessionId, 'analysis/audio-transcript.normalized.json')
+      const response = await fetch(transcriptUrl, { cache: 'no-store' })
+      if (response.ok) {
+        const parsed = await response.json()
+        if (Array.isArray(parsed)) transcriptSegments = parsed
+      }
+    } catch {
+      transcriptSegments = []
+    }
+    setData({ session: r.session, bugs: r.bugs, videoUrl, micAudioUrl, transcriptSegments })
     setBuildVersion(r.session.buildVersion)
     setTester(r.session.tester)
     setTestNote(r.session.testNote)
@@ -36,7 +101,69 @@ export function Draft({ sessionId }: { sessionId: string }) {
     if (progress.sessionId !== sessionId) return
     setLoadProgress(progress)
   }), [sessionId])
+  useEffect(() => {
+    setBackgroundAnalyzingAudio(sessionStorage.getItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${sessionId}`) === '1')
+  }, [sessionId])
+  useEffect(() => api.onAudioAnalysisProgress((progress) => {
+    if (progress.sessionId !== sessionId) return
+    setAnalysisProgress(progress)
+    if (progress.phase === 'error') {
+      setAnalysisError(progress.detail ?? progress.message)
+      setBackgroundAnalyzingAudio(false)
+      sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${sessionId}`)
+    }
+    if (progress.phase === 'complete') {
+      setBackgroundAnalyzingAudio(false)
+      setAudioPanelOpen(false)
+      sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${sessionId}`)
+      void refresh()
+    }
+  }), [refresh, sessionId])
+  useEffect(() => {
+    let cancelled = false
+    api.settings.get().then(settings => {
+      if (!cancelled) {
+        setAudioSettings(settings.audioAnalysis)
+        setSeverities(settings.severities)
+      }
+    }).catch(err => {
+      if (!cancelled) setAnalysisError(err instanceof Error ? err.message : String(err))
+    })
+    return () => { cancelled = true }
+  }, [])
   useEffect(() => { refresh() }, [refresh])
+
+  const analyzeAudio = useCallback(async () => {
+    if (analyzingAudio || backgroundAnalyzingAudio) return
+    setAnalyzingAudio(true)
+    setAnalysisError('')
+    setAnalysisProgress({
+      sessionId,
+      phase: 'prepare',
+      message: 'Starting audio analysis',
+      current: 0,
+      total: 4,
+      generated: 0,
+    })
+    try {
+      const result = await api.audioAnalysis.analyzeSession(sessionId)
+      await refresh()
+      setAnalysisProgress({
+        sessionId,
+        phase: 'complete',
+        message: 'Audio analysis complete',
+        detail: `${result.generated} generated, ${result.merged} merged, ${result.removedAutoMarkers} replaced from ${result.segments} transcript segment(s).`,
+        current: 4,
+        total: 4,
+        generated: result.generated,
+      })
+      setAudioPanelOpen(false)
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAnalyzingAudio(false)
+    }
+  }, [analyzingAudio, backgroundAnalyzingAudio, refresh, sessionId])
 
   const addMarkerAtCurrentTime = useCallback(async (severity: BugSeverity = 'normal') => {
     if (addingMarker) return
@@ -75,8 +202,38 @@ export function Draft({ sessionId }: { sessionId: string }) {
     )
   }
 
-  const { session, bugs, videoUrl, micAudioUrl } = data
+  const { session, bugs, videoUrl, micAudioUrl, transcriptSegments } = data
   const dur = session.durationMs ?? 0
+  const autoMarkerCount = bugs.filter(b => b.source === 'audio-auto').length
+  const manualMarkerCount = bugs.length - autoMarkerCount
+  const analysisPct = analysisProgress && analysisProgress.total > 0
+    ? Math.round((analysisProgress.current / analysisProgress.total) * 100)
+    : 0
+  const showAnalysisProgress = Boolean(
+    backgroundAnalyzingAudio ||
+    analyzingAudio ||
+    (analysisProgress && analysisProgress.phase !== 'complete' && analysisProgress.phase !== 'error'),
+  )
+  const markerSeverities = visibleMarkerSeverities(severities)
+  const markerToolbar = (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-1 text-xs text-zinc-500">{addingMarker ? t('draft.adding') : t('draft.addMarker')}</span>
+      {markerSeverities.map(severity => (
+        <button
+          key={severity}
+          type="button"
+          onClick={() => addMarkerAtCurrentTime(severity)}
+          disabled={addingMarker}
+          className="rounded px-2 py-0.5 text-xs text-black hover:brightness-110 disabled:opacity-50"
+          style={{ backgroundColor: colorOrDefault(severities, severity) }}
+          title={labelOrDefault(severities, severity)}
+        >
+          {MARKER_HOTKEY_LABELS[severity] ? `${MARKER_HOTKEY_LABELS[severity]}: ` : ''}
+          {labelOrDefault(severities, severity)}
+        </button>
+      ))}
+    </div>
+  )
 
   function selectBug(b: Bug) {
     setSelectedBugId(b.id)
@@ -100,78 +257,178 @@ export function Draft({ sessionId }: { sessionId: string }) {
     setData(prev => prev ? { ...prev, session: { ...prev.session, ...patch } } : prev)
   }
 
+  async function saveAudioLanguage(language: string) {
+    const current = audioSettings ?? (await api.settings.get()).audioAnalysis
+    const next = { ...current, language }
+    setAudioSettings(next)
+    try {
+      const saved = await api.settings.setAudioAnalysis(next)
+      setAudioSettings(saved.audioAnalysis)
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="grid h-screen grid-cols-[minmax(0,1fr)_460px] grid-rows-[auto_1fr] bg-zinc-950 text-zinc-100">
-      <header className="col-span-2 flex items-center justify-between border-b border-zinc-800 p-3 text-sm">
+      <header className="col-span-2 flex items-center justify-between gap-3 border-b border-zinc-800 p-3 text-sm">
         <div>
           <button onClick={goHome} className="text-zinc-400 hover:text-zinc-200">{t('draft.home')}</button>
           <span className="ml-4 font-medium">{session.deviceModel} · build {session.buildVersion}</span>
           <span className="ml-3 text-zinc-500">{bugs.length} markers · {Math.round(dur / 1000)}s</span>
         </div>
-        <button onClick={closeSession} className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700">{t('draft.close')}</button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => bugListRef.current?.exportAll()}
+            className="rounded bg-blue-700 px-3 py-1 text-xs text-white hover:bg-blue-600"
+          >
+            {bugs.length === 0 ? t('bug.exportRecording') : t('bug.exportCount', { count: bugs.length })}
+          </button>
+          <button onClick={closeSession} className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700">{t('draft.close')}</button>
+        </div>
       </header>
 
-      <main className="flex min-w-0 flex-col overflow-hidden p-4">
+      <main className="flex min-h-0 min-w-0 flex-col overflow-auto p-3">
         <VideoPlayer
           ref={playerRef}
           api={api}
           src={videoUrl}
           micAudioSrc={micAudioUrl}
+          micAudioStartOffsetMs={session.micAudioStartOffsetMs}
+          transcriptSegments={transcriptSegments}
+          severities={severities}
           bugs={bugs}
           durationMs={dur}
           selectedBugId={selectedBugId}
           onMarkerClick={selectBug}
         />
-        <div className="mt-3 flex items-center justify-between border-t border-zinc-800 pt-3">
-          <div className="text-xs text-zinc-500">{t('draft.hotkeyHelp')}</div>
-          <button
-            onClick={() => addMarkerAtCurrentTime('normal')}
-            disabled={addingMarker}
-            className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {addingMarker ? t('draft.adding') : t('draft.addMarker')}
-          </button>
-        </div>
       </main>
 
       <aside className="flex min-h-0 flex-col overflow-hidden border-l border-zinc-800 bg-zinc-950/80">
-        <div className="border-b border-zinc-800 p-3">
+        <div className="border-b border-zinc-800 p-2">
           <div className="grid gap-2">
-            <label className="text-[11px] font-semibold text-zinc-300">
-              {t('new.buildVersion')}
-              <input
-                value={buildVersion}
-                onChange={(e) => setBuildVersion(e.target.value)}
-                onBlur={() => { void saveMetadata({ buildVersion: buildVersion.trim() }) }}
-                className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-zinc-500">
-                {t('export.tester')}
-                <input
-                  value={tester}
-                  onChange={(e) => setTester(e.target.value)}
-                  onBlur={() => { void saveMetadata({ tester: tester.trim() }) }}
-                  placeholder={t('export.qaName')}
-                  className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </label>
-              <label className="text-[11px] text-zinc-500">
-                {t('export.testNote')}
-                <input
-                  value={testNote}
-                  onChange={(e) => setTestNote(e.target.value)}
-                  onBlur={() => { void saveMetadata({ testNote: testNote.trim() }) }}
-                  placeholder={t('export.scope')}
-                  className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </label>
-            </div>
+            <section className="rounded border border-zinc-800 bg-zinc-900/50">
+              <button
+                type="button"
+                onClick={() => setMetadataOpen(v => !v)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800/70"
+                aria-expanded={metadataOpen}
+              >
+                <span className="font-medium">{t('new.buildVersion')}</span>
+                <span className="min-w-0 flex-1 truncate text-zinc-500">{buildVersion || '-'}</span>
+                <span className="text-zinc-500">{metadataOpen ? '收合' : '展開'}</span>
+              </button>
+              {metadataOpen && (
+                <div className="grid gap-2 border-t border-zinc-800 p-3">
+                  <label className="text-[11px] font-semibold text-zinc-300">
+                    {t('new.buildVersion')}
+                    <input
+                      value={buildVersion}
+                      onChange={(e) => setBuildVersion(e.target.value)}
+                      onBlur={() => { void saveMetadata({ buildVersion: buildVersion.trim() }) }}
+                      className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[11px] text-zinc-500">
+                      {t('export.tester')}
+                      <input
+                        value={tester}
+                        onChange={(e) => setTester(e.target.value)}
+                        onBlur={() => { void saveMetadata({ tester: tester.trim() }) }}
+                        placeholder={t('export.qaName')}
+                        className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                    <label className="text-[11px] text-zinc-500">
+                      {t('export.testNote')}
+                      <input
+                        value={testNote}
+                        onChange={(e) => setTestNote(e.target.value)}
+                        onBlur={() => { void saveMetadata({ testNote: testNote.trim() }) }}
+                        placeholder={t('export.scope')}
+                        className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded border border-zinc-800 bg-zinc-900/50">
+              <button
+                type="button"
+                onClick={() => setAudioPanelOpen(v => !v)}
+                className="w-full px-3 py-2 text-left hover:bg-zinc-800/70"
+                aria-expanded={audioPanelOpen}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-200">Audio auto-markers</div>
+                    <div className="mt-0.5 truncate text-[11px] text-zinc-500">
+                      {backgroundAnalyzingAudio
+                        ? 'Audio analysis is running in the background.'
+                        : session.micAudioPath
+                        ? `${manualMarkerCount} manual / ${autoMarkerCount} audio auto`
+                        : 'No QA mic recording.'}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs text-zinc-500">{audioPanelOpen ? '收合' : '展開'}</span>
+                </div>
+                {showAnalysisProgress && (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                      <span className="min-w-0 truncate">{analysisProgress?.message ?? 'Audio analysis is running in the background'}</span>
+                      <span>{analysisPct}%</span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                      <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${analysisPct || 8}%` }} />
+                    </div>
+                  </div>
+                )}
+              </button>
+              {audioPanelOpen && (
+                <div className="border-t border-zinc-800 p-3 pt-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
+                    <label htmlFor="audio-analysis-language" className="sr-only">Audio analysis language</label>
+                    <select
+                      id="audio-analysis-language"
+                      aria-label="Audio analysis language"
+                      value={audioSettings?.language || 'auto'}
+                      onChange={(e) => { void saveAudioLanguage(e.target.value) }}
+                      disabled={analyzingAudio || backgroundAnalyzingAudio || !session.micAudioPath}
+                      className="min-w-0 rounded bg-zinc-800 px-2 py-1.5 text-xs text-zinc-100 outline-none hover:bg-zinc-700 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
+                    >
+                      {AUDIO_ANALYSIS_LANGUAGE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={analyzeAudio}
+                      disabled={analyzingAudio || backgroundAnalyzingAudio || !session.micAudioPath}
+                      className="shrink-0 rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {backgroundAnalyzingAudio ? 'Running...' : analyzingAudio ? 'Analyzing...' : autoMarkerCount > 0 ? 'Re-analyze' : 'Analyze'}
+                    </button>
+                  </div>
+                  {session.micAudioPath && (
+                    <div className="mt-2 rounded border border-sky-900/60 bg-sky-950/30 px-2 py-1 text-[11px] leading-snug text-sky-100">
+                      Re-analysis uses the current Preferences / session-start language and trigger words. Audio auto markers are replaced; manual markers stay untouched.
+                    </div>
+                  )}
+                  {showAnalysisProgress && analysisProgress?.detail && (
+                    <div className="mt-2 break-words text-[11px] leading-snug text-zinc-500">{analysisProgress.detail}</div>
+                  )}
+                  {analysisError && <div className="mt-2 rounded border border-red-900 bg-red-950/40 px-2 py-1 text-[11px] text-red-200">{analysisError}</div>}
+                </div>
+              )}
+            </section>
           </div>
         </div>
         <div className="min-h-0 overflow-auto">
           <BugList
+            ref={bugListRef}
             api={api}
             sessionId={session.id}
             bugs={bugs}
@@ -182,6 +439,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             tester={tester}
             testNote={testNote}
             hasSessionMicTrack={Boolean(session.micAudioPath)}
+            markerToolbar={markerToolbar}
           />
         </div>
       </aside>

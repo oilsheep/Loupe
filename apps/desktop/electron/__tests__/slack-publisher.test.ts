@@ -34,7 +34,7 @@ function session(): Session {
     pcRecordingEnabled: false,
     pcVideoPath: null,
     micAudioPath: null,
-    micAudioDurationMs: null,
+    micAudioDurationMs: null, micAudioStartOffsetMs: null,
   }
 }
 

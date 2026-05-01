@@ -1,5 +1,6 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
 import type { Readable } from 'node:stream'
+import type { Writable } from 'node:stream'
 import { resolveBundledTool, withToolPath } from './tool-paths'
 
 export interface RunResult {
@@ -10,6 +11,7 @@ export interface RunResult {
 
 export interface SpawnedProcess {
   readonly pid: number | undefined
+  readonly stdin?: Writable
   readonly stdout: Readable
   readonly stderr: Readable
   kill(signal?: NodeJS.Signals | number): boolean
@@ -39,9 +41,10 @@ export class RealProcessRunner implements IProcessRunner {
 
   spawn(cmd: string, args: string[], opts: SpawnOptions = {}): SpawnedProcess {
     const resolvedCmd = resolveBundledTool(cmd)
-    const child = spawn(resolvedCmd, args, { ...withToolPath(cmd, opts), stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(resolvedCmd, args, { ...withToolPath(cmd, opts), stdio: ['pipe', 'pipe', 'pipe'] })
     return {
       get pid() { return child.pid },
+      stdin: child.stdin!,
       stdout: child.stdout!,
       stderr: child.stderr!,
       kill: (sig?) => child.kill(sig),

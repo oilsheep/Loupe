@@ -16,3 +16,12 @@ docs/superpowers/
 
 # Local QA recordings (kept under repo root in dev for easy inspection)
 recordings/
+
+# Local whisper.cpp runtime/model files used for packaged offline STT builds
+apps/desktop/vendor/whisper/**/*.bin
+apps/desktop/vendor/whisper/**/*.exe
+apps/desktop/vendor/whisper/**/*.dll
+apps/desktop/vendor/whisper/**/*.zip
+apps/desktop/vendor/whisper/.download/
+apps/desktop/vendor/whisper/**/whisper-cli
+apps/desktop/vendor/whisper/**/main

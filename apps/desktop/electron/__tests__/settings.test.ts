@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
 
 describe('SettingsStore', () => {
   it('normalizes missing Slack settings', () => {
@@ -15,6 +15,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -39,6 +40,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -79,6 +81,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -127,6 +130,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -162,6 +166,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -199,6 +204,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
@@ -238,6 +244,7 @@ describe('SettingsStore', () => {
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
         gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
