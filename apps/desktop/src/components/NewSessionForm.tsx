@@ -33,7 +33,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [iosAppOptions, setIosAppOptions] = useState<IosAppInfo[]>([])
   const [iosAppMenuOpen, setIosAppMenuOpen] = useState(false)
   const [iosLaunchApp, setIosLaunchApp] = useState(true)
-  const [iosLogFilter, setIosLogFilter] = useState('')
+  const [iosLogFilter, setIosLogFilter] = useState('UnityFramework')
   const [iosLogMinLevel, setIosLogMinLevel] = useState('V')
   const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [busy, setBusy] = useState(false)
@@ -41,6 +41,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
 
   useEffect(() => {
     setRecordPcScreen(isPcLikeSource)
+    setIosAppName('')
   }, [connectionMode, deviceId])
 
   useEffect(() => {
@@ -88,10 +89,8 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   }, [iosBundleId, iosAppOptions])
 
   const resolvedIosAppName = useMemo(() => {
-    const bundleId = iosBundleId.trim()
-    if (!bundleId) return ''
-    return iosAppOptions.find(app => app.bundleId === bundleId)?.name ?? iosAppName.trim()
-  }, [iosAppName, iosAppOptions, iosBundleId])
+    return iosAppName.trim()
+  }, [iosAppName])
 
   async function start() {
     if (busy || !deviceId) return
@@ -275,7 +274,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       )}
 
       {connectionMode === 'ios' && (
-        <details className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+        <details open className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
           <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('new.advancedIos')}</summary>
           <div className="mt-3 space-y-3">
             <div>
@@ -286,7 +285,6 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                   onChange={e => {
                     const nextBundleId = e.target.value
                     setIosBundleId(nextBundleId)
-                    setIosAppName(iosAppOptions.find(app => app.bundleId === nextBundleId.trim())?.name ?? '')
                     setIosAppMenuOpen(true)
                   }}
                   onFocus={() => setIosAppMenuOpen(true)}
@@ -307,7 +305,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => {
                           setIosBundleId(app.bundleId)
-                          setIosAppName(app.name ?? '')
+                          setIosAppName('')
                           setIosAppMenuOpen(false)
                         }}
                         className="block w-full truncate px-3 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-800"
@@ -321,6 +319,17 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                 )}
               </div>
               <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.iosBundleIdHelp')}</p>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.iosAppName')}</label>
+              <input
+                value={iosAppName}
+                onChange={e => setIosAppName(e.target.value)}
+                placeholder={t('new.iosAppNamePlaceholder')}
+                data-testid="ios-app-name"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.iosAppNameHelp')}</p>
             </div>
             <label className="flex items-start gap-2 text-xs text-zinc-300">
               <input

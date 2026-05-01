@@ -38,6 +38,8 @@ export class IosSyslogBuffer {
 
   async start(options: IosSyslogStartOptions = {}): Promise<boolean> {
     if (this.process) return true
+    this.entries = []
+    this.partial = ''
     const provider = await this.resolveProvider()
     const bundleId = options.bundleId?.trim() ?? ''
     this.filters = {
@@ -74,11 +76,11 @@ export class IosSyslogBuffer {
 
   dumpRecentLines(maxLines: number, now: number = this.now()): string {
     const cutoff = now - this.windowMs
-    return this.entries
+    const text = this.entries
       .filter(e => e.t >= cutoff)
-      .slice(-Math.max(1, maxLines))
       .map(e => e.line)
       .join('\n')
+    return tailTextLines(text, maxLines)
   }
 
   dumpRecentLinesToFile(filePath: string, maxLines: number, now: number = this.now()): void {
@@ -97,7 +99,7 @@ export class IosSyslogBuffer {
       stderr: err instanceof Error ? err.message : String(err),
     }))
     if (goIosCheck.code === 0) {
-      return { name: 'go-ios', cmd: 'ios', args: ['syslog', '--parse'] }
+      return { name: 'go-ios', cmd: 'ios', args: ['syslog', '--parse', '-v', '-t'] }
     }
 
     const pyCheck = await this.runner.run('pymobiledevice3', ['-h']).catch(err => ({
@@ -254,7 +256,7 @@ export class IosSyslogBuffer {
     this.partial = lines.pop() ?? ''
     const t = this.now()
     for (const line of lines) {
-      if (this.shouldKeepLine(line)) this.entries.push({ t, line })
+      if (this.shouldKeepLine(line)) this.entries.push({ t, line: this.displayLogText(line) })
     }
     this.gc(t)
   }
@@ -265,15 +267,19 @@ export class IosSyslogBuffer {
     const { bundleId, appName, textFilter, minLevel } = this.filters
     const comparable = this.comparableLogText(trimmed)
     const lower = comparable.toLowerCase()
+    if (!bundleId && !appName && !textFilter) return false
+    const appNameHint = this.normalizedProcessCandidate(appName)
+    const processName = this.normalizedProcessCandidate(this.extractProcessName(trimmed) ?? this.extractProcessName(comparable) ?? '')
     if (bundleId) {
       const bundleLower = bundleId.toLowerCase()
       const processHint = this.normalizedProcessCandidate(bundleLower.split('.').filter(Boolean).at(-1) ?? bundleLower)
-      const appNameHint = this.normalizedProcessCandidate(appName)
-      const processName = this.normalizedProcessCandidate(this.extractProcessName(trimmed) ?? this.extractProcessName(comparable) ?? '')
-      const hasExactBundle = lower.includes(bundleLower)
+      const hasStructuredBundle = this.extractStructuredBundleIds(trimmed).some(id => id.toLowerCase() === bundleLower)
       const hasAppNameHint = appNameHint.length >= 3 && processName === appNameHint
       const hasProcessHint = processHint.length >= 4 && processName === processHint
-      if (!hasExactBundle && !hasAppNameHint && !hasProcessHint) return false
+      const hasUnattributedBundleMention = !processName && lower.includes(bundleLower)
+      if (!hasStructuredBundle && !hasAppNameHint && !hasProcessHint && !hasUnattributedBundleMention) return false
+    } else if (appNameHint.length >= 3 && processName !== appNameHint) {
+      return false
     }
     if (textFilter && !lower.includes(textFilter.toLowerCase())) return false
     const minOrder = IOS_LEVEL_ORDER[minLevel.toUpperCase()] ?? 0
@@ -287,14 +293,38 @@ export class IosSyslogBuffer {
       const parsed = JSON.parse(line)
       if (parsed && typeof parsed === 'object') {
         const msg = (parsed as Record<string, unknown>).msg
-        if (typeof msg === 'string' && msg.trim()) return msg
+        if (typeof msg === 'string' && msg.trim()) return decodeGoIosMetaEscapes(msg)
       }
     } catch {}
-    return line
+    return decodeGoIosMetaEscapes(line)
+  }
+
+  private displayLogText(line: string): string {
+    return this.comparableLogText(line)
   }
 
   private normalizedProcessCandidate(value: string): string {
     return value.toLowerCase().replace(/[\s._-]+/g, '')
+  }
+
+  private extractStructuredBundleIds(line: string): string[] {
+    try {
+      const parsed = JSON.parse(line)
+      return this.findStructuredBundleIds(parsed)
+    } catch {
+      return []
+    }
+  }
+
+  private findStructuredBundleIds(value: unknown): string[] {
+    if (!value || typeof value !== 'object') return []
+    if (Array.isArray(value)) return value.flatMap(item => this.findStructuredBundleIds(item))
+    const ids: string[] = []
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === 'string' && /bundle.*id|bundle.*identifier|cfbundleidentifier/i.test(key)) ids.push(item)
+      if (item && typeof item === 'object') ids.push(...this.findStructuredBundleIds(item))
+    }
+    return ids
   }
 
   private extractProcessName(line: string): string | null {
@@ -349,4 +379,40 @@ export class IosSyslogBuffer {
     while (i < this.entries.length && this.entries[i].t < cutoff) i++
     if (i > 0) this.entries.splice(0, i)
   }
+}
+
+function tailTextLines(text: string, maxLines: number): string {
+  return text.split('\n').slice(-Math.max(1, maxLines)).join('\n')
+}
+
+function decodeGoIosMetaEscapes(text: string): string {
+  let out = ''
+  let bytes: number[] = []
+  const flush = () => {
+    if (bytes.length === 0) return
+    out += Buffer.from(bytes).toString('utf8')
+    bytes = []
+  }
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\' && text.slice(i + 1, i + 3) === 'M-') {
+      const value = text.charCodeAt(i + 3)
+      if (Number.isFinite(value)) {
+        bytes.push((value & 0x7f) | 0x80)
+        i += 3
+        continue
+      }
+    }
+    if (text[i] === '\\' && text.slice(i + 1, i + 3) === 'M^') {
+      const value = text.charCodeAt(i + 3)
+      if (Number.isFinite(value)) {
+        bytes.push(((value === 63 ? 127 : value & 0x1f) & 0x7f) | 0x80)
+        i += 3
+        continue
+      }
+    }
+    flush()
+    out += text[i]
+  }
+  flush()
+  return out
 }

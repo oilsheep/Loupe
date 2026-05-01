@@ -35,7 +35,7 @@ describe('IosSyslogBuffer', () => {
     expect(runner.run).toHaveBeenCalledWith('ios', ['--version'])
     expect(runner.run).toHaveBeenCalledWith('ios', ['launch', 'com.example.game'])
     expect(runner.run).not.toHaveBeenCalledWith('pymobiledevice3', ['-h'])
-    expect(runner.spawn).toHaveBeenCalledWith('ios', ['syslog', '--parse'])
+    expect(runner.spawn).toHaveBeenCalledWith('ios', ['syslog', '--parse', '-v', '-t'])
 
     m.emitLine('{"process":"game","level":"DEBUG","message":"foreground app changed"}')
     m.emitLine('{"process":"game","level":"INFO","message":"foreground app changed"}')
@@ -91,6 +91,118 @@ describe('IosSyslogBuffer', () => {
     expect(lines).not.toContain('BackBoardServices[4389]')
   })
 
+  it('keeps logs by process name even when no iOS bundle id is selected', async () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(m.proc) as any,
+    }
+    const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
+
+    await expect(buf.start({ appName: 'CursedBlossom' })).resolves.toBe(true)
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:41:46 Miki20 CursedBlossom(UnityFramework)[4419] <Notice>: System.NullReferenceException',
+    }))
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:41:46 Miki20 avconferenced(AVConference)[3650] <Error>: <private>',
+    }))
+
+    const lines = buf.dumpRecentLines(10, 1000)
+    expect(lines).toContain('CursedBlossom(UnityFramework)')
+    expect(lines).not.toContain('avconferenced')
+    expect(runner.run).not.toHaveBeenCalledWith('ios', ['launch', expect.any(String)])
+  })
+
+  it('starts a fresh iOS syslog capture without keeping previous provider diagnostics', async () => {
+    const first = mockSpawnedProcess()
+    const second = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 })
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn()
+        .mockReturnValueOnce(first.proc)
+        .mockReturnValueOnce(second.proc) as any,
+    }
+    const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
+
+    await expect(buf.start({ appName: 'CursedBlossom' })).resolves.toBe(true)
+    expect(buf.dumpRecentLines(10, 1000).match(/provider started/g)).toHaveLength(1)
+    buf.stop()
+    await expect(buf.start({ appName: 'CursedBlossom' })).resolves.toBe(true)
+    expect(buf.dumpRecentLines(10, 1000).match(/provider started/g)).toHaveLength(1)
+  })
+
+  it('stores Unity app syslog text without the go-ios JSON wrapper', async () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 })
+        .mockResolvedValueOnce({ stdout: 'launched\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(m.proc) as any,
+    }
+    const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
+
+    await expect(buf.start({ bundleId: 'com.pinkcore.ig', appName: 'CursedBlossom', launchApp: true })).resolves.toBe(true)
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:41:46 Miki20 CursedBlossom(UnityFramework)[4419] <Notice>: System.NullReferenceException: Object reference not set to an instance of an object.\n  at UnityEngine.ResourceManagement.AsyncOperations.ProviderOperation`1[TObject].Execute () [0x00000] in <00000000000000000000000000000000\\M-b\\M^@\\M-&>',
+    }))
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:41:46 Miki20 avconferenced(AVConference)[3650] <Error>: <private>',
+    }))
+
+    const lines = buf.dumpRecentLines(20, 1000)
+    expect(lines).toContain('CursedBlossom(UnityFramework)')
+    expect(lines).toContain('System.NullReferenceException')
+    expect(lines).toContain('00000000000000000000000000000000…')
+    expect(lines).not.toContain('{"msg"')
+    expect(lines).not.toContain('avconferenced')
+  })
+
+  it('drops system daemon logs that only mention the selected iOS bundle id', async () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 })
+        .mockResolvedValueOnce({ stdout: 'launched\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(m.proc) as any,
+    }
+    const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
+
+    await expect(buf.start({ bundleId: 'com.pinkcore.ig', appName: 'CursedBlossom', launchApp: true })).resolves.toBe(true)
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:29:51 Miki20 audiomxd(AudioToolbox)[116] <Notice>: Returning cached value mEntitlementsCache[k3rdPartyUntrackedHeadphoneEntitlement][com.pinkcore.ig] = 0',
+    }))
+
+    expect(buf.dumpRecentLines(10, 1000)).not.toContain('audiomxd')
+  })
+
+  it('does not capture all iOS device syslog when no app or text filter is selected', async () => {
+    const m = mockSpawnedProcess()
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '1.0.211\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(m.proc) as any,
+    }
+    const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
+
+    await expect(buf.start()).resolves.toBe(true)
+    m.emitLine(JSON.stringify({
+      msg: 'May  2 01:33:15 Miki20 avconferenced(AVConference)[3650] <Notice>: VideoReceiver [NOTICE] VRTCP',
+    }))
+
+    expect(buf.dumpRecentLines(10, 1000)).not.toContain('avconferenced')
+  })
+
+  it('limits dumped iOS syslog output by actual text lines', () => {
+    const buf = new IosSyslogBuffer({ run: vi.fn() as any, spawn: vi.fn() as any }, { windowMs: 5_000 })
+    buf.appendLineForTest('entry 1 line 1\nentry 1 line 2', 4000)
+    buf.appendLineForTest('entry 2 line 1\nentry 2 line 2', 6000)
+
+    expect(buf.dumpRecentLines(3, 7000)).toBe('entry 1 line 2\nentry 2 line 1\nentry 2 line 2')
+  })
+
   it('kills an existing app then retries launch after a process start timeout', async () => {
     const m = mockSpawnedProcess()
     const runner: IProcessRunner = {
@@ -119,7 +231,7 @@ describe('IosSyslogBuffer', () => {
     }
     const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
 
-    await expect(buf.start()).resolves.toBe(true)
+    await expect(buf.start({ textFilter: 'foreground' })).resolves.toBe(true)
     expect(runner.run).toHaveBeenCalledWith('ios', ['--version'])
     expect(runner.run).toHaveBeenCalledWith('pymobiledevice3', ['-h'])
     expect(runner.spawn).toHaveBeenCalledWith('pymobiledevice3', ['syslog', 'live', '--label'])
@@ -164,7 +276,7 @@ describe('IosSyslogBuffer', () => {
     expect(runner.spawn).toHaveBeenCalledWith('ios', ['tunnel', 'start', '--userspace'])
     expect(runner.run).toHaveBeenCalledWith('ios', ['image', 'auto'])
     expect(runner.run).toHaveBeenCalledTimes(5)
-    expect(runner.spawn).toHaveBeenCalledWith('ios', ['syslog', '--parse'])
+    expect(runner.spawn).toHaveBeenCalledWith('ios', ['syslog', '--parse', '-v', '-t'])
   })
 
   it('fails before spawning when both providers are unavailable', async () => {
