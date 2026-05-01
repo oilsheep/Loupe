@@ -6,6 +6,7 @@ export interface UxPlayReceiverStatus {
   running: boolean
   receiverName: string
   message?: string
+  messageKey?: 'device.uxPlayAlreadyRunning' | 'device.uxPlayRunningHint' | 'device.uxPlayStopped'
 }
 
 export class UxPlayReceiver {
@@ -15,7 +16,7 @@ export class UxPlayReceiver {
   constructor(private runner: IProcessRunner, private receiverName = 'Loupe iOS') {}
 
   async start(): Promise<UxPlayReceiverStatus> {
-    if (this.process) return this.status('UxPlay receiver is already running.')
+    if (this.process) return this.status('UxPlay receiver is already running.', 'device.uxPlayAlreadyRunning')
     const availability = await this.checkAvailability()
     if (!availability.ok) return this.status(formatUxPlayUnavailable(availability.reason))
 
@@ -37,7 +38,7 @@ export class UxPlayReceiver {
     proc.onExit(() => {
       if (this.process === proc) this.process = undefined
     })
-    return this.status(`UxPlay receiver "${this.receiverName}" is running. If it does not appear on iPhone, make sure both devices are on the same network and macOS Firewall allows incoming connections for uxplay.`)
+    return this.status(`UxPlay receiver "${this.receiverName}" is running. If it does not appear on iPhone, make sure both devices are on the same network and macOS Firewall allows incoming connections for uxplay.`, 'device.uxPlayRunningHint')
   }
 
   private async checkAvailability(): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -60,14 +61,15 @@ export class UxPlayReceiver {
       try { this.process.kill('SIGTERM') } catch {}
       this.process = undefined
     }
-    return this.status('UxPlay receiver stopped.')
+    return this.status('UxPlay receiver stopped.', 'device.uxPlayStopped')
   }
 
-  status(message = this.lastMessage.trim()): UxPlayReceiverStatus {
+  status(message = this.lastMessage.trim(), messageKey?: UxPlayReceiverStatus['messageKey']): UxPlayReceiverStatus {
     return {
       running: Boolean(this.process),
       receiverName: this.receiverName,
       ...(message ? { message } : {}),
+      ...(messageKey ? { messageKey } : {}),
     }
   }
 }

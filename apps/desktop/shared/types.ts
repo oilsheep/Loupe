@@ -239,6 +239,7 @@ export interface UxPlayReceiverStatus {
   running: boolean
   receiverName: string
   message?: string
+  messageKey?: 'device.uxPlayAlreadyRunning' | 'device.uxPlayRunningHint' | 'device.uxPlayStopped'
 }
 
 export interface ToolInstallResult {

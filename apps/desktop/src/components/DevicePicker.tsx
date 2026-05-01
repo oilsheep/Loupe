@@ -260,8 +260,8 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
       <div className="grid grid-cols-3 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
         {([
           ['pc', t('device.pcRecording')],
-          ['ios', t('device.iosRecording')],
           ['android', t('device.androidDevices')],
+          ['ios', t('device.iosRecording')],
         ] as const).map(([tab, label]) => (
           <button
             key={tab}

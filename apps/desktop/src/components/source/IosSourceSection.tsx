@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { DesktopApi, PcCaptureSource } from '@shared/types'
+import type { DesktopApi, PcCaptureSource, UxPlayReceiverStatus } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { SelectRecordingSource } from '@/lib/recordingSource'
 
@@ -33,6 +33,7 @@ export function IosSourceSection({
   const [iosMode, setIosMode] = useState<'mirror' | 'uxplay'>(platform === 'darwin' ? 'mirror' : 'uxplay')
   const [uxPlayRunning, setUxPlayRunning] = useState(false)
   const [uxPlayMessage, setUxPlayMessage] = useState<string | null>(null)
+  const [uxPlayMessageKey, setUxPlayMessageKey] = useState<UxPlayReceiverStatus['messageKey'] | null>(null)
   const isMac = platform === 'darwin'
   const windowSources = useMemo(() => sources.filter(source => source.type === 'window'), [sources])
   const mirrorSources = useMemo(() => windowSources.filter(isIphoneMirroringSource), [windowSources])
@@ -74,6 +75,7 @@ export function IosSourceSection({
       .then(status => {
         setUxPlayRunning(status.running)
         setUxPlayMessage(status.message ?? null)
+        setUxPlayMessageKey(status.messageKey ?? null)
       })
       .catch(() => {})
   }, [api])
@@ -87,6 +89,7 @@ export function IosSourceSection({
     const status = await api.app.startUxPlayReceiver()
     setUxPlayRunning(status.running)
     setUxPlayMessage(status.message ?? null)
+    setUxPlayMessageKey(status.messageKey ?? null)
     window.setTimeout(onRefresh, 1000)
     window.setTimeout(onRefresh, 3000)
   }
@@ -95,6 +98,7 @@ export function IosSourceSection({
     const status = await api.app.stopUxPlayReceiver()
     setUxPlayRunning(status.running)
     setUxPlayMessage(status.message ?? null)
+    setUxPlayMessageKey(status.messageKey ?? null)
     void api.app.hidePcCaptureFrame()
     window.setTimeout(onRefresh, 500)
   }
@@ -213,7 +217,11 @@ export function IosSourceSection({
                 {t('device.stopUxPlay')}
               </button>
             </div>
-            {uxPlayMessage && <div className="mt-2 text-[11px] text-zinc-500">{uxPlayMessage}</div>}
+            {(uxPlayMessageKey || uxPlayMessage) && (
+              <div className="mt-2 text-[11px] text-zinc-500">
+                {uxPlayMessageKey ? t(uxPlayMessageKey, { name: 'Loupe iOS' }) : uxPlayMessage}
+              </div>
+            )}
           </div>
 
           <div className="mt-3 grid max-h-72 grid-cols-2 gap-2 overflow-auto pr-1">

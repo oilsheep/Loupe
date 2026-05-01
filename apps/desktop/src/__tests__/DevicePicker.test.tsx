@@ -49,7 +49,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
 
 describe('DevicePicker', () => {
   function openAndroidTab() {
-    fireEvent.click(screen.getByRole('button', { name: 'Android devices' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Android' }))
   }
 
   it('renders devices and selects one', async () => {
