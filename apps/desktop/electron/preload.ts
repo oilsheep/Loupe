@@ -7,6 +7,8 @@ const api: DesktopApi = {
   app: {
     showItemInFolder: (path) => ipcRenderer.invoke(CHANNEL.showItemInFolder, path),
     openPath:         (path) => ipcRenderer.invoke(CHANNEL.openPath, path),
+    getPlatform:      () => ipcRenderer.invoke(CHANNEL.appGetPlatform),
+    openIphoneMirroring: () => ipcRenderer.invoke(CHANNEL.appOpenIphoneMirroring),
     getPrimaryScreenSource: () => ipcRenderer.invoke(CHANNEL.getPrimaryScreenSource),
     listPcCaptureSources:  () => ipcRenderer.invoke(CHANNEL.listPcCaptureSources),
     showPcCaptureFrame:    (sourceId, color, displayId) => ipcRenderer.invoke(CHANNEL.showPcCaptureFrame, sourceId, color, displayId),

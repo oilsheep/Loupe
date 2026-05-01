@@ -35,6 +35,8 @@ function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
     app: {
       showItemInFolder: vi.fn().mockResolvedValue(undefined),
       openPath: vi.fn().mockResolvedValue(undefined),
+      getPlatform: vi.fn().mockResolvedValue('darwin'),
+      openIphoneMirroring: vi.fn().mockResolvedValue(true),
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null),
       listPcCaptureSources: vi.fn().mockResolvedValue([]),
       showPcCaptureFrame: vi.fn().mockResolvedValue(false),

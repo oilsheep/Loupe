@@ -29,6 +29,8 @@ export const CHANNEL = {
   doctor:                  'app:doctor',
   showItemInFolder:        'app:showItemInFolder',
   openPath:                'app:openPath',
+  appGetPlatform:          'app:getPlatform',
+  appOpenIphoneMirroring:  'app:openIphoneMirroring',
   getPrimaryScreenSource:  'app:getPrimaryScreenSource',
   listPcCaptureSources:   'app:listPcCaptureSources',
   showPcCaptureFrame:     'app:showPcCaptureFrame',
@@ -1689,6 +1691,17 @@ export function registerIpc(deps: IpcDeps): void {
     }
     const error = await shell.openPath(path)
     if (error) throw new Error(error)
+  })
+  ipcMain.handle(CHANNEL.appGetPlatform, async () => process.platform)
+  ipcMain.handle(CHANNEL.appOpenIphoneMirroring, async () => {
+    if (process.platform !== 'darwin') return false
+    await new Promise<void>((resolve, reject) => {
+      execFile('/usr/bin/open', ['-a', 'iPhone Mirroring'], { timeout: MAC_WINDOW_SCRIPT_TIMEOUT_MS }, (err, _stdout, stderr) => {
+        if (err) reject(new Error(stderr.trim() || err.message))
+        else resolve()
+      })
+    })
+    return true
   })
   ipcMain.handle(CHANNEL.getPrimaryScreenSource, async (): Promise<{ id: string; name: string } | null> => {
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })

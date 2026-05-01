@@ -5,6 +5,7 @@ import type { SelectRecordingSource } from '@/lib/recordingSource'
 import { PcCaptureSourceSection } from '@/components/source/PcCaptureSourceSection'
 import { AndroidDeviceList } from '@/components/source/AndroidDeviceList'
 import { AndroidWifiSection } from '@/components/source/AndroidWifiSection'
+import { IosSourceSection } from '@/components/source/IosSourceSection'
 
 interface Props {
   api: DesktopApi
@@ -13,7 +14,7 @@ interface Props {
 }
 
 const LABEL_KEY = 'loupe.deviceLabels'
-type SourceTab = 'pc' | 'android'
+type SourceTab = 'pc' | 'android' | 'ios'
 
 function readLabels(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LABEL_KEY) ?? '{}') } catch { return {} }
@@ -47,6 +48,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   const [pcSourcesLoading, setPcSourcesLoading] = useState(false)
   const [pcSourceTab, setPcSourceTab] = useState<'screen' | 'window'>('screen')
   const [sourceTab, setSourceTab] = useState<SourceTab>('pc')
+  const [platform, setPlatform] = useState<string | null>(null)
 
   async function refresh() {
     try {
@@ -60,6 +62,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
   useEffect(() => {
     refresh()
     refreshPcSources()
+    api.app.getPlatform().then(setPlatform).catch(() => setPlatform(null))
     const t = setInterval(refresh, 3000)
     return () => clearInterval(t)
   }, [])
@@ -236,6 +239,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
 
   const selectPcSource: SelectRecordingSource = (id, mode, label) => {
     if (mode === 'pc') setSourceTab('pc')
+    if (mode === 'ios') setSourceTab('ios')
     onSelect(id, mode, label)
   }
 
@@ -253,9 +257,10 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+      <div className="grid grid-cols-3 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
         {([
           ['pc', t('device.pcRecording')],
+          ['ios', t('device.iosRecording')],
           ['android', t('device.androidDevices')],
         ] as const).map(([tab, label]) => (
           <button
@@ -277,6 +282,16 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
           loading={pcSourcesLoading}
           activeTab={pcSourceTab}
           onTabChange={setPcSourceTab}
+          onRefresh={refreshPcSources}
+          onSelect={selectPcSource}
+        />
+      ) : sourceTab === 'ios' ? (
+        <IosSourceSection
+          api={api}
+          selectedId={selectedId}
+          sources={pcSources}
+          loading={pcSourcesLoading}
+          platform={platform}
           onRefresh={refreshPcSources}
           onSelect={selectPcSource}
         />

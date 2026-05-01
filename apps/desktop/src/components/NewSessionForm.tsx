@@ -13,6 +13,8 @@ interface Props {
 
 export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Props) {
   const { t } = useI18n()
+  const backendConnectionMode = connectionMode === 'ios' ? 'pc' : connectionMode
+  const isPcLikeSource = connectionMode === 'pc' || connectionMode === 'ios'
   const recent = useApp(s => s.recentBuilds)
   const pushRecent = useApp(s => s.pushRecentBuild)
   const goRecording = useApp(s => s.goRecording)
@@ -26,18 +28,18 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatTagFilter, setLogcatTagFilter] = useState('Unity')
   const [logcatMinPriority, setLogcatMinPriority] = useState('V')
   const [logcatLineCount, setLogcatLineCount] = useState(50)
-  const [recordPcScreen, setRecordPcScreen] = useState(connectionMode === 'pc')
+  const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setRecordPcScreen(connectionMode === 'pc')
+    setRecordPcScreen(isPcLikeSource)
   }, [connectionMode, deviceId])
 
   useEffect(() => {
     let cancelled = false
     setLogcatPackageOptions([])
-    if (connectionMode === 'pc') return
+    if (isPcLikeSource) return
     api.device.listPackages(deviceId)
       .then(packages => {
         if (!cancelled) setLogcatPackageOptions(packages)
@@ -46,7 +48,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         if (!cancelled) setLogcatPackageOptions([])
       })
     return () => { cancelled = true }
-  }, [api, connectionMode, deviceId])
+  }, [api, isPcLikeSource, deviceId])
 
   const visibleLogcatPackageOptions = useMemo(() => {
     const query = logcatPackageName.trim().toLowerCase()
@@ -63,16 +65,16 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     try {
       const session = await api.session.start({
         deviceId,
-        connectionMode,
+        connectionMode: backendConnectionMode,
         buildVersion: build.trim(),
         testNote: note.trim(),
         tester: tester.trim(),
         recordPcScreen,
         pcCaptureSourceName: sourceName,
-        logcatPackageName: connectionMode === 'pc' ? undefined : logcatPackageName.trim(),
-        logcatTagFilter: connectionMode === 'pc' ? undefined : logcatTagFilter.trim(),
-        logcatMinPriority: connectionMode === 'pc' ? undefined : logcatMinPriority,
-        logcatLineCount: connectionMode === 'pc' ? undefined : logcatLineCount,
+        logcatPackageName: isPcLikeSource ? undefined : logcatPackageName.trim(),
+        logcatTagFilter: isPcLikeSource ? undefined : logcatTagFilter.trim(),
+        logcatMinPriority: isPcLikeSource ? undefined : logcatMinPriority,
+        logcatLineCount: isPcLikeSource ? undefined : logcatLineCount,
       })
       pushRecent(build.trim())
       goRecording(session)
@@ -89,11 +91,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-zinc-500">{t('new.selectedDevice')}</div>
-            <div className="truncate text-base font-medium text-zinc-100">{connectionMode === 'pc' ? sourceName || deviceId : deviceId}</div>
+            <div className="truncate text-base font-medium text-zinc-100">{isPcLikeSource ? sourceName || deviceId : deviceId}</div>
             <div className="mt-1 flex items-center gap-2">
               <span className="rounded bg-emerald-950 px-2 py-0.5 text-[11px] text-emerald-200">{connectionMode.toUpperCase()}</span>
               <span className="truncate text-xs text-zinc-500">
-                {connectionMode === 'pc' ? t('new.pcStartHelp') : t('new.androidStartHelp')}
+                {connectionMode === 'ios' ? t('new.iosStartHelp') : connectionMode === 'pc' ? t('new.pcStartHelp') : t('new.androidStartHelp')}
               </span>
             </div>
           </div>
@@ -146,7 +148,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         </div>
       </div>
 
-      {connectionMode !== 'pc' && (
+      {!isPcLikeSource && (
         <details className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
           <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('new.advancedAndroid')}</summary>
           <div className="mt-3 space-y-3">

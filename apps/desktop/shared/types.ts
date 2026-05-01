@@ -261,6 +261,8 @@ export interface DesktopApi {
   app: {
     showItemInFolder(path: string):                                Promise<void>
     openPath(path: string):                                        Promise<void>
+    getPlatform():                                                 Promise<string>
+    openIphoneMirroring():                                         Promise<boolean>
     getPrimaryScreenSource():                                      Promise<{ id: string; name: string } | null>
     listPcCaptureSources():                                        Promise<PcCaptureSource[]>
     showPcCaptureFrame(sourceId: string, color?: 'green' | 'red', displayId?: string): Promise<boolean>

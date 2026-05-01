@@ -16,6 +16,8 @@ function fakeApi(): DesktopApi {
     app: {
       showItemInFolder: vi.fn() as any,
       openPath: vi.fn() as any,
+      getPlatform: vi.fn().mockResolvedValue('darwin') as any,
+      openIphoneMirroring: vi.fn().mockResolvedValue(true) as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null) as any,
       listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,

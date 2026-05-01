@@ -9,10 +9,13 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
     app: {
       showItemInFolder: vi.fn() as any,
       openPath: vi.fn() as any,
+      getPlatform: vi.fn().mockResolvedValue('darwin') as any,
+      openIphoneMirroring: vi.fn().mockResolvedValue(true) as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue({ id: 'screen:1:0', name: 'Entire screen' }) as any,
       listPcCaptureSources: vi.fn().mockResolvedValue([
         { id: 'screen:1:0', name: 'Entire screen', type: 'screen', thumbnailDataUrl: 'data:image/png;base64,screen' },
         { id: 'window:2:0', name: 'Chrome', type: 'window', thumbnailDataUrl: 'data:image/png;base64,window' },
+        { id: 'window:3:0', name: 'iPhone Mirroring', type: 'window', thumbnailDataUrl: 'data:image/png;base64,ios' },
       ]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(true) as any,
       hidePcCaptureFrame: vi.fn().mockResolvedValue(undefined) as any,
@@ -96,6 +99,50 @@ describe('DevicePicker', () => {
     await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
     fireEvent.click(screen.getByTestId('source-pc-window:2:0'))
     expect(onSelect).toHaveBeenCalledWith('window:2:0', 'pc', 'Chrome')
+  })
+
+  it('selects iPhone Mirroring as an iOS recording source', async () => {
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'iOS' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'iOS' }))
+    await waitFor(() => expect(screen.getByTestId('source-ios-window:3:0')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('source-ios-window:3:0'))
+    expect(onSelect).toHaveBeenCalledWith('window:3:0', 'ios', 'iPhone Mirroring')
+  })
+
+  it('auto-selects the iPhone Mirroring window on the iOS tab', async () => {
+    const onSelect = vi.fn()
+    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'iOS' }))
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:3:0', 'ios', 'iPhone Mirroring'))
+  })
+
+  it('opens iPhone Mirroring only after clicking the open button', async () => {
+    const api = fakeApi([])
+    const openIphoneMirroring = vi.fn().mockResolvedValue(true)
+    api.app.openIphoneMirroring = openIphoneMirroring as any
+    api.app.listPcCaptureSources = vi.fn().mockResolvedValue([
+      { id: 'screen:1:0', name: 'Entire screen', type: 'screen', thumbnailDataUrl: 'data:image/png;base64,screen' },
+      { id: 'window:2:0', name: 'Chrome', type: 'window', thumbnailDataUrl: 'data:image/png;base64,window' },
+    ]) as any
+    render(<DevicePicker api={api} selectedId={null} onSelect={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'iOS' }))
+    expect(openIphoneMirroring).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open iPhone Mirroring' }))
+    await waitFor(() => expect(openIphoneMirroring).toHaveBeenCalled())
+  })
+
+  it('does not show non-iPhone windows in the iOS tab', async () => {
+    const api = fakeApi([])
+    api.app.listPcCaptureSources = vi.fn().mockResolvedValue([
+      { id: 'window:2:0', name: 'Chrome', type: 'window', thumbnailDataUrl: 'data:image/png;base64,window' },
+    ]) as any
+    render(<DevicePicker api={api} selectedId={null} onSelect={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'iOS' }))
+    expect(screen.queryByTestId('source-ios-window:2:0')).toBeNull()
+    expect(await screen.findByText(/No suitable iPhone Mirroring window/i)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Apple setup guide' }).getAttribute('href')).toBe('https://support.apple.com/en-us/120421')
   })
 
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {
