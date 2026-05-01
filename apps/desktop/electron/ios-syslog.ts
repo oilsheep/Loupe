@@ -23,7 +23,7 @@ export class IosSyslogBuffer {
 
   async start(): Promise<boolean> {
     if (this.process) return true
-    const check = await this.runner.run('pymobiledevice3', ['--version'])
+    const check = await this.runner.run('pymobiledevice3', ['-h'])
     if (check.code !== 0) throw new Error((check.stderr || check.stdout || `pymobiledevice3 exited ${check.code}`).trim())
     const proc = this.runner.spawn('pymobiledevice3', ['syslog', 'live'])
     this.process = proc

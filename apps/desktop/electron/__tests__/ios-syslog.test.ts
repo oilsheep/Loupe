@@ -21,16 +21,16 @@ function mockSpawnedProcess(): { proc: SpawnedProcess; emitLine: (s: string) => 
 }
 
 describe('IosSyslogBuffer', () => {
-  it('checks pymobiledevice3 then starts syslog live', async () => {
+  it('checks pymobiledevice3 help then starts syslog live', async () => {
     const m = mockSpawnedProcess()
     const runner: IProcessRunner = {
-      run: vi.fn().mockResolvedValue({ stdout: '4.22.0\n', stderr: '', code: 0 }) as any,
+      run: vi.fn().mockResolvedValue({ stdout: 'Usage: pymobiledevice3 [OPTIONS] COMMAND [ARGS]...\n', stderr: '', code: 0 }) as any,
       spawn: vi.fn().mockReturnValue(m.proc) as any,
     }
     const buf = new IosSyslogBuffer(runner, { nowFn: () => 1000 })
 
     await expect(buf.start()).resolves.toBe(true)
-    expect(runner.run).toHaveBeenCalledWith('pymobiledevice3', ['--version'])
+    expect(runner.run).toHaveBeenCalledWith('pymobiledevice3', ['-h'])
     expect(runner.spawn).toHaveBeenCalledWith('pymobiledevice3', ['syslog', 'live'])
 
     m.emitLine('SpringBoard: foreground app changed')
