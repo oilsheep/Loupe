@@ -86,6 +86,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
     onAudioAnalysisProgress: () => () => {},
+    onToolInstallLog: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn() as any,
   }

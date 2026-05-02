@@ -3,12 +3,13 @@ import { randomUUID } from 'node:crypto'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
 import type { LogcatBuffer } from './logcat'
+import { IosSyslogBuffer, type IosSyslogStartOptions } from './ios-syslog'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { Paths } from './paths'
 import type { Session, Bug, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
-import { extractThumbnail, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
+import { assertVideoInputReadable, extractThumbnail, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
 import { ClickRecorder } from './click-recorder'
 import { TelemetrySampler } from './telemetry'
@@ -19,6 +20,7 @@ export interface SessionDeps {
   adb: Adb
   scrcpy: Scrcpy
   logcat: LogcatBuffer
+  iosSyslog?: Pick<IosSyslogBuffer, 'start' | 'stop' | 'dumpRecentLinesToFile'>
   runner: IProcessRunner
   captureScreenshot?: typeof defaultCapture
   capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
@@ -69,7 +71,19 @@ function sleep(ms: number): Promise<void> {
 
 function isIncompleteMp4Error(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return /moov atom not found|Invalid data found when processing input|ffmpeg faststart failed/i.test(message)
+  return /moov atom not found|Invalid data found when processing input|ffmpeg faststart failed|EBML header parsing failed/i.test(message)
+}
+
+function errorSummary(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/EBML header parsing failed|Invalid data found when processing input/i.test(message)) {
+    return 'recording video is not readable; skipping thumbnail repair for this session'
+  }
+  const firstMeaningfulLine = message
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line && !/^ffmpeg version|^built with|^configuration:|^lib\w+/i.test(line))
+  return (firstMeaningfulLine ?? message).slice(0, 300)
 }
 
 async function waitForStableFile(filePath: string, quietMs = 300): Promise<void> {
@@ -112,6 +126,12 @@ export interface StartArgs {
   logcatTagFilter?: string
   logcatMinPriority?: string
   logcatLineCount?: number
+  iosLogCapture?: boolean
+  iosLogBundleId?: string
+  iosLogAppName?: string
+  iosLogLaunchApp?: boolean
+  iosLogFilter?: string
+  iosLogMinLevel?: string
 }
 
 export interface MarkBugArgs {
@@ -140,6 +160,8 @@ export class SessionManager {
   private clickRecorder: Pick<ClickRecorder, 'start' | 'stop'>
   private telemetrySampler: Pick<TelemetrySampler, 'start' | 'stop'>
   private capturePcThumbnail?: (sourceId: string, outPath: string) => Promise<void>
+  private iosSyslog: Pick<IosSyslogBuffer, 'start' | 'stop' | 'dumpRecentLinesToFile'>
+  private activeIosLogCapture = false
   private finalizing: Promise<Session> | null = null
 
   constructor(private deps: SessionDeps) {
@@ -151,6 +173,7 @@ export class SessionManager {
     this.clickRecorder = deps.clickRecorder ?? new ClickRecorder(deps.runner)
     this.telemetrySampler = deps.telemetrySampler ?? new TelemetrySampler()
     this.capturePcThumbnail = deps.capturePcThumbnail
+    this.iosSyslog = deps.iosSyslog ?? new IosSyslogBuffer(deps.runner)
   }
 
   activeSessionId(): string | null { return this.active?.id ?? null }
@@ -184,6 +207,7 @@ export class SessionManager {
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
+    this.activeIosLogCapture = false
     if (!isPcSession) {
       const windowTitle = scrcpyWindowTitle(info.model)
       this.active = sess
@@ -211,6 +235,27 @@ export class SessionManager {
       logcat.start()
     } else {
       this.active = sess
+      if (args.iosLogCapture) {
+        try {
+          const iosLogOptions: IosSyslogStartOptions = {
+            bundleId: args.iosLogBundleId,
+            ...(args.iosLogAppName ? { appName: args.iosLogAppName } : {}),
+            launchApp: args.iosLogLaunchApp,
+            textFilter: args.iosLogFilter,
+            minLevel: args.iosLogMinLevel,
+          }
+          this.activeIosLogCapture = await this.iosSyslog.start(iosLogOptions)
+        } catch (err) {
+          if (args.iosLogLaunchApp && args.iosLogBundleId?.trim()) {
+            this.iosSyslog.stop()
+            this.activeIosLogCapture = false
+            this.active = null
+            throw err
+          }
+          console.warn('Loupe: iOS syslog capture is unavailable; continuing without iOS logs', err)
+          this.activeIosLogCapture = false
+        }
+      }
     }
     return sess
   }
@@ -271,6 +316,10 @@ export class SessionManager {
       this.telemetrySampler.stop()
       logcat.stop()
     }
+    if (this.activeIosLogCapture) {
+      this.iosSyslog.stop()
+      this.activeIosLogCapture = false
+    }
     const endedAt = this.now()
     const durationMs = endedAt - sess.startedAt
     if (sess.connectionMode !== 'pc') {
@@ -295,6 +344,10 @@ export class SessionManager {
       this.clickRecorder.stop()
       this.telemetrySampler.stop()
       this.deps.logcat.stop()
+      if (this.activeIosLogCapture) {
+        this.iosSyslog.stop()
+        this.activeIosLogCapture = false
+      }
       this.active = null
     }
     rmSync(this.deps.paths.sessionDir(sessionId), { recursive: true, force: true })
@@ -313,6 +366,12 @@ export class SessionManager {
       ? session.pcVideoPath
       : session.videoPath ?? paths.videoFile(session.id)
     if (!inputPath) return
+    try {
+      await assertVideoInputReadable(runner, resolveBundledFfmpegPath(), { inputPath })
+    } catch (err) {
+      console.warn(`Loupe: skipping thumbnail repair for session ${session.id}: ${errorSummary(err)}`)
+      return
+    }
 
     for (const bug of db.listBugs(session.id)) {
       const screenshotPath = paths.screenshotFile(session.id, bug.id)
@@ -329,7 +388,8 @@ export class SessionManager {
           logcatRel: bug.logcatRel,
         })
       } catch (err) {
-        console.warn(`Loupe: failed to repair thumbnail for marker ${bug.id}`, err)
+        console.warn(`Loupe: failed to repair thumbnail for marker ${bug.id}: ${errorSummary(err)}`)
+        if (isIncompleteMp4Error(err)) break
       }
     }
     this.persistProject(session.id)
@@ -372,6 +432,7 @@ export class SessionManager {
   savePcRecording(sessionId: string, bytes: Buffer): string {
     const session = this.deps.db.getSession(sessionId)
     if (!session) throw new Error('session not found')
+    if (bytes.length === 0) throw new Error('PC recording is empty; nothing was saved.')
     this.deps.paths.ensureSessionDirs(sessionId)
     const out = this.deps.paths.pcVideoFile(sessionId)
     writeFileSync(out, bytes)
@@ -448,6 +509,13 @@ export class SessionManager {
         logcatRel = `logcat/${bugId}.txt`
       } catch (err) {
         console.warn(`Loupe: failed to write logcat for marker ${bugId}`, err)
+      }
+    } else if (this.activeIosLogCapture) {
+      try {
+        this.iosSyslog.dumpRecentLinesToFile(logcatPath, this.activeLogcatLineCount)
+        logcatRel = `logcat/${bugId}.txt`
+      } catch (err) {
+        console.warn(`Loupe: failed to write iOS syslog for marker ${bugId}`, err)
       }
     }
 

@@ -11,7 +11,8 @@
     "pretest": "node ../../scripts/ensure-node-native.mjs better-sqlite3",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "spike:airplay": "electron scripts/spike-airplay.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
@@ -42,11 +43,13 @@
   "build": {
     "appId": "com.loupe.qa-recorder",
     "productName": "Loupe QA Recorder",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist"
     },
     "files": [
       "out/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "asarUnpack": [

@@ -16,6 +16,12 @@ function fakeApi(): DesktopApi {
     app: {
       showItemInFolder: vi.fn() as any,
       openPath: vi.fn() as any,
+      getPlatform: vi.fn().mockResolvedValue('darwin') as any,
+      openIphoneMirroring: vi.fn().mockResolvedValue(true) as any,
+      startUxPlayReceiver: vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS' }) as any,
+      stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
+      getUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
+      installTools: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }) as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null) as any,
       listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,
@@ -33,6 +39,7 @@ function fakeApi(): DesktopApi {
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
     onAudioAnalysisProgress: () => () => {},
+    onToolInstallLog: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }

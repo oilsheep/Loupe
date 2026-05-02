@@ -1,4 +1,4 @@
-export type RecordingConnectionMode = 'usb' | 'wifi' | 'pc'
+export type RecordingConnectionMode = 'usb' | 'wifi' | 'pc' | 'ios'
 
 export interface RecordingSourceSelection {
   id: string

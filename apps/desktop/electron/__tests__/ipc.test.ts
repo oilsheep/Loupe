@@ -19,7 +19,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { buildMacAvfoundationInputName, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
+import { buildMacAvfoundationInputName, extractIosApps, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
 import type { PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
@@ -91,5 +91,22 @@ describe('parseMacWindowId', () => {
     expect(parseMacWindowId('screen:1:0')).toBeNull()
     expect(parseMacWindowId('window:not-a-number:0')).toBeNull()
     expect(parseMacWindowId('window:0:0')).toBeNull()
+  })
+})
+
+describe('extractIosApps', () => {
+  it('extracts explicit bundle identifiers without treating versions as apps', () => {
+    const apps = extractIosApps([
+      { CFBundleIdentifier: 'com.pinkcore.ig', CFBundleDisplayName: 'CursedBlossom', CFBundleShortVersionString: '0.0.1' },
+      { bundleIdentifier: 'com.apple.mobilesafari', name: 'Safari', version: '0.20240503.0' },
+      { id: '0.3.3', name: 'Not a bundle id' },
+      '0.0.2',
+      'com.example.loose.string',
+    ])
+
+    expect([...apps.values()]).toEqual([
+      { bundleId: 'com.pinkcore.ig', name: 'CursedBlossom' },
+      { bundleId: 'com.apple.mobilesafari', name: 'Safari' },
+    ])
   })
 })

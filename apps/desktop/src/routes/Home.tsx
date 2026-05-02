@@ -4,6 +4,8 @@ import { DevicePicker } from '@/components/DevicePicker'
 import { NewSessionForm } from '@/components/NewSessionForm'
 import { PreferencesController } from '@/components/PreferencesController'
 import { RecentSessions } from '@/components/RecentSessions'
+import { HomeTopBar } from '@/components/HomeTopBar'
+import { MissingToolsNotice } from '@/components/MissingToolsNotice'
 import type { ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
@@ -12,6 +14,7 @@ import type { RecordingSourceSelection } from '@/lib/recordingSource'
 export function Home() {
   const { t } = useI18n()
   const goDraft = useApp(s => s.goDraft)
+  const goTools = useApp(s => s.goTools)
   const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -30,47 +33,35 @@ export function Home() {
           onSelect={(id, mode, label) => setSelected({ id, mode, label })}
         />
       </aside>
-      <main className="overflow-auto p-5">
+      <main className="flex min-w-0 flex-col overflow-hidden">
         <PreferencesController open={preferencesOpen} onClose={() => setPreferencesOpen(false)} />
 
-        {missing.length > 0 && (
-          <div className="mb-6 rounded border border-yellow-700 bg-yellow-950/40 p-4 text-sm text-yellow-200">
-            <div className="font-medium">{t('home.missingTools')}</div>
-            <ul className="mt-1 list-disc pl-5">
-              {missing.map(c => <li key={c.name}><code>{c.name}</code> - {c.error}</li>)}
-            </ul>
-            <p className="mt-2 text-xs text-yellow-300/80">
-              {t('home.missingToolsHelp')}
-            </p>
-          </div>
-        )}
+        <HomeTopBar
+          selectedLabel={selected?.label}
+          missingTools={missing}
+          onOpenTools={goTools}
+          onOpenPreferences={() => setPreferencesOpen(true)}
+        />
 
-        <section className="mb-4 border border-zinc-800 bg-zinc-900/40 p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-zinc-300">{t('home.newSession')}</h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPreferencesOpen(true)}
-                className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
-              >
-                {t('home.preferences')}
-              </button>
-            </div>
-          </div>
-          {selected
-            ? <NewSessionForm api={api} deviceId={selected.id} connectionMode={selected.mode} sourceName={selected.label} />
-            : (
-              <div className="border border-dashed border-zinc-800 p-3 text-sm text-zinc-500">
-                {t('home.selectPrompt')}
-              </div>
-            )
-          }
-        </section>
+        <div className="overflow-auto p-5">
+          <MissingToolsNotice missingTools={missing} onOpenTools={goTools} />
 
-        <RecentSessions onOpenSession={goDraft} />
+          <section className="mb-4 border border-zinc-800 bg-zinc-900/40 p-3">
+            <h2 className="mb-3 text-sm font-medium text-zinc-300">{t('home.newSession')}</h2>
+            {selected
+              ? <NewSessionForm api={api} deviceId={selected.id} connectionMode={selected.mode} sourceName={selected.label} />
+              : (
+                <div className="border border-dashed border-zinc-800 p-3 text-sm text-zinc-500">
+                  {t('home.selectPrompt')}
+                </div>
+              )
+            }
+          </section>
 
-        {!selected && (
-          <section className="mb-4 border border-zinc-800 bg-zinc-900/40 p-5">
+          <RecentSessions onOpenSession={goDraft} />
+
+          {!selected && (
+            <section className="mb-4 border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="max-w-2xl">
               <div className="text-xs uppercase tracking-wider text-zinc-500">{t('home.getStarted')}</div>
               <h2 className="mt-2 text-2xl font-semibold text-zinc-100">{t('home.heroTitle')}</h2>
@@ -134,8 +125,9 @@ export function Home() {
                 </a>
               </div>
             </div>
-          </section>
-        )}
+            </section>
+          )}
+        </div>
 
       </main>
     </div>

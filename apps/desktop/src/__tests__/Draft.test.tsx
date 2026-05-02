@@ -81,6 +81,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
     onBugExportProgress: () => () => {},
     onSessionLoadProgress: () => () => {},
     onAudioAnalysisProgress: () => () => {},
+    onToolInstallLog: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/video.mp4') as any,
   }

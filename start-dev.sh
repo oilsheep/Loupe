@@ -2,10 +2,59 @@
 set -euo pipefail
 
 cd -- "$(dirname "$0")"
+unset ELECTRON_RUN_AS_NODE
 
 echo
 echo "=== Loupe dev launcher ==="
 echo
+
+ensure_pnpm() {
+  local existing
+  local pnpm_cjs
+  local shim_dir
+  local store_dir
+
+  if existing="$(command -v pnpm 2>/dev/null)"; then
+    if "$existing" --version >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable >/dev/null 2>&1 || true
+    if existing="$(command -v pnpm 2>/dev/null)"; then
+      if "$existing" --version >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  fi
+
+  pnpm_cjs="${HOME}/.cache/node/corepack/v1/pnpm/9.12.0/dist/pnpm.cjs"
+  if [[ -f "$pnpm_cjs" ]] && command -v node >/dev/null 2>&1; then
+    shim_dir="${TMPDIR:-/tmp}/loupe-pnpm-shim"
+    mkdir -p "$shim_dir"
+    store_dir="$(awk -F': ' '/^storeDir:/ { print $2; exit }' "$(pwd)/node_modules/.modules.yaml" 2>/dev/null || true)"
+    if [[ -n "$store_dir" ]]; then
+      cat > "${shim_dir}/pnpm" <<EOF
+#!/usr/bin/env sh
+exec node "$pnpm_cjs" --store-dir "$store_dir" "\$@"
+EOF
+    else
+      cat > "${shim_dir}/pnpm" <<EOF
+#!/usr/bin/env sh
+exec node "$pnpm_cjs" "\$@"
+EOF
+    fi
+    chmod +x "${shim_dir}/pnpm"
+    export PATH="${shim_dir}:${PATH}"
+    return 0
+  fi
+
+  echo "pnpm was not found on PATH."
+  echo "Install pnpm with: npm install -g pnpm"
+  echo "Or enable Corepack with: corepack enable"
+  return 1
+}
 
 resolve_tool_path() {
   local tool="$1"
@@ -64,6 +113,8 @@ if (( ${#missing_tools[@]} > 0 )); then
   echo
   exit 1
 fi
+
+ensure_pnpm || exit 1
 
 # Best-effort cleanup for stale Loupe/Electron dev processes.
 # Keep the match narrow so we do not kill unrelated Electron apps.

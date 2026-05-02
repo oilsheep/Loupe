@@ -60,13 +60,14 @@ export function sortGoogleFolders(folders: GoogleDriveFolder[]): GoogleDriveFold
 }
 
 function MentionIdentityBadges({ identity }: { identity: MentionIdentity }) {
+  const { t } = useI18n()
   const hasSlack = Boolean(identity.slackUserId)
   const hasGitLab = Boolean(identity.gitlabUsername)
   const hasGoogle = Boolean(identity.googleEmail)
   if (!hasSlack && !hasGitLab && !hasGoogle) {
     return (
       <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-        No mappings
+        {t('settings.mentionIdentities.noMappings')}
       </span>
     )
   }
@@ -350,7 +351,7 @@ export function PreferencesDialog({
               <div className="text-sm font-medium text-zinc-200">{t('preferences.markerDefaults')}</div>
               <div className="mt-1 text-xs leading-5 text-zinc-500">{t('preferences.markerDefaultsHelp')}</div>
               <button type="button" onClick={onResetLabels} className="mt-3 rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">
-                Reset
+                {t('preferences.reset')}
               </button>
             </div>
             <div className="space-y-3">
@@ -391,7 +392,7 @@ export function PreferencesDialog({
 
               <div className="border-t border-zinc-800 pt-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-zinc-300">Custom labels</span>
+                  <span className="text-xs font-medium text-zinc-300">{t('preferences.customLabels')}</span>
                   {customSlots.length < CUSTOM_SEVERITIES.length && (
                     <button type="button" onClick={addCustomLabel} className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700" title={t('common.add')}>
                       +
@@ -435,64 +436,64 @@ export function PreferencesDialog({
 
           <section className="grid gap-3 pt-4 lg:grid-cols-[220px_1fr]">
             <div>
-              <div className="text-sm font-medium text-zinc-200">Publish</div>
+              <div className="text-sm font-medium text-zinc-200">{t('preferences.publish')}</div>
               <div className="mt-1 text-xs leading-5 text-zinc-500">{t('preferences.publishHelp')}</div>
             </div>
-            <div className="space-y-3">
-              <details className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">Slack</summary>
-                <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="min-w-0 space-y-3">
+              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
+                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.slack')}</summary>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-xs text-zinc-500">
                       {slack.oauthUserId
-                        ? `Connected as ${slack.oauthUserId}${slack.oauthTeamName ? ` in ${slack.oauthTeamName}` : ''}`
-                        : 'Choose your Slack account and workspace in the browser.'}
+                        ? t('preferences.slackConnectedAs', { user: slack.oauthUserId, workspace: slack.oauthTeamName ? t('preferences.slackWorkspaceSuffix', { workspace: slack.oauthTeamName }) : '' })
+                        : t('preferences.slackChooseAccount')}
                     </div>
                     {(slackSaved || slack.oauthConnectedAt) && (
                       <div className="mt-1 text-[11px] text-emerald-300">
-                        {slackSaved ? 'Slack connected.' : `Connected ${new Date(slack.oauthConnectedAt ?? '').toLocaleString()}`}
+                        {slackSaved ? t('preferences.slackConnected') : t('preferences.connectedAt', { date: new Date(slack.oauthConnectedAt ?? '').toLocaleString() })}
                       </div>
                     )}
                     {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                     {(slack.oauthUserId || slack.userToken?.trim()) && (
-                      <span className="text-xs text-emerald-300">Connected</span>
+                      <span className="text-xs text-emerald-300">{t('common.connected')}</span>
                     )}
                     <button type="button" onClick={onStartSlackOAuth} disabled={startingSlackOAuth} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-50">
-                      {startingSlackOAuth ? 'Waiting...' : slack.oauthUserId ? 'Reconnect Slack' : 'Connect Slack'}
+                      {startingSlackOAuth ? t('preferences.waiting') : slack.oauthUserId ? t('preferences.reconnectSlack') : t('preferences.connectSlack')}
                     </button>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <label className="text-xs text-zinc-500">
-                    OAuth client ID
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.oauthClientId')}
                     <input
                       value={slack.oauthClientId ?? ''}
                       onChange={(e) => onSlackChange({ ...slack, oauthClientId: e.target.value })}
-                      placeholder="Slack Client ID"
+                      placeholder={t('preferences.slackClientIdPlaceholder')}
                       className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                     />
                   </label>
-                  <label className="text-xs text-zinc-500">
-                    OAuth client secret
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.oauthClientSecret')}
                     <input
                       value={slack.oauthClientSecret ?? ''}
                       onChange={(e) => onSlackChange({ ...slack, oauthClientSecret: e.target.value })}
                       type="password"
-                      placeholder="Slack Client Secret"
+                      placeholder={t('preferences.slackClientSecretPlaceholder')}
                       className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                     />
                   </label>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">
-                  Redirect URI is fixed: <span className="font-mono text-zinc-400">loupe://slack-oauth</span>
+                  {t('preferences.redirectUriFixed')} <span className="font-mono text-zinc-400">loupe://slack-oauth</span>
                 </div>
                 <div className="mt-3 rounded border border-zinc-800 bg-zinc-950">
-                  <div className="flex items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
-                    <div>
-                      <div className="text-xs font-medium text-zinc-300">Slack users</div>
-                      <div className="text-[11px] text-zinc-500">{slack.usersFetchedAt ? `Updated ${new Date(slack.usersFetchedAt).toLocaleString()}` : 'Not synced yet'}</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-zinc-300">{t('preferences.slackUsers')}</div>
+                      <div className="text-[11px] text-zinc-500">{slack.usersFetchedAt ? t('preferences.updatedAt', { date: new Date(slack.usersFetchedAt).toLocaleString() }) : t('preferences.notSyncedYet')}</div>
                     </div>
                     <button
                       type="button"
@@ -500,12 +501,12 @@ export function PreferencesDialog({
                       disabled={refreshingSlackUsers || !slack.userToken?.trim()}
                       className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
                     >
-                      {refreshingSlackUsers ? 'Refreshing...' : 'Refresh users'}
+                      {refreshingSlackUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
                     </button>
                   </div>
                   <div className="max-h-28 overflow-auto">
                     {activeSlackUsers.length === 0 ? (
-                      <div className="px-2 py-3 text-xs text-zinc-500">Refresh users after connecting Slack.</div>
+                      <div className="px-2 py-3 text-xs text-zinc-500">{t('preferences.refreshSlackUsersHelp')}</div>
                     ) : activeSlackUsers.map(user => {
                         const label = user.displayName || user.realName || user.name || user.id
                         return (
@@ -519,26 +520,26 @@ export function PreferencesDialog({
                 </div>
               </details>
 
-              <details className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">Google Drive</summary>
-                <div className="mt-3 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-2 text-xs text-zinc-500">
-                  Google OAuth credentials are bundled with Loupe. Redirect URI: {google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback'}
+              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
+                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.googleDrive')}</summary>
+                <div className="mt-3 break-words rounded border border-zinc-800 bg-zinc-950/60 px-2 py-2 text-xs text-zinc-500">
+                  {t('preferences.googleOauthBundled', { uri: google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback' })}
                 </div>
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  {google.token.trim() && <span className="text-xs text-emerald-300">Connected{google.accountEmail ? ` as ${google.accountEmail}` : ''}</span>}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {google.token.trim() && <span className="text-xs text-emerald-300">{google.accountEmail ? t('preferences.googleConnectedAs', { email: google.accountEmail }) : t('common.connected')}</span>}
                   <button type="button" onClick={onConnectGoogleOAuth} disabled={connectingGoogleOAuth} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {connectingGoogleOAuth ? 'Connecting...' : 'Connect Google'}
+                    {connectingGoogleOAuth ? t('preferences.connecting') : t('preferences.connectGoogle')}
                   </button>
                   {connectingGoogleOAuth && (
                     <button type="button" onClick={onCancelGoogleOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">
-                      Cancel OAuth
+                      {t('preferences.cancelOAuth')}
                     </button>
                   )}
                 </div>
 
-                <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-2">
-                  <label className="text-xs text-zinc-500">
-                    Drive folder
+                <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.driveFolder')}
                     <input
                       value={google.driveFolderId ?? ''}
                       onChange={(e) => {
@@ -551,7 +552,7 @@ export function PreferencesDialog({
                         const folder = googleFolders.find(item => item.id === driveFolderId)
                         onGoogleChange({ ...google, driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
                       }}
-                      placeholder="Drive folder URL or ID"
+                      placeholder={t('preferences.driveFolderPlaceholder')}
                       className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                     />
                     {googleFolders.length > 0 && (
@@ -563,38 +564,38 @@ export function PreferencesDialog({
                         }}
                         className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                       >
-                        <option value="">Choose refreshed folder...</option>
+                        <option value="">{t('preferences.chooseRefreshedFolder')}</option>
                         {googleFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
                       </select>
                     )}
                   </label>
-                  <div className="flex gap-1">
-                    <button type="button" onClick={onOpenGoogleDriveFolder} disabled={!parseGoogleDriveFolderInput(google.driveFolderId)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">Open</button>
+                  <div className="flex flex-wrap justify-end gap-1">
+                    <button type="button" onClick={onOpenGoogleDriveFolder} disabled={!parseGoogleDriveFolderInput(google.driveFolderId)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">{t('preferences.open')}</button>
                     <button type="button" onClick={onLoadGoogleFolders} disabled={refreshingGoogleFolders || !google.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                      {refreshingGoogleFolders ? 'Refreshing...' : 'Refresh folders'}
+                      {refreshingGoogleFolders ? t('preferences.refreshing') : t('preferences.refreshFolders')}
                     </button>
                   </div>
                 </div>
 
-                <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
-                  <label className="text-xs text-zinc-500">
-                    New folder
-                    <input value={newGoogleFolderName} onChange={(e) => onNewGoogleFolderNameChange(e.target.value)} placeholder="Loupe QA Evidence" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.newFolder')}
+                    <input value={newGoogleFolderName} onChange={(e) => onNewGoogleFolderNameChange(e.target.value)} placeholder={t('preferences.newFolderPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
                   <button type="button" onClick={onCreateGoogleFolder} disabled={creatingGoogleFolder || !google.token.trim() || !newGoogleFolderName.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {creatingGoogleFolder ? 'Creating...' : 'Create folder'}
+                    {creatingGoogleFolder ? t('preferences.creating') : t('preferences.createFolder')}
                   </button>
                 </div>
 
                 <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
                   <input type="checkbox" checked={Boolean(google.updateSheet)} onChange={(e) => onGoogleChange({ ...google, updateSheet: e.target.checked })} className="h-4 w-4 accent-blue-600" />
-                  Append every marker to Google Sheet
+                  {t('preferences.appendEveryMarkerToSheet')}
                 </label>
                 {google.updateSheet && (
                   <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                    <div className="grid grid-cols-[1fr_auto] items-end gap-2">
-                      <label className="text-xs text-zinc-500">
-                        Spreadsheet
+                    <div className="grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.spreadsheet')}
                         <input
                           value={google.spreadsheetId ?? ''}
                           onChange={(e) => {
@@ -607,7 +608,7 @@ export function PreferencesDialog({
                             const spreadsheet = googleSpreadsheets.find(item => item.id === spreadsheetId)
                             onGoogleChange({ ...google, spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName })
                           }}
-                          placeholder="Google Sheets URL or ID"
+                          placeholder={t('preferences.spreadsheetPlaceholder')}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                         />
                         {googleSpreadsheets.length > 0 && (
@@ -619,151 +620,151 @@ export function PreferencesDialog({
                             }}
                             className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                           >
-                            <option value="">Choose refreshed spreadsheet...</option>
+                            <option value="">{t('preferences.chooseRefreshedSpreadsheet')}</option>
                             {googleSpreadsheets.map(sheet => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}
                           </select>
                         )}
                       </label>
-                      <div className="flex gap-1">
-                        <button type="button" onClick={onOpenGoogleSpreadsheet} disabled={!parseGoogleSpreadsheetInput(google.spreadsheetId)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">Open</button>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <button type="button" onClick={onOpenGoogleSpreadsheet} disabled={!parseGoogleSpreadsheetInput(google.spreadsheetId)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">{t('preferences.open')}</button>
                         <button type="button" onClick={onLoadGoogleSpreadsheets} disabled={refreshingGoogleSpreadsheets || !google.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                          {refreshingGoogleSpreadsheets ? 'Refreshing...' : 'Refresh sheets'}
+                          {refreshingGoogleSpreadsheets ? t('preferences.refreshing') : t('preferences.refreshSheets')}
                         </button>
                       </div>
                     </div>
-                    <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
-                      <label className="text-xs text-zinc-500">
-                        Sheet tab
-                        <input value={google.sheetName ?? ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} placeholder="Sheet1" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                    <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.sheetTab')}
+                        <input value={google.sheetName ?? ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} placeholder={t('preferences.sheetTabPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                         {googleSheetTabs.length > 0 && (
                           <select value={googleSheetTabs.some(tab => tab.title === google.sheetName) ? google.sheetName : ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                            <option value="">Choose refreshed tab...</option>
+                            <option value="">{t('preferences.chooseRefreshedTab')}</option>
                             {googleSheetTabs.map(tab => <option key={tab.sheetId} value={tab.title}>{tab.title}</option>)}
                           </select>
                         )}
                       </label>
                       <button type="button" onClick={onLoadGoogleSheetTabs} disabled={refreshingGoogleSheetTabs || !google.token.trim() || !google.spreadsheetId?.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                        {refreshingGoogleSheetTabs ? 'Refreshing...' : 'Refresh tabs'}
+                        {refreshingGoogleSheetTabs ? t('preferences.refreshing') : t('preferences.refreshTabs')}
                       </button>
                     </div>
                   </div>
                 )}
                 {googleError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{googleError}</div>}
                 {googleStatus && <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 px-2 py-1.5 text-xs text-zinc-400">{googleStatus}</div>}
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  {googleSaved && <span className="text-xs text-emerald-300">Saved</span>}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {googleSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
                   <button type="button" onClick={onSaveGoogleSettings} disabled={savingGoogle} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {savingGoogle ? 'Saving...' : 'Save Google settings'}
+                    {savingGoogle ? t('common.saving') : t('preferences.saveGoogleSettings')}
                   </button>
                 </div>
               </details>
 
-              <details className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">GitLab</summary>
-                <label className="mt-3 block text-xs text-zinc-500">
-                  GitLab base URL
-                  <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder="https://gitlab.com" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
+                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.gitlab')}</summary>
+                <label className="mt-3 block min-w-0 text-xs text-zinc-500">
+                  {t('preferences.gitlabBaseUrl')}
+                  <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                 </label>
-                <div className="mt-2 grid grid-cols-[1fr_180px] gap-2">
-                  <div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
+                  <div className="min-w-0">
                     {gitlab.authType !== 'oauth' && (
-                      <label className="text-xs text-zinc-500">
-                        GitLab token
-                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} type="password" placeholder="glpat-..." className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.gitlabToken')}
+                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} type="password" placeholder={t('preferences.gitlabTokenPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                       </label>
                     )}
                   </div>
-                  <label className="text-xs text-zinc-500">
-                    GitLab auth
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.gitlabAuth')}
                     <select value={gitlab.authType ?? 'pat'} onChange={(e) => onGitLabChange({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                      <option value="pat">Personal access token</option>
+                      <option value="pat">{t('preferences.personalAccessToken')}</option>
                       <option value="oauth">OAuth</option>
                     </select>
                   </label>
                 </div>
                 {gitlab.authType === 'oauth' && (
                   <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="text-xs text-zinc-500">OAuth client ID<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder="Application ID" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                      <label className="text-xs text-zinc-500">OAuth client secret<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder="Optional for confidential apps" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                      <div className="text-xs text-zinc-500">
-                        Redirect URI
-                        <div className="mt-1 rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                      <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                      <div className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.redirectUri')}
+                        <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-end gap-2">
-                      {gitlab.token.trim() && <span className="text-xs text-emerald-300">Connected</span>}
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      {gitlab.token.trim() && <span className="text-xs text-emerald-300">{t('common.connected')}</span>}
                       <button type="button" onClick={onConnectGitLabOAuth} disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || !gitlab.oauthClientId?.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                        {connectingGitLabOAuth ? 'Connecting...' : 'Connect OAuth'}
+                        {connectingGitLabOAuth ? t('preferences.connecting') : t('preferences.connectOAuth')}
                       </button>
-                      {connectingGitLabOAuth && <button type="button" onClick={onCancelGitLabOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">Cancel OAuth</button>}
+                      {connectingGitLabOAuth && <button type="button" onClick={onCancelGitLabOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('preferences.cancelOAuth')}</button>}
                     </div>
                   </div>
                 )}
-                <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
-                  <label className="text-xs text-zinc-500">
-                    Project
+                <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.project')}
                     {gitlabProjects.length > 0 ? (
                       <select value={gitlab.projectId} onChange={(e) => onGitLabChange({ ...gitlab, projectId: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                        {!gitlabProjects.some(project => project.pathWithNamespace === gitlab.projectId) && <option value={gitlab.projectId}>{gitlab.projectId || 'Select a project'}</option>}
+                        {!gitlabProjects.some(project => project.pathWithNamespace === gitlab.projectId) && <option value={gitlab.projectId}>{gitlab.projectId || t('preferences.selectProject')}</option>}
                         {gitlabProjects.map(project => <option key={project.id} value={project.pathWithNamespace}>{project.nameWithNamespace}</option>)}
                       </select>
                     ) : (
-                      <input value={gitlab.projectId} onChange={(e) => onGitLabChange({ ...gitlab, projectId: e.target.value })} placeholder="group/project" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <input value={gitlab.projectId} onChange={(e) => onGitLabChange({ ...gitlab, projectId: e.target.value })} placeholder={t('preferences.gitlabProjectPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                     )}
                   </label>
                   <button type="button" onClick={onLoadGitLabProjects} disabled={refreshingGitLabProjects || !gitlab.baseUrl.trim() || !gitlab.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {refreshingGitLabProjects ? 'Refreshing...' : 'Refresh projects'}
+                    {refreshingGitLabProjects ? t('preferences.refreshing') : t('preferences.refreshProjects')}
                   </button>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <label className="text-xs text-zinc-500">
-                    Labels
-                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} placeholder="loupe, qa-evidence" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.labels')}
+                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} placeholder={t('preferences.gitlabLabelsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
-                  <label className="text-xs text-zinc-500">
-                    Mention usernames
-                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} placeholder="@qa, @lead" className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.mentionUsernames')}
+                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} placeholder={t('preferences.gitlabMentionsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
                 </div>
                 <label className="mt-2 block text-xs text-zinc-500">
-                  Default GitLab mode
+                  {t('preferences.defaultGitLabMode')}
                   <select value={gitlab.mode} onChange={(e) => onGitLabChange({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                    <option value="single-issue">Single issue</option>
-                    <option value="per-marker-issue">Issue per marker</option>
+                    <option value="single-issue">{t('preferences.singleIssue')}</option>
+                    <option value="per-marker-issue">{t('preferences.issuePerMarker')}</option>
                   </select>
                 </label>
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
                   <input type="checkbox" checked={Boolean(gitlab.confidential)} onChange={(e) => onGitLabChange({ ...gitlab, confidential: e.target.checked })} className="h-4 w-4 accent-blue-600" />
-                  Create confidential/internal GitLab issues and notes
+                  {t('preferences.gitlabConfidential')}
                 </label>
                 <label className="mt-2 block text-xs text-zinc-500">
-                  GitLab email lookup
+                  {t('preferences.gitlabEmailLookup')}
                   <select value={gitlab.emailLookup ?? 'off'} onChange={(e) => onGitLabChange({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                    <option value="off">Off</option>
-                    <option value="admin-users-api">Admin users API</option>
+                    <option value="off">{t('preferences.off')}</option>
+                    <option value="admin-users-api">{t('preferences.adminUsersApi')}</option>
                   </select>
                   <span className="mt-1 block text-[11px] leading-4 text-zinc-600">
-                    Admin users API calls GitLab /users/:id after member fetch to fill missing emails. Self-managed GitLab usually requires an admin token with api scope.
+                    {t('preferences.gitlabEmailLookupHelp')}
                   </span>
                 </label>
                 <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-xs font-medium text-zinc-300">GitLab users</div>
-                      <div className="text-[11px] text-zinc-500">{gitlab.usersFetchedAt ? `Updated ${new Date(gitlab.usersFetchedAt).toLocaleString()}` : 'Not synced yet'}</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-zinc-300">{t('preferences.gitlabUsers')}</div>
+                      <div className="text-[11px] text-zinc-500">{gitlab.usersFetchedAt ? t('preferences.updatedAt', { date: new Date(gitlab.usersFetchedAt).toLocaleString() }) : t('preferences.notSyncedYet')}</div>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex flex-wrap justify-end gap-1">
                       <button type="button" onClick={() => onRefreshGitLabUsers(false)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                        {refreshingGitLabUsers ? 'Refreshing...' : 'Refresh users'}
+                        {refreshingGitLabUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
                       </button>
                       <button type="button" onClick={() => onRefreshGitLabUsers(true)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-emerald-800 px-2.5 py-1.5 text-xs text-emerald-50 hover:bg-emerald-700 disabled:opacity-50">
-                        Fetch emails
+                        {t('preferences.fetchEmails')}
                       </button>
                     </div>
                   </div>
                   <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800 bg-zinc-950">
-                    {activeGitLabUsers.length === 0 ? <div className="px-2 py-3 text-xs text-zinc-500">Refresh users after setting a GitLab token and project.</div> : activeGitLabUsers.map(user => (
+                    {activeGitLabUsers.length === 0 ? <div className="px-2 py-3 text-xs text-zinc-500">{t('preferences.refreshGitLabUsersHelp')}</div> : activeGitLabUsers.map(user => (
                       <div key={user.username} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
                         <div className="truncate text-xs text-zinc-200">{user.name || user.username}</div>
                         <div className="truncate text-[11px] text-zinc-600">@{user.username}{user.email ? ` / ${user.email}` : ''}</div>
@@ -773,22 +774,22 @@ export function PreferencesDialog({
                 </div>
                 {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
                 {gitlab.lastUserSyncWarning && <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 px-2 py-1.5 text-xs text-yellow-200">{gitlab.lastUserSyncWarning}</div>}
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  {gitlabSaved && <span className="text-xs text-emerald-300">Saved</span>}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {gitlabSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
                   <button type="button" onClick={onSaveGitLab} disabled={savingGitLab} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {savingGitLab ? 'Saving...' : 'Save GitLab settings'}
+                    {savingGitLab ? t('common.saving') : t('preferences.saveGitLabSettings')}
                   </button>
                 </div>
               </details>
 
-              <details className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-zinc-300">
+              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 text-xs font-medium text-zinc-300">
                   <span>{t('settings.mentionIdentities.title')}</span>
                   <span className="text-[11px] font-normal text-zinc-500">{t('settings.mentionIdentities.subtitle')}</span>
                 </summary>
                 <div className="mt-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
                     <button type="button" onClick={() => onAddMentionIdentity()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">{t('settings.mentionIdentities.addPerson')}</button>
                   </div>
                   <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
@@ -797,7 +798,7 @@ export function PreferencesDialog({
                       <div>{t('settings.mentionIdentities.email')}</div>
                       <div>{t('settings.mentionIdentities.slackUserId')}</div>
                       <div>{t('settings.mentionIdentities.gitlabUsername')}</div>
-                      <div>Google email</div>
+                      <div>{t('settings.mentionIdentities.googleEmail')}</div>
                       <div />
                     </div>
                     {mentionIdentities.length === 0 ? (
@@ -835,7 +836,7 @@ export function PreferencesDialog({
                   )}
                   {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}
                   {mentionIdentitiesStatus && <div className="mt-2 truncate text-xs text-emerald-300">{mentionIdentitiesStatus}</div>}
-                  <div className="mt-2 flex items-center justify-end gap-2">
+                  <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                     {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
                     <button type="button" onClick={onImportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.import')}</button>
                     <button type="button" onClick={onExportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.export')}</button>

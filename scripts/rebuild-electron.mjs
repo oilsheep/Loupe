@@ -4,11 +4,12 @@
 // exists for system Node it skips the rebuild silently. Setting the npm_config_*
 // env vars makes node-gyp compile from source for the right target.
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
+const repoRoot = join(here, '..')
 const desktopPkg = JSON.parse(readFileSync(join(here, '..', 'apps', 'desktop', 'package.json'), 'utf8'))
 const electronVersion = (desktopPkg.devDependencies?.electron ?? '').replace(/^[\^~]/, '')
 if (!electronVersion) {
@@ -26,7 +27,14 @@ const env = {
   npm_config_build_from_source: 'true',
 }
 
-const child = spawn('pnpm', ['--filter', 'desktop', 'rebuild', 'better-sqlite3'], {
+function pnpmStoreArgs() {
+  const modulesYaml = join(repoRoot, 'node_modules', '.modules.yaml')
+  if (!existsSync(modulesYaml)) return []
+  const match = readFileSync(modulesYaml, 'utf8').match(/^storeDir:\s*(.+)$/m)
+  return match?.[1]?.trim() ? ['--store-dir', match[1].trim()] : []
+}
+
+const child = spawn('pnpm', [...pnpmStoreArgs(), '--filter', 'desktop', 'rebuild', 'better-sqlite3'], {
   stdio: 'inherit',
   env,
   shell: true,

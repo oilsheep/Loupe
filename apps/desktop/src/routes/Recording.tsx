@@ -429,13 +429,17 @@ export function Recording({ session }: { session: Session }) {
         mediaStreamRef.current?.getTracks().forEach(track => track.stop())
         await stopped
         const blob = new Blob(mediaChunksRef.current, { type: recorder.mimeType || 'video/webm' })
-        const base64 = await blobToBase64(blob)
-        await api.session.savePcRecording({
-          sessionId: session.id,
-          base64,
-          mimeType: blob.type,
-          durationMs: Math.max(0, Date.now() - session.startedAt),
-        })
+        if (blob.size <= 0) {
+          setPcRecorderError('PC recording was empty; no video was saved.')
+        } else {
+          const base64 = await blobToBase64(blob)
+          await api.session.savePcRecording({
+            sessionId: session.id,
+            base64,
+            mimeType: blob.type,
+            durationMs: Math.max(0, Date.now() - session.startedAt),
+          })
+        }
       }
       const updated = await api.session.stop()
       if (savedMic) {

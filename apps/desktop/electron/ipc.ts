@@ -13,8 +13,8 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings } from '@shared/types'
-import { doctor } from './doctor'
+import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
@@ -25,11 +25,19 @@ import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
+import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
   showItemInFolder:        'app:showItemInFolder',
   openPath:                'app:openPath',
+  appGetPlatform:          'app:getPlatform',
+  appOpenIphoneMirroring:  'app:openIphoneMirroring',
+  appStartUxPlayReceiver: 'app:startUxPlayReceiver',
+  appStopUxPlayReceiver:  'app:stopUxPlayReceiver',
+  appGetUxPlayReceiver:   'app:getUxPlayReceiver',
+  appInstallTools:        'app:installTools',
+  appInstallToolsLog:     'app:installToolsLog',
   getPrimaryScreenSource:  'app:getPrimaryScreenSource',
   listPcCaptureSources:   'app:listPcCaptureSources',
   showPcCaptureFrame:     'app:showPcCaptureFrame',
@@ -41,6 +49,7 @@ export const CHANNEL = {
   devicePair:              'device:pair',
   deviceGetUserName:       'device:getUserName',
   deviceListPackages:      'device:listPackages',
+  deviceListIosApps:        'device:listIosApps',
   sessionStart:            'session:start',
   sessionMarkBug:          'session:markBug',
   sessionStop:             'session:stop',
@@ -110,6 +119,7 @@ let slackOAuthCallbackHandler: ((url: string) => Promise<void>) | null = null
 let gitlabOAuthCancel: (() => void) | null = null
 let gitlabOAuthCallbackHandler: ((url: string) => void) | null = null
 let googleOAuthCancel: (() => void) | null = null
+let uxPlayReceiver: UxPlayReceiver | null = null
 
 const DEFAULT_GITLAB_OAUTH_REDIRECT_URI = 'loupe://gitlab-oauth'
 const DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:38988/oauth/google/callback'
@@ -146,6 +156,57 @@ export interface IpcDeps {
   getWindow: () => BrowserWindow | null
   setHotkeyEnabled: (enabled: boolean) => void
   setHotkeys: (hotkeys: HotkeySettings) => void
+}
+
+function isBundleId(value: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)+$/.test(value)
+}
+
+function extractStringField(value: Record<string, unknown>, patterns: RegExp[]): string | undefined {
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'string' && item.trim() && patterns.some(pattern => pattern.test(key))) return item.trim()
+  }
+  return undefined
+}
+
+export function extractIosApps(value: unknown, out = new Map<string, IosAppInfo>()): Map<string, IosAppInfo> {
+  if (typeof value === 'string') return out
+  if (!value || typeof value !== 'object') return out
+  if (Array.isArray(value)) {
+    for (const item of value) extractIosApps(item, out)
+    return out
+  }
+  const record = value as Record<string, unknown>
+  const bundleId = extractStringField(record, [/bundle.*id/i, /bundle.*identifier/i, /^cfbundleidentifier$/i])
+  if (bundleId && isBundleId(bundleId)) {
+    const name = extractStringField(record, [/display.*name/i, /bundle.*name/i, /^name$/i, /localized.*name/i, /executable.*name/i])
+    out.set(bundleId, { bundleId, ...(name ? { name } : {}) })
+  }
+  for (const item of Object.values(record)) {
+    if (typeof item === 'object') extractIosApps(item, out)
+  }
+  return out
+}
+
+async function listIosApps(runner: IProcessRunner): Promise<IosAppInfo[]> {
+  const result = await runner.run('ios', ['apps', '--list'])
+  if (result.code !== 0) throw new Error((result.stderr || result.stdout || `ios apps exited ${result.code}`).trim())
+  const text = result.stdout || result.stderr
+  try {
+    return [...extractIosApps(JSON.parse(text)).values()].sort((a, b) => a.bundleId.localeCompare(b.bundleId))
+  } catch {
+    const apps = new Map<string, IosAppInfo>()
+    for (const line of text.split(/\r?\n/)) {
+      const match = line.match(/[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)+/)
+      if (!match?.[0]) continue
+      const bundleId = match[0]
+      const beforeId = line.slice(0, match.index).replace(/[-:|,\s]+$/g, '').trim()
+      const afterId = line.slice((match.index ?? 0) + bundleId.length).replace(/^[-:|,\s]+/g, '').trim()
+      const name = beforeId || afterId
+      apps.set(bundleId, { bundleId, ...(name ? { name } : {}) })
+    }
+    return [...apps.values()].sort((a, b) => a.bundleId.localeCompare(b.bundleId))
+  }
 }
 
 function sessionVideoInputPath(session: { id: string; videoPath: string | null; pcVideoPath: string | null; connectionMode?: string }, paths: Paths): string {
@@ -1762,6 +1823,32 @@ export function registerIpc(deps: IpcDeps): void {
     const error = await shell.openPath(path)
     if (error) throw new Error(error)
   })
+  ipcMain.handle(CHANNEL.appGetPlatform, async () => process.platform)
+  ipcMain.handle(CHANNEL.appOpenIphoneMirroring, async () => {
+    if (process.platform !== 'darwin') return false
+    await new Promise<void>((resolve, reject) => {
+      execFile('/usr/bin/open', ['-a', 'iPhone Mirroring'], { timeout: MAC_WINDOW_SCRIPT_TIMEOUT_MS }, (err, _stdout, stderr) => {
+        if (err) reject(new Error(stderr.trim() || err.message))
+        else resolve()
+      })
+    })
+    return true
+  })
+  ipcMain.handle(CHANNEL.appStartUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.start()
+  })
+  ipcMain.handle(CHANNEL.appStopUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.stop()
+  })
+  ipcMain.handle(CHANNEL.appGetUxPlayReceiver, async (): Promise<UxPlayReceiverStatus> => {
+    uxPlayReceiver ??= new UxPlayReceiver(deps.runner)
+    return uxPlayReceiver.status()
+  })
+  ipcMain.handle(CHANNEL.appInstallTools, async (event, names: ToolCheck['name'][]) => installTools(deps.runner, names, {
+    onLog: (log: ToolInstallLog) => event.sender.send(CHANNEL.appInstallToolsLog, log),
+  }))
   ipcMain.handle(CHANNEL.getPrimaryScreenSource, async (): Promise<{ id: string; name: string } | null> => {
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } })
     const primaryDisplayId = String(screen.getPrimaryDisplay().id)
@@ -1779,6 +1866,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.devicePair, async (_e, args: { ipPort: string; code: string }) => deps.adb.pair(args.ipPort, args.code))
   ipcMain.handle(CHANNEL.deviceGetUserName, async (_e, id: string) => deps.adb.getUserDeviceName(id))
   ipcMain.handle(CHANNEL.deviceListPackages, async (_e, id: string) => deps.adb.listPackages(id))
+  ipcMain.handle(CHANNEL.deviceListIosApps, async () => listIosApps(deps.runner))
 
   ipcMain.handle(CHANNEL.sessionStart, async (_e, args) => {
     const session = await deps.manager.start(args)

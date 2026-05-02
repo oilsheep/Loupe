@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { AudioAnalysisSettings, DesktopApi } from '@shared/types'
+import type { AudioAnalysisSettings, DesktopApi, IosAppInfo } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 
@@ -62,6 +62,8 @@ function isPresetTriggerWords(value: string): boolean {
 
 export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Props) {
   const { t } = useI18n()
+  const backendConnectionMode = connectionMode === 'ios' ? 'pc' : connectionMode
+  const isPcLikeSource = connectionMode === 'pc' || connectionMode === 'ios'
   const recent = useApp(s => s.recentBuilds)
   const pushRecent = useApp(s => s.pushRecentBuild)
   const goRecording = useApp(s => s.goRecording)
@@ -75,17 +77,25 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatTagFilter, setLogcatTagFilter] = useState('Unity')
   const [logcatMinPriority, setLogcatMinPriority] = useState('V')
   const [logcatLineCount, setLogcatLineCount] = useState(50)
-  const [recordPcScreen, setRecordPcScreen] = useState(connectionMode === 'pc')
+  const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [recordMic, setRecordMic] = useState(true)
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
   const [triggerKeywords, setTriggerKeywords] = useState(triggerPreset('auto').words)
   const [triggerWordsCustomized, setTriggerWordsCustomized] = useState(false)
+  const [iosBundleId, setIosBundleId] = useState('')
+  const [iosAppName, setIosAppName] = useState('')
+  const [iosAppOptions, setIosAppOptions] = useState<IosAppInfo[]>([])
+  const [iosAppMenuOpen, setIosAppMenuOpen] = useState(false)
+  const [iosLaunchApp, setIosLaunchApp] = useState(true)
+  const [iosLogFilter, setIosLogFilter] = useState('UnityFramework')
+  const [iosLogMinLevel, setIosLogMinLevel] = useState('V')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setRecordPcScreen(connectionMode === 'pc')
+    setRecordPcScreen(isPcLikeSource)
+    setIosAppName('')
   }, [connectionMode, deviceId])
 
   useEffect(() => {
@@ -111,7 +121,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   useEffect(() => {
     let cancelled = false
     setLogcatPackageOptions([])
-    if (connectionMode === 'pc') return
+    if (isPcLikeSource) return
     api.device.listPackages(deviceId)
       .then(packages => {
         if (!cancelled) setLogcatPackageOptions(packages)
@@ -120,7 +130,21 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         if (!cancelled) setLogcatPackageOptions([])
       })
     return () => { cancelled = true }
-  }, [api, connectionMode, deviceId])
+  }, [api, isPcLikeSource, deviceId])
+
+  useEffect(() => {
+    let cancelled = false
+    setIosAppOptions([])
+    if (connectionMode !== 'ios') return
+    api.device.listIosApps()
+      .then(apps => {
+        if (!cancelled) setIosAppOptions(apps)
+      })
+      .catch(() => {
+        if (!cancelled) setIosAppOptions([])
+      })
+    return () => { cancelled = true }
+  }, [api, connectionMode])
 
   const visibleLogcatPackageOptions = useMemo(() => {
     const query = logcatPackageName.trim().toLowerCase()
@@ -129,6 +153,18 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       : logcatPackageOptions
     return filtered.slice(0, 80)
   }, [logcatPackageName, logcatPackageOptions])
+
+  const visibleIosAppOptions = useMemo(() => {
+    const query = iosBundleId.trim().toLowerCase()
+    const filtered = query
+      ? iosAppOptions.filter(app => app.bundleId.toLowerCase().includes(query) || (app.name ?? '').toLowerCase().includes(query))
+      : iosAppOptions
+    return filtered.slice(0, 80)
+  }, [iosBundleId, iosAppOptions])
+
+  const resolvedIosAppName = useMemo(() => {
+    return iosAppName.trim()
+  }, [iosAppName])
 
   async function start() {
     if (busy || !deviceId) return
@@ -146,17 +182,23 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       }
       const session = await api.session.start({
         deviceId,
-        connectionMode,
+        connectionMode: backendConnectionMode,
         buildVersion: build.trim(),
         testNote: note.trim(),
         tester: tester.trim(),
         recordPcScreen,
         recordMic,
         pcCaptureSourceName: sourceName,
-        logcatPackageName: connectionMode === 'pc' ? undefined : logcatPackageName.trim(),
-        logcatTagFilter: connectionMode === 'pc' ? undefined : logcatTagFilter.trim(),
-        logcatMinPriority: connectionMode === 'pc' ? undefined : logcatMinPriority,
-        logcatLineCount: connectionMode === 'pc' ? undefined : logcatLineCount,
+        iosLogCapture: connectionMode === 'ios',
+        iosLogBundleId: connectionMode === 'ios' ? iosBundleId.trim() : undefined,
+        iosLogAppName: connectionMode === 'ios' ? resolvedIosAppName : undefined,
+        iosLogLaunchApp: connectionMode === 'ios' ? iosLaunchApp : undefined,
+        iosLogFilter: connectionMode === 'ios' ? iosLogFilter.trim() : undefined,
+        iosLogMinLevel: connectionMode === 'ios' ? iosLogMinLevel : undefined,
+        logcatPackageName: isPcLikeSource ? undefined : logcatPackageName.trim(),
+        logcatTagFilter: isPcLikeSource ? undefined : logcatTagFilter.trim(),
+        logcatMinPriority: isPcLikeSource ? undefined : logcatMinPriority,
+        logcatLineCount: connectionMode === 'ios' || !isPcLikeSource ? logcatLineCount : undefined,
       })
       pushRecent(build.trim())
       goRecording(session)
@@ -190,11 +232,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-zinc-500">{t('new.selectedDevice')}</div>
-            <div className="truncate text-base font-medium text-zinc-100">{connectionMode === 'pc' ? sourceName || deviceId : deviceId}</div>
+            <div className="truncate text-base font-medium text-zinc-100">{isPcLikeSource ? sourceName || deviceId : deviceId}</div>
             <div className="mt-1 flex items-center gap-2">
               <span className="rounded bg-emerald-950 px-2 py-0.5 text-[11px] text-emerald-200">{connectionMode.toUpperCase()}</span>
               <span className="truncate text-xs text-zinc-500">
-                {connectionMode === 'pc' ? t('new.pcStartHelp') : t('new.androidStartHelp')}
+                {connectionMode === 'ios' ? t('new.iosStartHelp') : connectionMode === 'pc' ? t('new.pcStartHelp') : t('new.androidStartHelp')}
               </span>
             </div>
           </div>
@@ -307,7 +349,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         </div>
       </div>
 
-      {connectionMode !== 'pc' && (
+      {!isPcLikeSource && (
         <details className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
           <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('new.advancedAndroid')}</summary>
           <div className="mt-3 space-y-3">
@@ -381,6 +423,116 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                 value={logcatLineCount}
                 onChange={e => setLogcatLineCount(Number(e.target.value))}
                 data-testid="logcat-lines"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                {[10, 25, 50, 100, 200].map(count => (
+                  <option key={count} value={count}>{t('new.logcatLinesOption', { count })}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </details>
+      )}
+
+      {connectionMode === 'ios' && (
+        <details open className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+          <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('new.advancedIos')}</summary>
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.iosBundleId')}</label>
+              <div className="relative mt-1">
+                <input
+                  value={iosBundleId}
+                  onChange={e => {
+                    const nextBundleId = e.target.value
+                    setIosBundleId(nextBundleId)
+                    setIosAppMenuOpen(true)
+                  }}
+                  onFocus={() => setIosAppMenuOpen(true)}
+                  onBlur={() => window.setTimeout(() => setIosAppMenuOpen(false), 100)}
+                  placeholder={t('new.iosBundleIdPlaceholder')}
+                  data-testid="ios-bundle-id"
+                  className="w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+                {iosAppMenuOpen && visibleIosAppOptions.length > 0 && (
+                  <div
+                    className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-950 py-1 shadow-xl"
+                    data-testid="ios-app-options"
+                  >
+                    {visibleIosAppOptions.map(app => (
+                      <button
+                        key={app.bundleId}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setIosBundleId(app.bundleId)
+                          setIosAppName('')
+                          setIosAppMenuOpen(false)
+                        }}
+                        className="block w-full truncate px-3 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-800"
+                        data-testid={`ios-app-option-${app.bundleId}`}
+                      >
+                        <span className="font-medium text-zinc-100">{app.name || app.bundleId}</span>
+                        {app.name && <span className="ml-2 font-mono text-zinc-500">{app.bundleId}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.iosBundleIdHelp')}</p>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.iosAppName')}</label>
+              <input
+                value={iosAppName}
+                onChange={e => setIosAppName(e.target.value)}
+                placeholder={t('new.iosAppNamePlaceholder')}
+                data-testid="ios-app-name"
+                className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              <p className="mt-1 text-xs leading-5 text-zinc-500">{t('new.iosAppNameHelp')}</p>
+            </div>
+            <label className="flex items-start gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={iosLaunchApp}
+                onChange={e => setIosLaunchApp(e.target.checked)}
+                data-testid="ios-launch-app"
+                className="mt-0.5"
+              />
+              <span>{t('new.iosLaunchApp')}</span>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-zinc-400">{t('new.iosLogFilter')}</label>
+                <input
+                  value={iosLogFilter}
+                  onChange={e => setIosLogFilter(e.target.value)}
+                  placeholder={t('new.iosLogFilterPlaceholder')}
+                  data-testid="ios-log-filter"
+                  className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400">{t('new.iosLogLevel')}</label>
+                <select
+                  value={iosLogMinLevel}
+                  onChange={e => setIosLogMinLevel(e.target.value)}
+                  data-testid="ios-log-level"
+                  className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  {['V', 'D', 'I', 'W', 'E', 'F'].map(level => (
+                    <option key={level} value={level}>{t('new.logcatLevelOption', { level })}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-400">{t('new.logcatLines')}</label>
+              <select
+                value={logcatLineCount}
+                onChange={e => setLogcatLineCount(Number(e.target.value))}
+                data-testid="ios-log-lines"
                 className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
               >
                 {[10, 25, 50, 100, 200].map(count => (
