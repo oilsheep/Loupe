@@ -10,7 +10,18 @@ if (!packageName) {
 }
 
 const requireFromCwd = createRequire(join(process.cwd(), 'package.json'))
-const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
+function pnpmInvocation(args) {
+  const npmExecPath = process.env.npm_execpath
+  if (npmExecPath && /pnpm/i.test(npmExecPath)) {
+    return { command: process.execPath, args: [npmExecPath, ...args], shell: false }
+  }
+  return {
+    command: process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    args,
+    shell: process.platform === 'win32',
+  }
+}
 
 function findRepoRoot(startDir) {
   let dir = startDir
@@ -56,7 +67,8 @@ const storeDir = pnpmStoreDir(repoRoot)
 const args = [...(storeDir ? ['--store-dir', storeDir] : []), 'rebuild', packageName]
 
 console.warn(`${packageName} native module ABI is stale for Node ${process.version}; rebuilding once before tests...`)
-execFileSync(pnpmBin, args, { cwd: process.cwd(), stdio: 'inherit' })
+const pnpm = pnpmInvocation(args)
+execFileSync(pnpm.command, pnpm.args, { cwd: process.cwd(), stdio: 'inherit', shell: pnpm.shell })
 
 const secondError = requireNative()
 if (secondError) throw secondError
