@@ -2,9 +2,22 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { doctor, installTools } from '../doctor'
 import type { IProcessRunner } from '../process-runner'
 import { PassThrough } from 'node:stream'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const UXPLAY_LOOKUP_CMD = process.platform === 'win32' ? 'where' : '/usr/bin/which'
 const PYTHON_CMD = process.platform === 'win32' ? 'python' : 'python3'
+
+function createManagedModelRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'loupe-test-tools-'))
+  const modelDir = join(root, 'faster-whisper', 'models', 'small')
+  mkdirSync(modelDir, { recursive: true })
+  writeFileSync(join(modelDir, 'config.json'), '{}')
+  writeFileSync(join(modelDir, 'model.bin'), '')
+  writeFileSync(join(modelDir, 'tokenizer.json'), '{}')
+  return root
+}
 
 function fakeRunner(behaviour: Record<string, { code: number; stdout?: string; stderr?: string } | Error>): IProcessRunner {
   return {
@@ -24,7 +37,7 @@ describe('doctor', () => {
   })
 
   it('reports ok when all tools present', async () => {
-    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', '/tmp/loupe-test-missing-tools')
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', createManagedModelRoot())
     const r = fakeRunner({
       adb: { code: 0, stdout: 'Android Debug Bridge version 1.0.41' },
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
@@ -33,13 +46,14 @@ describe('doctor', () => {
       [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
-    expect(checks).toHaveLength(5)
+    expect(checks).toHaveLength(6)
     expect(checks.every(c => c.ok)).toBe(true)
     expect(checks[0].version).toContain('1.0.41')
     expect(checks[1].version).toContain('2.7')
     expect(checks[2].version).toContain('/tmp/uxplay')
     expect(checks[3].version).toContain('1.0.211')
     expect(checks[4].version).toContain('1.0.3')
+    expect(checks[5].version).toContain('faster-whisper/models/small')
   })
 
   it('reports not ok when binary missing', async () => {

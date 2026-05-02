@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 import { managedToolsDir, resolveBundledTool, toolSearchPath } from './tool-paths'
-import { managedFasterWhisperPython, managedFasterWhisperVenvDir, resolveFasterWhisperPython } from './audio-analysis/fasterWhisperRuntime'
+import { DEFAULT_FASTER_WHISPER_MODEL, DEFAULT_FASTER_WHISPER_MODEL_REPO, hasFasterWhisperModel, managedFasterWhisperModelDir, managedFasterWhisperPython, managedFasterWhisperVenvDir, resolveFasterWhisperPython } from './audio-analysis/fasterWhisperRuntime'
 
 export interface ToolCheck {
-  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'faster-whisper'
+  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'faster-whisper' | 'faster-whisper-model'
   ok: boolean
   version?: string
   error?: string
@@ -19,6 +19,7 @@ const TOOLS: { name: ToolCheck['name']; cmd: string; args: string[] }[] = [
   { name: 'uxplay',          cmd: 'uxplay',          args: [] },
   { name: 'go-ios',          cmd: 'ios',             args: ['--version'] },
   { name: 'faster-whisper',  cmd: 'python',          args: [] },
+  { name: 'faster-whisper-model', cmd: 'model',       args: [] },
 ]
 
 function installHint(name: ToolCheck['name']): string | null {
@@ -28,6 +29,7 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'uxplay') return 'Use Loupe’s installer to build UxPlay from source, or install uxplay manually and make sure it is on PATH.'
     if (name === 'go-ios') return 'Install with: npm install -g go-ios'
     if (name === 'faster-whisper') return 'Use Loupe’s installer to create a managed faster-whisper Python environment.'
+    if (name === 'faster-whisper-model') return 'Use Loupe’s installer to download the managed faster-whisper model.'
   }
   if (process.platform === 'linux') {
     if (name === 'adb') return 'Install Android Platform Tools and ensure adb is on PATH.'
@@ -35,12 +37,14 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'uxplay') return 'Install UxPlay and ensure it is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and ensure the ios command is on PATH.'
     if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
+    if (name === 'faster-whisper-model') return 'Download a faster-whisper model into Loupe’s managed tools folder.'
   }
   if (process.platform === 'win32') {
     if (name === 'adb' || name === 'scrcpy') return 'Packaged Windows builds include bundled Android tools; dev builds still require adb/scrcpy on PATH unless you point LOUPE_TOOLS_DIR at a tool folder.'
     if (name === 'uxplay') return 'Install UxPlay and make sure uxplay.exe is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and make sure ios.exe is on PATH.'
     if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
+    if (name === 'faster-whisper-model') return 'Download a faster-whisper model into Loupe’s managed tools folder.'
   }
   return null
 }
@@ -65,6 +69,10 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
         out.push(check)
         continue
       }
+      if (t.name === 'faster-whisper-model') {
+        out.push(checkFasterWhisperModelAvailable())
+        continue
+      }
       const r = await runner.run(t.cmd, t.args)
       if (r.code === 0) {
         const firstLine = ((r.stdout || r.stderr).split('\n')[0] || '').trim()
@@ -78,6 +86,16 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
     }
   }
   return out
+}
+
+function checkFasterWhisperModelAvailable(): ToolCheck {
+  const check = hasFasterWhisperModel(DEFAULT_FASTER_WHISPER_MODEL)
+  if (check.ok) return { name: 'faster-whisper-model', ok: true, version: check.path }
+  return {
+    name: 'faster-whisper-model',
+    ok: false,
+    error: `Model ${DEFAULT_FASTER_WHISPER_MODEL} is not available locally. ${installHint('faster-whisper-model')}`,
+  }
 }
 
 async function checkFasterWhisperAvailable(runner: IProcessRunner): Promise<ToolCheck> {
@@ -199,6 +217,11 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
     detail.push(result.detail)
     if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
   }
+  if (unique.includes('faster-whisper-model')) {
+    const result = await installFasterWhisperModel(runner, options)
+    detail.push(result.detail)
+    if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
+  }
   return { ok: true, message: 'Tool installation finished. Loupe will re-check availability.', detail: detail.join('\n\n') }
 }
 
@@ -284,6 +307,30 @@ async function installFasterWhisper(runner: IProcessRunner, options: ToolInstall
   if (install.code !== 0) return { ok: false, message: 'faster-whisper installation failed.', detail: detail.join('\n\n') }
 
   return { ok: true, message: 'faster-whisper installed.', detail: detail.join('\n\n') }
+}
+
+async function installFasterWhisperModel(runner: IProcessRunner, options: ToolInstallOptions): Promise<ToolInstallResult> {
+  const python = resolveFasterWhisperPython()
+  const targetDir = managedFasterWhisperModelDir(DEFAULT_FASTER_WHISPER_MODEL)
+  const detail: string[] = [`Installing faster-whisper model ${DEFAULT_FASTER_WHISPER_MODEL_REPO} into ${targetDir}`]
+  const script = [
+    'from huggingface_hub import snapshot_download',
+    `snapshot_download(repo_id=${JSON.stringify(DEFAULT_FASTER_WHISPER_MODEL_REPO)}, local_dir=${JSON.stringify(targetDir)}, local_dir_use_symlinks=False)`,
+    `print(${JSON.stringify(targetDir)})`,
+  ].join('; ')
+
+  options.onLog?.({ stream: 'system', text: `Installing faster-whisper model ${DEFAULT_FASTER_WHISPER_MODEL_REPO} into ${targetDir}\n` })
+  const hub = await runInstallCommand(runner, python, ['-m', 'pip', 'install', '--upgrade', 'huggingface_hub'], undefined, options.onLog)
+  detail.push(commandSummary(python, ['-m', 'pip', 'install', '--upgrade', 'huggingface_hub'], hub))
+  if (hub.code !== 0) return { ok: false, message: 'faster-whisper model downloader setup failed.', detail: detail.join('\n\n') }
+
+  const download = await runInstallCommand(runner, python, ['-c', script], undefined, options.onLog)
+  detail.push(commandSummary(python, ['-c', script], download))
+  if (download.code !== 0) return { ok: false, message: 'faster-whisper model download failed.', detail: detail.join('\n\n') }
+
+  const check = hasFasterWhisperModel(DEFAULT_FASTER_WHISPER_MODEL)
+  if (!check.ok) return { ok: false, message: 'faster-whisper model download did not create a usable model.', detail: detail.join('\n\n') }
+  return { ok: true, message: 'faster-whisper model installed.', detail: detail.join('\n\n') }
 }
 
 function brewRun(runner: IProcessRunner, args: string[], onLog?: ToolInstallOptions['onLog']) {

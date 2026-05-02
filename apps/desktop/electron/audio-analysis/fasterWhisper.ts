@@ -3,7 +3,7 @@ import type { SpawnOptions } from 'node:child_process'
 import type { IProcessRunner } from '../process-runner'
 import { toolSearchPath } from '../tool-paths'
 import { normalizeTranscriptJson, type TranscriptSegment } from './transcript'
-import { resolveFasterWhisperPython } from './fasterWhisperRuntime'
+import { resolveFasterWhisperModelPath, resolveFasterWhisperPython } from './fasterWhisperRuntime'
 
 const SCRIPT = String.raw`
 import json
@@ -102,7 +102,7 @@ export class FasterWhisperEngine {
     const transcriptPath = `${outputBase}.json`
     const scriptPath = `${outputBase}.faster-whisper.py`
     const python = resolveFasterWhisperPython()
-    const model = this.modelPath.trim() || 'small'
+    const model = resolveFasterWhisperModelPath(this.modelPath)
     const language = opts.language?.trim() || 'auto'
     writeFileSync(scriptPath, SCRIPT, 'utf8')
 
