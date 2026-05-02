@@ -15,6 +15,7 @@ export function Home() {
   const { t } = useI18n()
   const goDraft = useApp(s => s.goDraft)
   const goTools = useApp(s => s.goTools)
+  const goLegal = useApp(s => s.goLegal)
   const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -40,6 +41,7 @@ export function Home() {
           selectedLabel={selected?.label}
           missingTools={missing}
           onOpenTools={goTools}
+          onOpenLegal={goLegal}
           onOpenPreferences={() => setPreferencesOpen(true)}
         />
 

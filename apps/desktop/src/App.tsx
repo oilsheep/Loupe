@@ -5,6 +5,7 @@ import { Home } from '@/routes/Home'
 import { Recording } from '@/routes/Recording'
 import { Draft } from '@/routes/Draft'
 import { ToolStatus } from '@/routes/ToolStatus'
+import { Legal } from '@/routes/Legal'
 import { I18nProvider } from '@/lib/i18n'
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
     <I18nProvider>
       {view.name === 'home' && <Home />}
       {view.name === 'tools' && <ToolStatus />}
+      {view.name === 'legal' && <Legal />}
       {view.name === 'recording' && <Recording session={view.session} />}
       {view.name === 'draft' && <Draft sessionId={view.sessionId} />}
     </I18nProvider>
