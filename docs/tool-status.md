@@ -157,13 +157,16 @@ vendor/faster-whisper/win32-x64/Scripts/python.exe
 vendor/faster-whisper/linux-x64/bin/python
 ```
 
-macOS installer creates a managed venv:
+Tool Status can create a managed venv on macOS, Windows, and Linux:
 
 ```bash
 python3 -m venv ~/.loupe/tools/faster-whisper-venv
 ~/.loupe/tools/faster-whisper-venv/bin/python -m pip install --upgrade pip
 ~/.loupe/tools/faster-whisper-venv/bin/python -m pip install --upgrade faster-whisper
 ```
+
+On Windows the installer uses `python` as the bootstrap command and
+`Scripts/python.exe` inside the managed venv.
 
 This still needs a bootstrap Python unless Loupe ships a bundled runtime.
 

@@ -22,6 +22,8 @@ const TOOLS: { name: ToolCheck['name']; cmd: string; args: string[] }[] = [
   { name: 'faster-whisper-model', cmd: 'model',       args: [] },
 ]
 
+const CROSS_PLATFORM_INSTALLERS = new Set<ToolCheck['name']>(['faster-whisper', 'faster-whisper-model'])
+
 function installHint(name: ToolCheck['name']): string | null {
   if (process.platform === 'darwin') {
     if (name === 'adb') return 'Install with: brew install android-platform-tools'
@@ -148,26 +150,34 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
   const unique = [...new Set(names)]
   const emit = (text: string, stream: ToolInstallLog['stream'] = 'system') => options.onLog?.({ stream, text })
   emit(`Selected tools: ${unique.join(', ') || 'none'}\n`)
-  if (process.platform !== 'darwin') {
-    emit('Automatic tool installation is currently supported on macOS only.\n')
-    return {
-      ok: false,
-      message: 'Automatic tool installation is currently supported on macOS only.',
-      detail: unique.map(name => `${name}: ${installHint(name) ?? 'Install manually and make sure it is on PATH.'}`).join('\n'),
-    }
-  }
   if (unique.length === 0) {
     emit('No missing tools selected.\n')
     return { ok: true, message: 'No missing tools selected.', detail: '' }
   }
 
-  const detail: string[] = []
-  const brewPackages = unique.flatMap(name => {
+  const unsupported = process.platform === 'darwin'
+    ? []
+    : unique.filter(name => !CROSS_PLATFORM_INSTALLERS.has(name))
+  if (unsupported.length === unique.length) {
+    emit('Automatic tool installation for the selected tools is currently supported on macOS only.\n')
+    return {
+      ok: false,
+      message: 'Automatic tool installation for the selected tools is currently supported on macOS only.',
+      detail: unsupported.map(name => `${name}: ${installHint(name) ?? 'Install manually and make sure it is on PATH.'}`).join('\n'),
+    }
+  }
+
+  const selected = unique.filter(name => !unsupported.includes(name))
+  const detail: string[] = unsupported.map(name => `${name}: ${installHint(name) ?? 'Install manually and make sure it is on PATH.'}`)
+  if (unsupported.length > 0) {
+    emit(`Skipping tools that do not have a ${process.platform} installer yet: ${unsupported.join(', ')}\n`)
+  }
+  const brewPackages = selected.flatMap(name => {
     if (name === 'adb') return ['android-platform-tools']
     if (name === 'scrcpy') return ['scrcpy']
     return []
   })
-  if (brewPackages.length > 0 || unique.includes('uxplay')) {
+  if (brewPackages.length > 0 || selected.includes('uxplay')) {
     emit('$ brew --version\n')
     const brewCheck = await runner.run('brew', ['--version']).catch(err => ({
       code: -1,
@@ -188,7 +198,7 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
     detail.push(commandSummary('brew', ['install', ...[...new Set(brewPackages)]], result))
     if (result.code !== 0) return { ok: false, message: 'Tool installation failed.', detail: detail.join('\n\n') }
   }
-  if (unique.includes('go-ios')) {
+  if (selected.includes('go-ios')) {
     const npmCheck = await runner.run('npm', ['--version']).catch(err => ({
       code: -1,
       stdout: '',
@@ -207,17 +217,17 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
       return { ok: false, message: 'go-ios installation failed.', detail: detail.join('\n\n') }
     }
   }
-  if (unique.includes('uxplay')) {
+  if (selected.includes('uxplay')) {
     const result = await installUxPlayFromSource(runner, options)
     detail.push(result.detail)
     if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
   }
-  if (unique.includes('faster-whisper')) {
+  if (selected.includes('faster-whisper')) {
     const result = await installFasterWhisper(runner, options)
     detail.push(result.detail)
     if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
   }
-  if (unique.includes('faster-whisper-model')) {
+  if (selected.includes('faster-whisper-model')) {
     const result = await installFasterWhisperModel(runner, options)
     detail.push(result.detail)
     if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }

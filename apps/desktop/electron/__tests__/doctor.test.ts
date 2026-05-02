@@ -5,6 +5,7 @@ import { PassThrough } from 'node:stream'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { managedFasterWhisperModelDir, managedFasterWhisperPython, managedFasterWhisperVenvDir } from '../audio-analysis/fasterWhisperRuntime'
 
 const UXPLAY_LOOKUP_CMD = process.platform === 'win32' ? 'where' : '/usr/bin/which'
 const PYTHON_CMD = process.platform === 'win32' ? 'python' : 'python3'
@@ -94,6 +95,59 @@ describe('doctor', () => {
     expect(result.ok).toBe(false)
     expect(result.message).toContain('macOS')
     expect(result.detail).toContain('uxplay')
+  })
+
+  it('installs faster-whisper with the cross-platform managed Python environment', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-test-tools-'))
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', root)
+    const calls: Array<{ cmd: string; args: string[] }> = []
+    const r: IProcessRunner = {
+      async run(cmd, args = []) {
+        calls.push({ cmd, args })
+        return { stdout: `${cmd} ok`, stderr: '', code: 0 }
+      },
+      spawn: vi.fn() as any,
+    }
+
+    const result = await installTools(r, ['faster-whisper'])
+
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('finished')
+    expect(calls).toEqual([
+      { cmd: PYTHON_CMD, args: ['--version'] },
+      { cmd: PYTHON_CMD, args: ['-m', 'venv', managedFasterWhisperVenvDir()] },
+      { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'pip'] },
+      { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'faster-whisper'] },
+    ])
+  })
+
+  it('installs the faster-whisper model without requiring macOS-only tool installers', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-test-tools-'))
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', root)
+    vi.stubEnv('LOUPE_PYTHON', PYTHON_CMD)
+    const calls: Array<{ cmd: string; args: string[] }> = []
+    const r: IProcessRunner = {
+      async run(cmd, args = []) {
+        calls.push({ cmd, args })
+        if (args[0] === '-c') {
+          const modelDir = managedFasterWhisperModelDir('small')
+          mkdirSync(modelDir, { recursive: true })
+          writeFileSync(join(modelDir, 'config.json'), '{}')
+          writeFileSync(join(modelDir, 'model.bin'), '')
+          writeFileSync(join(modelDir, 'tokenizer.json'), '{}')
+        }
+        return { stdout: `${cmd} ok`, stderr: '', code: 0 }
+      },
+      spawn: vi.fn() as any,
+    }
+
+    const result = await installTools(r, ['faster-whisper-model'])
+
+    expect(result.ok).toBe(true)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toEqual({ cmd: PYTHON_CMD, args: ['-m', 'pip', 'install', '--upgrade', 'huggingface_hub'] })
+    expect(calls[1].cmd).toBe(PYTHON_CMD)
+    expect(calls[1].args[0]).toBe('-c')
   })
 
   it('reports when Homebrew is missing on macOS', async () => {
