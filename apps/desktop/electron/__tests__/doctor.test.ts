@@ -61,7 +61,7 @@ describe('doctor', () => {
     expect(checks[3].version).toContain('1.0.211')
     expect(checks[4].version).toContain('ffmpeg version 7.1')
     expect(checks[5].version).toContain('1.0.3')
-    expect(checks[6].version).toContain('faster-whisper/models/small')
+    expect(checks[6].version).toContain(join('faster-whisper', 'models', 'small'))
   })
 
   it('reports not ok when binary missing', async () => {

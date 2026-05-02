@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BugList, type BugListHandle } from '@/components/BugList'
 import type { Bug, DesktopApi, MentionIdentity } from '@shared/types'
@@ -26,6 +26,18 @@ const severities = {
 const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
 const google = { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' }
 const mentionIdentities: MentionIdentity[] = []
+
+function mockLocalStorage(): Storage {
+  const store = new Map<string, string>()
+  return {
+    get length() { return store.size },
+    clear: vi.fn(() => store.clear()),
+    getItem: vi.fn((key: string) => store.get(key) ?? null),
+    key: vi.fn((index: number) => [...store.keys()][index] ?? null),
+    removeItem: vi.fn((key: string) => { store.delete(key) }),
+    setItem: vi.fn((key: string, value: string) => { store.set(key, value) }),
+  }
+}
 
 function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): DesktopApi {
   const slack = options.slack ?? { botToken: '', channelId: '' }
@@ -104,6 +116,14 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
 }
 
 describe('BugList', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', mockLocalStorage())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('clicking the timestamp triggers onSelect', () => {
     const onSelect = vi.fn()
     render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={onSelect} onMutated={vi.fn()} />)
@@ -394,7 +414,7 @@ describe('BugList', () => {
     api.bug.getLogcatPreview = vi.fn().mockResolvedValue(Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n')) as any
     render(<BugList api={api} sessionId="s1" bugs={[bug({ logcatRel: 'logcat/b1.txt' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
     await waitFor(() => expect(api.bug.getLogcatPreview).toHaveBeenCalledWith({ sessionId: 's1', relPath: 'logcat/b1.txt' }))
-    const preview = screen.getByTestId('logcat-preview-b1')
+    const preview = await screen.findByTestId('logcat-preview-b1')
     const pre = preview.querySelector('pre')!
     await waitFor(() => expect(pre.textContent).toContain('line 12'))
     expect(pre.textContent).toBe('line 11\nline 12')
