@@ -63,15 +63,6 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare macOS vendor binaries
-        if: matrix.platform == 'mac'
-        run: pnpm vendor:prepare:mac
-
-      - name: Prepare Windows vendor binaries
-        if: matrix.platform == 'win'
-        shell: powershell
-        run: pnpm vendor:prepare:win
-
       - name: Rebuild native modules for Electron
         run: pnpm rebuild:electron
 
@@ -80,6 +71,15 @@ jobs:
 
       - name: Test
         run: pnpm desktop:test
+
+      - name: Prepare macOS vendor binaries
+        if: matrix.platform == 'mac'
+        run: pnpm vendor:prepare:mac
+
+      - name: Prepare Windows vendor binaries
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: pnpm vendor:prepare:win
 
       - name: Build renderer and main processes
         run: pnpm --filter desktop exec electron-vite build

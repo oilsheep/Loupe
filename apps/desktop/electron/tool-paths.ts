@@ -15,6 +15,7 @@ export function platformKey(): string {
 
 function candidateDirs(): string[] {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  const includeCwdVendorTools = process.env.LOUPE_DISABLE_CWD_VENDOR_TOOLS !== '1'
   return [
     process.env.LOUPE_TOOLS_DIR,
     join(managedToolsDir(), 'bin'),
@@ -27,16 +28,16 @@ function candidateDirs(): string[] {
     resourcesPath ? join(resourcesPath, 'vendor', 'uxplay', platformKey(), 'bin') : null,
     resourcesPath ? join(resourcesPath, 'vendor', 'uxplay', 'bin') : null,
     resourcesPath ? join(resourcesPath, 'vendor', 'scrcpy') : null,
-    join(process.cwd(), 'vendor', 'go-ios', platformKey(), 'bin'),
-    join(process.cwd(), 'vendor', 'go-ios', 'bin'),
-    join(process.cwd(), 'apps', 'desktop', 'vendor', 'go-ios', platformKey(), 'bin'),
-    join(process.cwd(), 'apps', 'desktop', 'vendor', 'go-ios', 'bin'),
-    join(process.cwd(), 'vendor', 'uxplay', platformKey(), 'bin'),
-    join(process.cwd(), 'vendor', 'uxplay', 'bin'),
-    join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', platformKey(), 'bin'),
-    join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', 'bin'),
-    join(process.cwd(), 'vendor', 'scrcpy'),
-    join(process.cwd(), 'apps', 'desktop', 'vendor', 'scrcpy'),
+    includeCwdVendorTools ? join(process.cwd(), 'vendor', 'go-ios', platformKey(), 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'vendor', 'go-ios', 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'apps', 'desktop', 'vendor', 'go-ios', platformKey(), 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'apps', 'desktop', 'vendor', 'go-ios', 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'vendor', 'uxplay', platformKey(), 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'vendor', 'uxplay', 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', platformKey(), 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', 'bin') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'vendor', 'scrcpy') : null,
+    includeCwdVendorTools ? join(process.cwd(), 'apps', 'desktop', 'vendor', 'scrcpy') : null,
     '/opt/homebrew/bin',
     '/usr/local/bin',
     join(homedir(), '.local', 'bin'),

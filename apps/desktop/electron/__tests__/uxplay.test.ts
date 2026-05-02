@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
 import { UxPlayReceiver } from '../uxplay'
@@ -17,6 +17,10 @@ function mockSpawnedProcess(): SpawnedProcess {
 }
 
 describe('UxPlayReceiver', () => {
+  beforeEach(() => {
+    vi.stubEnv('LOUPE_DISABLE_CWD_VENDOR_TOOLS', '1')
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
   })

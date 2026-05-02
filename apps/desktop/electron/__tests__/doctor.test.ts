@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { doctor, installTools } from '../doctor'
 import type { IProcessRunner } from '../process-runner'
 import { PassThrough } from 'node:stream'
@@ -33,6 +33,10 @@ function fakeRunner(behaviour: Record<string, { code: number; stdout?: string; s
 }
 
 describe('doctor', () => {
+  beforeEach(() => {
+    vi.stubEnv('LOUPE_DISABLE_CWD_VENDOR_TOOLS', '1')
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
   })
