@@ -257,6 +257,18 @@ Electron:
 start-dev.bat
 ```
 
+Windows launcher modes:
+
+```bat
+start-dev.bat vendor
+start-dev.bat build
+start-dev.bat dev uxplay
+```
+
+`vendor` prepares binaries only. `build` prepares binaries in strict mode before
+packaging. `dev uxplay` keeps dev startup best-effort, but also tries the UxPlay
+source build path.
+
 For CI or release jobs, run the stricter scripts directly:
 
 ```bash

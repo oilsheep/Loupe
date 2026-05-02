@@ -12,7 +12,14 @@ if /I "%MODE%"=="--check" set "MODE=check"
 if /I "%MODE%"=="check" set "MODE=check"
 if /I "%MODE%"=="build" set "MODE=build"
 if /I "%MODE%"=="dist" set "MODE=build"
+if /I "%MODE%"=="vendor" set "MODE=vendor"
+if /I "%MODE%"=="prepare-vendor" set "MODE=vendor"
 if /I "%MODE%"=="dev" set "MODE=dev"
+
+set "VENDOR_ARGS=-BestEffort"
+if /I "%MODE%"=="build" set "VENDOR_ARGS=-Ci -WithUxPlay -InstallDeps"
+if /I "%MODE%"=="vendor" set "VENDOR_ARGS=-Ci -WithUxPlay -InstallDeps"
+if /I "%~2"=="uxplay" set "VENDOR_ARGS=-BestEffort -WithUxPlay -InstallDeps"
 
 set "PNPM=pnpm"
 where pnpm >nul 2>nul
@@ -39,9 +46,24 @@ if not exist "node_modules\.modules.yaml" (
 echo [setup] Preparing vendored third-party binaries...
 where powershell >nul 2>nul
 if not errorlevel 1 (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\prepare-vendor-binaries.ps1" -BestEffort
+  powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\prepare-vendor-binaries.ps1" %VENDOR_ARGS%
+  if errorlevel 1 goto :error
 ) else (
-  echo [setup] PowerShell was not found; skipping vendored binary preparation.
+  if /I "%MODE%"=="build" (
+    echo [setup] PowerShell was not found; cannot prepare vendored binaries for build.
+    goto :error
+  )
+  if /I "%MODE%"=="vendor" (
+    echo [setup] PowerShell was not found; cannot prepare vendored binaries.
+    goto :error
+  )
+  echo [setup] PowerShell was not found; skipping best-effort vendored binary preparation.
+)
+
+if /I "%MODE%"=="vendor" (
+  echo.
+  echo Vendored binary preparation complete.
+  goto :end
 )
 
 if /I "%MODE%"=="check" (
@@ -88,6 +110,12 @@ echo   pnpm desktop:dev
 echo.
 echo To build a package:
 echo   start-dev.bat build
+echo.
+echo To prepare third-party binaries only:
+echo   start-dev.bat vendor
+echo.
+echo To try building UxPlay during dev startup:
+echo   start-dev.bat dev uxplay
 echo.
 pause
 exit /b 1
