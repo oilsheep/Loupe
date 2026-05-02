@@ -36,6 +36,14 @@ if not exist "node_modules\.modules.yaml" (
   echo [setup] Dependencies found.
 )
 
+echo [setup] Preparing vendored third-party binaries...
+where powershell >nul 2>nul
+if not errorlevel 1 (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\prepare-vendor-binaries.ps1" -BestEffort
+) else (
+  echo [setup] PowerShell was not found; skipping vendored binary preparation.
+)
+
 if /I "%MODE%"=="check" (
   echo.
   echo Check complete. Use start-dev.bat to run, or start-dev.bat build to package.

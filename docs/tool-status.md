@@ -244,6 +244,51 @@ The vendor folders may contain only README files in development. Offline
 distribution builds should populate them with platform-specific binaries,
 runtimes, and models.
 
+## Preparing Vendor Binaries
+
+Development launchers run vendor preparation in best-effort mode before starting
+Electron:
+
+```bash
+./start-dev.sh
+```
+
+```bat
+start-dev.bat
+```
+
+For CI or release jobs, run the stricter scripts directly:
+
+```bash
+scripts/prepare-vendor-binaries.sh --ci
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prepare-vendor-binaries.ps1 -Ci
+```
+
+Root package scripts are also available:
+
+```bash
+pnpm vendor:prepare:mac
+pnpm vendor:prepare:win
+```
+
+`vendor:prepare:mac` builds UxPlay from source. `vendor:prepare:win` expects
+`LOUPE_UXPLAY_ARCHIVE` to point at a prebuilt archive containing `uxplay.exe`.
+
+Current behavior:
+
+- `go-ios` is pulled from the npm `go-ios` package and copied into
+  `vendor/go-ios/<platform-arch>/bin`.
+- Windows scrcpy is expected under `vendor/scrcpy`; the script verifies
+  `scrcpy.exe` and `adb.exe`.
+- UxPlay can be supplied by archive with `LOUPE_UXPLAY_ARCHIVE=/path/to/archive`.
+  On macOS, `--with-uxplay` or `LOUPE_BUILD_UXPLAY=1` builds from source when the
+  required build dependencies are available.
+- faster-whisper is still managed by the Tool Status installer/runtime logic;
+  there is no standalone faster-whisper binary prepared by these scripts.
+
 ## Installation Console
 
 Tool Status streams installer stdout/stderr into the UI. The console keeps the

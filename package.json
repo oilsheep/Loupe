@@ -8,6 +8,8 @@
     "desktop:dev": "pnpm --filter desktop dev",
     "desktop:build": "pnpm --filter desktop build",
     "desktop:test": "pnpm --filter desktop test",
+    "vendor:prepare:mac": "bash scripts/prepare-vendor-binaries.sh --ci --with-uxplay",
+    "vendor:prepare:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-vendor-binaries.ps1 -Ci",
     "rebuild:electron": "node scripts/rebuild-electron.mjs",
     "rebuild:node": "pnpm --filter desktop rebuild better-sqlite3"
   }

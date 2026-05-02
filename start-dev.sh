@@ -88,6 +88,11 @@ resolve_tool_path() {
   return 1
 }
 
+ensure_pnpm || exit 1
+
+echo "[setup] Preparing vendored third-party binaries..."
+bash scripts/prepare-vendor-binaries.sh --best-effort || true
+
 missing_tools=()
 for tool in adb scrcpy; do
   if ! resolve_tool_path "$tool" >/dev/null; then
@@ -113,8 +118,6 @@ if (( ${#missing_tools[@]} > 0 )); then
   echo
   exit 1
 fi
-
-ensure_pnpm || exit 1
 
 # Best-effort cleanup for stale Loupe/Electron dev processes.
 # Keep the match narrow so we do not kill unrelated Electron apps.
