@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { SpawnOptions } from 'node:child_process'
 import type { IProcessRunner } from '../process-runner'
+import { toolSearchPath } from '../tool-paths'
 import { normalizeTranscriptJson, type TranscriptSegment } from './transcript'
+import { resolveFasterWhisperPython } from './fasterWhisperRuntime'
 
 const SCRIPT = String.raw`
 import json
@@ -74,6 +76,7 @@ function attemptOptions(attempt: WhisperAttempt, signal?: AbortSignal): SpawnOpt
     ...(signal ? { signal } : {}),
     env: {
       ...process.env,
+      PATH: toolSearchPath(),
       LOUPE_FASTER_WHISPER_DEVICE: attempt === 'cpu' ? 'cpu' : 'cuda',
       LOUPE_FASTER_WHISPER_COMPUTE: attempt === 'cpu' ? 'int8' : 'float16',
     },
@@ -98,7 +101,7 @@ export class FasterWhisperEngine {
   async transcribe(inputWav: string, outputBase: string, opts: FasterWhisperOptions = {}): Promise<{ transcriptPath: string; segments: TranscriptSegment[] }> {
     const transcriptPath = `${outputBase}.json`
     const scriptPath = `${outputBase}.faster-whisper.py`
-    const python = process.env.LOUPE_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
+    const python = resolveFasterWhisperPython()
     const model = this.modelPath.trim() || 'small'
     const language = opts.language?.trim() || 'auto'
     writeFileSync(scriptPath, SCRIPT, 'utf8')
@@ -111,7 +114,11 @@ export class FasterWhisperEngine {
         python,
         [scriptPath, inputWav, transcriptPath, model, language],
         attemptOptions(attempt, opts.signal),
-      )
+      ).catch(err => ({
+        code: -1,
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+      }))
       if (result.code === 0 && existsSync(transcriptPath)) {
         const parsed = JSON.parse(readFileSync(transcriptPath, 'utf8'))
         return { transcriptPath, segments: normalizeTranscriptJson(parsed) }

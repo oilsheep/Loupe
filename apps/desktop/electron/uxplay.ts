@@ -23,7 +23,9 @@ export class UxPlayReceiver {
     const args = ['-n', this.receiverName, '-nh', '-p', '7100', '-vsync', 'no']
     let proc: SpawnedProcess
     try {
-      proc = this.runner.spawn('uxplay', args)
+      proc = this.runner.spawn(availability.command, args, {
+        env: { ...process.env, PATH: toolSearchPath() },
+      })
     } catch (err) {
       return this.status(formatUxPlayUnavailable(err instanceof Error ? err.message : String(err)))
     }
@@ -41,9 +43,9 @@ export class UxPlayReceiver {
     return this.status(`UxPlay receiver "${this.receiverName}" is running. If it does not appear on iPhone, make sure both devices are on the same network and macOS Firewall allows incoming connections for uxplay.`, 'device.uxPlayRunningHint')
   }
 
-  private async checkAvailability(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  private async checkAvailability(): Promise<{ ok: true; command: string } | { ok: false; reason: string }> {
     const resolved = resolveBundledTool('uxplay')
-    if (resolved !== 'uxplay' && existsSync(resolved)) return { ok: true }
+    if (resolved !== 'uxplay' && existsSync(resolved)) return { ok: true, command: resolved }
     const cmd = process.platform === 'win32' ? 'where' : '/usr/bin/which'
     const check = await this.runner.run(cmd, ['uxplay'], {
       env: { ...process.env, PATH: toolSearchPath() },
@@ -52,7 +54,7 @@ export class UxPlayReceiver {
       stdout: '',
       stderr: err instanceof Error ? err.message : String(err),
     }))
-    if (check.code === 0) return { ok: true }
+    if (check.code === 0) return { ok: true, command: 'uxplay' }
     return { ok: false, reason: (check.stderr || check.stdout || 'uxplay was not found on PATH').trim() }
   }
 

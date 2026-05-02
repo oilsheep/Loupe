@@ -4,6 +4,7 @@ import type { IProcessRunner } from '../process-runner'
 import { PassThrough } from 'node:stream'
 
 const UXPLAY_LOOKUP_CMD = process.platform === 'win32' ? 'where' : '/usr/bin/which'
+const PYTHON_CMD = process.platform === 'win32' ? 'python' : 'python3'
 
 function fakeRunner(behaviour: Record<string, { code: number; stdout?: string; stderr?: string } | Error>): IProcessRunner {
   return {
@@ -29,14 +30,16 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
-    expect(checks).toHaveLength(4)
+    expect(checks).toHaveLength(5)
     expect(checks.every(c => c.ok)).toBe(true)
     expect(checks[0].version).toContain('1.0.41')
     expect(checks[1].version).toContain('2.7')
     expect(checks[2].version).toContain('/tmp/uxplay')
     expect(checks[3].version).toContain('1.0.211')
+    expect(checks[4].version).toContain('1.0.3')
   })
 
   it('reports not ok when binary missing', async () => {
@@ -46,6 +49,7 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
     expect(checks[0].ok).toBe(false)
@@ -63,6 +67,7 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
     expect(checks[0].ok).toBe(false)

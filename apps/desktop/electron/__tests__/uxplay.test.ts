@@ -33,7 +33,7 @@ describe('UxPlayReceiver', () => {
     const status = await receiver.start()
     expect(status).toMatchObject({ running: true, receiverName: 'Loupe iOS' })
     expect(runner.run).toHaveBeenCalledWith(UXPLAY_LOOKUP_CMD, ['uxplay'], expect.objectContaining({ env: expect.any(Object) }))
-    expect(runner.spawn).toHaveBeenCalledWith('uxplay', ['-n', 'Loupe iOS', '-nh', '-p', '7100', '-vsync', 'no'])
+    expect(runner.spawn).toHaveBeenCalledWith('uxplay', ['-n', 'Loupe iOS', '-nh', '-p', '7100', '-vsync', 'no'], expect.objectContaining({ env: expect.any(Object) }))
   })
 
   it('returns an install hint when uxplay is unavailable', async () => {

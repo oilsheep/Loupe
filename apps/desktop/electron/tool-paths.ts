@@ -9,12 +9,24 @@ function exeName(cmd: string): string {
   return process.platform === 'win32' ? `${cmd}.exe` : cmd
 }
 
+export function platformKey(): string {
+  return `${process.platform}-${process.arch}`
+}
+
 function candidateDirs(): string[] {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   return [
     process.env.LOUPE_TOOLS_DIR,
     join(managedToolsDir(), 'bin'),
+    join(managedToolsDir(), 'uxplay', platformKey(), 'bin'),
+    join(managedToolsDir(), 'uxplay', 'bin'),
+    resourcesPath ? join(resourcesPath, 'vendor', 'uxplay', platformKey(), 'bin') : null,
+    resourcesPath ? join(resourcesPath, 'vendor', 'uxplay', 'bin') : null,
     resourcesPath ? join(resourcesPath, 'vendor', 'scrcpy') : null,
+    join(process.cwd(), 'vendor', 'uxplay', platformKey(), 'bin'),
+    join(process.cwd(), 'vendor', 'uxplay', 'bin'),
+    join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', platformKey(), 'bin'),
+    join(process.cwd(), 'apps', 'desktop', 'vendor', 'uxplay', 'bin'),
     join(process.cwd(), 'vendor', 'scrcpy'),
     join(process.cwd(), 'apps', 'desktop', 'vendor', 'scrcpy'),
     '/opt/homebrew/bin',

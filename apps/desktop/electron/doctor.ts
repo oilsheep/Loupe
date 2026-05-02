@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 import { managedToolsDir, resolveBundledTool, toolSearchPath } from './tool-paths'
+import { managedFasterWhisperPython, managedFasterWhisperVenvDir, resolveFasterWhisperPython } from './audio-analysis/fasterWhisperRuntime'
 
 export interface ToolCheck {
-  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios'
+  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'faster-whisper'
   ok: boolean
   version?: string
   error?: string
@@ -17,6 +18,7 @@ const TOOLS: { name: ToolCheck['name']; cmd: string; args: string[] }[] = [
   { name: 'scrcpy',          cmd: 'scrcpy',          args: ['--version'] },
   { name: 'uxplay',          cmd: 'uxplay',          args: [] },
   { name: 'go-ios',          cmd: 'ios',             args: ['--version'] },
+  { name: 'faster-whisper',  cmd: 'python',          args: [] },
 ]
 
 function installHint(name: ToolCheck['name']): string | null {
@@ -25,17 +27,20 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'scrcpy') return 'Install with: brew install scrcpy'
     if (name === 'uxplay') return 'Use Loupe’s installer to build UxPlay from source, or install uxplay manually and make sure it is on PATH.'
     if (name === 'go-ios') return 'Install with: npm install -g go-ios'
+    if (name === 'faster-whisper') return 'Use Loupe’s installer to create a managed faster-whisper Python environment.'
   }
   if (process.platform === 'linux') {
     if (name === 'adb') return 'Install Android Platform Tools and ensure adb is on PATH.'
     if (name === 'scrcpy') return 'Install scrcpy and ensure it is on PATH.'
     if (name === 'uxplay') return 'Install UxPlay and ensure it is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and ensure the ios command is on PATH.'
+    if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
   }
   if (process.platform === 'win32') {
     if (name === 'adb' || name === 'scrcpy') return 'Packaged Windows builds include bundled Android tools; dev builds still require adb/scrcpy on PATH unless you point LOUPE_TOOLS_DIR at a tool folder.'
     if (name === 'uxplay') return 'Install UxPlay and make sure uxplay.exe is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and make sure ios.exe is on PATH.'
+    if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
   }
   return null
 }
@@ -55,6 +60,11 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
         out.push(check)
         continue
       }
+      if (t.name === 'faster-whisper') {
+        const check = await checkFasterWhisperAvailable(runner)
+        out.push(check)
+        continue
+      }
       const r = await runner.run(t.cmd, t.args)
       if (r.code === 0) {
         const firstLine = ((r.stdout || r.stderr).split('\n')[0] || '').trim()
@@ -68,6 +78,23 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
     }
   }
   return out
+}
+
+async function checkFasterWhisperAvailable(runner: IProcessRunner): Promise<ToolCheck> {
+  const python = resolveFasterWhisperPython()
+  try {
+    const r = await runner.run(python, ['-c', 'import faster_whisper; print(getattr(faster_whisper, "__version__", "faster-whisper"))'], {
+      env: { ...process.env, PATH: toolSearchPath() },
+    })
+    if (r.code === 0) {
+      const version = (r.stdout || r.stderr).split('\n')[0].trim()
+      return { name: 'faster-whisper', ok: true, version: `${version || 'faster-whisper'} (${python})` }
+    }
+    return { name: 'faster-whisper', ok: false, error: formatToolError('faster-whisper', (r.stderr || `exit ${r.code}`).trim()) }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { name: 'faster-whisper', ok: false, error: formatToolError('faster-whisper', message) }
+  }
 }
 
 async function checkUxPlayAvailable(runner: IProcessRunner): Promise<ToolCheck> {
@@ -116,27 +143,28 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
     return { ok: true, message: 'No missing tools selected.', detail: '' }
   }
 
-  emit('$ brew --version\n')
-  const brewCheck = await runner.run('brew', ['--version']).catch(err => ({
-    code: -1,
-    stdout: '',
-    stderr: err instanceof Error ? err.message : String(err),
-  }))
-  if (brewCheck.code !== 0) {
-    emit(`${brewCheck.stderr || brewCheck.stdout}\n`, 'stderr')
-    return {
-      ok: false,
-      message: 'Homebrew is required before Loupe can install tools.',
-      detail: `Install Homebrew first: https://brew.sh\n${brewCheck.stderr || brewCheck.stdout}`,
-    }
-  }
-
   const detail: string[] = []
   const brewPackages = unique.flatMap(name => {
     if (name === 'adb') return ['android-platform-tools']
     if (name === 'scrcpy') return ['scrcpy']
     return []
   })
+  if (brewPackages.length > 0 || unique.includes('uxplay')) {
+    emit('$ brew --version\n')
+    const brewCheck = await runner.run('brew', ['--version']).catch(err => ({
+      code: -1,
+      stdout: '',
+      stderr: err instanceof Error ? err.message : String(err),
+    }))
+    if (brewCheck.code !== 0) {
+      emit(`${brewCheck.stderr || brewCheck.stdout}\n`, 'stderr')
+      return {
+        ok: false,
+        message: 'Homebrew is required before Loupe can install these tools.',
+        detail: `Install Homebrew first: https://brew.sh\n${brewCheck.stderr || brewCheck.stdout}`,
+      }
+    }
+  }
   if (brewPackages.length > 0) {
     const result = await brewRun(runner, ['install', ...[...new Set(brewPackages)]], options.onLog)
     detail.push(commandSummary('brew', ['install', ...[...new Set(brewPackages)]], result))
@@ -163,6 +191,11 @@ export async function installTools(runner: IProcessRunner, names: ToolCheck['nam
   }
   if (unique.includes('uxplay')) {
     const result = await installUxPlayFromSource(runner, options)
+    detail.push(result.detail)
+    if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
+  }
+  if (unique.includes('faster-whisper')) {
+    const result = await installFasterWhisper(runner, options)
     detail.push(result.detail)
     if (!result.ok) return { ok: false, message: result.message, detail: detail.join('\n\n') }
   }
@@ -215,6 +248,42 @@ async function installUxPlayFromSource(runner: IProcessRunner, options: ToolInst
   } finally {
     rmSync(workDir, { recursive: true, force: true })
   }
+}
+
+async function installFasterWhisper(runner: IProcessRunner, options: ToolInstallOptions): Promise<ToolInstallResult> {
+  const venvDir = managedFasterWhisperVenvDir()
+  const venvPython = managedFasterWhisperPython()
+  const bootstrapPython = process.env.LOUPE_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
+  const detail: string[] = [`Installing faster-whisper into ${venvDir}`]
+
+  options.onLog?.({ stream: 'system', text: `Installing faster-whisper into ${venvDir}\n` })
+  const pythonCheck = await runner.run(bootstrapPython, ['--version']).catch(err => ({
+    code: -1,
+    stdout: '',
+    stderr: err instanceof Error ? err.message : String(err),
+  }))
+  detail.push(commandSummary(bootstrapPython, ['--version'], pythonCheck))
+  if (pythonCheck.code !== 0) {
+    return {
+      ok: false,
+      message: 'Python is required before Loupe can install faster-whisper.',
+      detail: detail.join('\n\n'),
+    }
+  }
+
+  const venv = await runInstallCommand(runner, bootstrapPython, ['-m', 'venv', venvDir], undefined, options.onLog)
+  detail.push(commandSummary(bootstrapPython, ['-m', 'venv', venvDir], venv))
+  if (venv.code !== 0) return { ok: false, message: 'faster-whisper environment creation failed.', detail: detail.join('\n\n') }
+
+  const pipUpgrade = await runInstallCommand(runner, venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip'], undefined, options.onLog)
+  detail.push(commandSummary(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip'], pipUpgrade))
+  if (pipUpgrade.code !== 0) return { ok: false, message: 'faster-whisper pip setup failed.', detail: detail.join('\n\n') }
+
+  const install = await runInstallCommand(runner, venvPython, ['-m', 'pip', 'install', '--upgrade', 'faster-whisper'], undefined, options.onLog)
+  detail.push(commandSummary(venvPython, ['-m', 'pip', 'install', '--upgrade', 'faster-whisper'], install))
+  if (install.code !== 0) return { ok: false, message: 'faster-whisper installation failed.', detail: detail.join('\n\n') }
+
+  return { ok: true, message: 'faster-whisper installed.', detail: detail.join('\n\n') }
 }
 
 function brewRun(runner: IProcessRunner, args: string[], onLog?: ToolInstallOptions['onLog']) {

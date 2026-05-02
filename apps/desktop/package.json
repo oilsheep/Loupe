@@ -70,6 +70,20 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "vendor/uxplay",
+        "to": "vendor/uxplay",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/faster-whisper",
+        "to": "vendor/faster-whisper",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
