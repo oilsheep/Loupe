@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..')
 const desktopPkg = JSON.parse(readFileSync(join(here, '..', 'apps', 'desktop', 'package.json'), 'utf8'))
+const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const electronVersion = (desktopPkg.devDependencies?.electron ?? '').replace(/^[\^~]/, '')
 if (!electronVersion) {
   console.error('Could not read electron version from apps/desktop/package.json')
@@ -34,7 +35,7 @@ function pnpmStoreArgs() {
   return match?.[1]?.trim() ? ['--store-dir', match[1].trim()] : []
 }
 
-const child = spawn('pnpm', [...pnpmStoreArgs(), '--filter', 'desktop', 'rebuild', 'better-sqlite3'], {
+const child = spawn(pnpmBin, [...pnpmStoreArgs(), '--filter', 'desktop', 'rebuild', 'better-sqlite3'], {
   stdio: 'inherit',
   env,
   shell: true,
