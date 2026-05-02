@@ -1,0 +1,115 @@
+name: Build desktop binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            platform: mac
+            artifact: loupe-macos
+          - name: Windows
+            os: windows-latest
+            platform: win
+            artifact: loupe-windows
+
+    env:
+      CI: true
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+      LOUPE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_ID }}
+      LOUPE_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Google OAuth build secrets
+        if: github.event_name != 'pull_request'
+        run: |
+          if [[ -z "${LOUPE_GOOGLE_OAUTH_CLIENT_ID}" || -z "${LOUPE_GOOGLE_OAUTH_CLIENT_SECRET}" ]]; then
+            echo "::error::Set LOUPE_GOOGLE_OAUTH_CLIENT_ID and LOUPE_GOOGLE_OAUTH_CLIENT_SECRET in the repository or environment secrets."
+            exit 1
+          fi
+
+      - name: Prepare macOS vendor binaries
+        if: matrix.platform == 'mac'
+        run: pnpm vendor:prepare:mac
+
+      - name: Prepare Windows vendor binaries
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: pnpm vendor:prepare:win
+
+      - name: Rebuild native modules for Electron
+        run: pnpm rebuild:electron
+
+      - name: Type check
+        run: pnpm --filter desktop typecheck
+
+      - name: Test
+        run: pnpm desktop:test
+
+      - name: Build renderer and main processes
+        run: pnpm --filter desktop exec electron-vite build
+
+      - name: Package macOS binary
+        if: matrix.platform == 'mac'
+        run: pnpm --filter desktop exec electron-builder --mac --publish never
+
+      - name: Package Windows binary
+        if: matrix.platform == 'win'
+        shell: powershell
+        run: pnpm --filter desktop exec electron-builder --win --publish never
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            apps/desktop/dist/**
+            !apps/desktop/dist/**/*.blockmap
+            !apps/desktop/dist/latest*.yml
+          if-no-files-found: error
+          retention-days: 14
