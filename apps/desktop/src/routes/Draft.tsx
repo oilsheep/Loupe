@@ -29,7 +29,6 @@ const DEFAULT_SEVERITIES: SeveritySettings = {
   custom4: { label: '', color: '#eab308' },
 }
 const PRIMARY_MARKER_SEVERITIES: BugSeverity[] = ['improvement', 'minor', 'normal', 'major']
-const CUSTOM_MARKER_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
 const MARKER_HOTKEY_LABELS: Partial<Record<BugSeverity, string>> = {
   improvement: 'F6',
   minor: 'F7',
@@ -39,18 +38,33 @@ const MARKER_HOTKEY_LABELS: Partial<Record<BugSeverity, string>> = {
 const BACKGROUND_ANALYSIS_KEY_PREFIX = 'loupe.audioAnalysis.background.'
 
 function labelOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity].label
+  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity]?.label || severity
 }
 
 function colorOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.color || DEFAULT_SEVERITIES[severity].color
+  return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
 }
 
 function visibleMarkerSeverities(severities: SeveritySettings): BugSeverity[] {
+  const customSeverities = Object.keys(severities)
+    .filter(severity => !PRIMARY_MARKER_SEVERITIES.includes(severity) && severity !== 'note' && severities[severity]?.label?.trim())
+    .sort((a, b) => {
+      const aNum = Number(a.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      const bNum = Number(b.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      return aNum === bNum ? a.localeCompare(b) : aNum - bNum
+    })
   return [
     ...PRIMARY_MARKER_SEVERITIES,
-    ...CUSTOM_MARKER_SEVERITIES.filter(severity => severities[severity]?.label?.trim()),
+    ...customSeverities,
   ]
+}
+
+const CUSTOM_COLORS = ['#8b5cf6', '#ec4899', '#14b8a6', '#eab308', '#f97316', '#06b6d4', '#84cc16', '#f43f5e']
+
+function nextCustomSeverityKey(severities: SeveritySettings): BugSeverity {
+  let index = 1
+  while (severities[`custom${index}`]) index += 1
+  return `custom${index}`
 }
 
 export function Draft({ sessionId }: { sessionId: string }) {
@@ -178,6 +192,37 @@ export function Draft({ sessionId }: { sessionId: string }) {
     }
   }, [addingMarker, refresh, sessionId])
 
+  const addCustomSeverity = useCallback(async () => {
+    const key = nextCustomSeverityKey(severities)
+    const customCount = Object.keys(severities).filter(severity => severity.startsWith('custom')).length
+    const next: SeveritySettings = {
+      ...severities,
+      [key]: {
+        label: `tag ${customCount + 1}`,
+        color: CUSTOM_COLORS[customCount % CUSTOM_COLORS.length],
+      },
+    }
+    setSeverities(next)
+    const saved = await api.settings.setSeverities(next)
+    setSeverities(saved.severities)
+  }, [severities])
+
+  const updateBugClipWindow = useCallback(async (bug: Bug, preSec: number, postSec: number) => {
+    const nextPre = Math.max(0, Math.round(preSec * 10) / 10)
+    const nextPost = Math.max(0, Math.round(postSec * 10) / 10)
+    setData(prev => prev ? {
+      ...prev,
+      bugs: prev.bugs.map(item => item.id === bug.id ? { ...item, preSec: nextPre, postSec: nextPost } : item),
+    } : prev)
+    await api.bug.update(bug.id, {
+      note: bug.note,
+      severity: bug.severity,
+      preSec: nextPre,
+      postSec: nextPost,
+      mentionUserIds: bug.mentionUserIds ?? [],
+    })
+  }, [])
+
   useEffect(() => api.onBugMarkRequested(addMarkerAtCurrentTime), [addMarkerAtCurrentTime])
 
   if (!data) {
@@ -232,6 +277,15 @@ export function Draft({ sessionId }: { sessionId: string }) {
           {labelOrDefault(severities, severity)}
         </button>
       ))}
+      <button
+        type="button"
+        onClick={addCustomSeverity}
+        disabled={addingMarker}
+        className="rounded bg-zinc-800 px-2 py-0.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+        title="Add custom label"
+      >
+        +
+      </button>
     </div>
   )
 
@@ -301,6 +355,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
           durationMs={dur}
           selectedBugId={selectedBugId}
           onMarkerClick={selectBug}
+          onClipWindowChange={updateBugClipWindow}
         />
       </main>
 

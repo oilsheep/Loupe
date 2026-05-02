@@ -264,27 +264,31 @@ export function PreferencesDialog({
 
   function saveSeverityLabel(severity: BugSeverity) {
     const trimmed = severities[severity]?.label?.trim() ?? ''
+    const isCustom = !HOTKEY_SEVERITIES.some(item => item.severity === severity) && severity !== 'note'
     const next = {
       ...severities,
-      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: trimmed || (CUSTOM_SEVERITIES.includes(severity) ? '' : DEFAULT_SEVERITIES[severity].label) },
+      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: trimmed || (isCustom ? '' : DEFAULT_SEVERITIES[severity]?.label || severity) },
     }
-    if (CUSTOM_SEVERITIES.includes(severity) && !trimmed) setCustomSlots(customSlots.filter(slot => slot !== severity))
+    if (isCustom && !trimmed) setCustomSlots(customSlots.filter(slot => slot !== severity))
     onSaveSeverities(next)
   }
 
   function updateSeverity(severity: BugSeverity, patch: Partial<SeveritySettings[BugSeverity]>) {
     onSeveritiesChange({
       ...severities,
-      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), ...patch },
+      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { label: severity, color: '#8b5cf6' }), ...patch },
     })
   }
 
   function addCustomLabel() {
-    const slot = CUSTOM_SEVERITIES.find(key => !customSlots.includes(key))
-    if (!slot) return
+    let index = 1
+    while (severities[`custom${index}`]) index += 1
+    const slot = `custom${index}`
+    const colors = ['#8b5cf6', '#ec4899', '#14b8a6', '#eab308', '#f97316', '#06b6d4', '#84cc16', '#f43f5e']
+    const customCount = Object.keys(severities).filter(key => key.startsWith('custom')).length
     const next = {
       ...severities,
-      [slot]: { ...(severities[slot] ?? DEFAULT_SEVERITIES[slot]), label: `tag ${5 + CUSTOM_SEVERITIES.indexOf(slot)}` },
+      [slot]: { label: `tag ${customCount + 1}`, color: colors[customCount % colors.length] },
     }
     setCustomSlots([...customSlots, slot])
     onSaveSeverities(next)
@@ -293,7 +297,7 @@ export function PreferencesDialog({
   function removeCustomLabel(severity: BugSeverity) {
     const next = {
       ...severities,
-      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: '' },
+      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: '' },
     }
     setCustomSlots(customSlots.filter(slot => slot !== severity))
     onSaveSeverities(next)
@@ -374,7 +378,7 @@ export function PreferencesDialog({
                         type="color"
                         value={colorOrDefault(severities, severity)}
                         onChange={(e) => {
-                          const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), color: e.target.value } }
+                          const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { label: severity }), color: e.target.value } }
                           onSaveSeverities(next)
                         }}
                         className="h-8 w-full cursor-pointer rounded border border-zinc-800 bg-zinc-950 p-1"
@@ -393,11 +397,9 @@ export function PreferencesDialog({
               <div className="border-t border-zinc-800 pt-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-zinc-300">{t('preferences.customLabels')}</span>
-                  {customSlots.length < CUSTOM_SEVERITIES.length && (
-                    <button type="button" onClick={addCustomLabel} className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700" title={t('common.add')}>
-                      +
-                    </button>
-                  )}
+                  <button type="button" onClick={addCustomLabel} className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700" title={t('common.add')}>
+                    +
+                  </button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {customSlots.map(severity => (
@@ -421,7 +423,7 @@ export function PreferencesDialog({
                           type="color"
                           value={colorOrDefault(severities, severity)}
                           onChange={(e) => {
-                            const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), color: e.target.value } }
+                            const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { label: severity }), color: e.target.value } }
                             onSaveSeverities(next)
                           }}
                           className="h-8 w-full cursor-pointer rounded border border-zinc-800 bg-zinc-950 p-1"
@@ -873,16 +875,20 @@ const HOTKEY_SEVERITIES: Array<{ key: keyof HotkeySettings; severity: BugSeverit
   { key: 'normal', severity: 'normal' },
   { key: 'major', severity: 'major' },
 ]
-const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
-
 function visibleCustomSeverities(severities: SeveritySettings): BugSeverity[] {
-  return CUSTOM_SEVERITIES.filter(key => severities[key]?.label?.trim())
+  return Object.keys(severities)
+    .filter(key => !HOTKEY_SEVERITIES.some(item => item.severity === key) && key !== 'note' && severities[key]?.label?.trim())
+    .sort((a, b) => {
+      const aNum = Number(a.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      const bNum = Number(b.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      return aNum === bNum ? a.localeCompare(b) : aNum - bNum
+    })
 }
 
 function labelOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity].label
+  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity]?.label || severity
 }
 
 function colorOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.color || DEFAULT_SEVERITIES[severity].color
+  return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
 }

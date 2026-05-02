@@ -15,19 +15,10 @@ export interface IosAppInfo {
 
 export type SessionStatus = 'recording' | 'draft'
 export type MarkerSource = 'manual' | 'audio-auto'
-export type BugSeverity =
-  | 'note'
-  | 'major'
-  | 'normal'
-  | 'minor'
-  | 'improvement'
-  | 'custom1'
-  | 'custom2'
-  | 'custom3'
-  | 'custom4'
+export type BugSeverity = string
 export type HotkeySeverity = 'improvement' | 'minor' | 'normal' | 'major'
 export type AppLocale = 'system' | 'en' | 'zh-TW' | 'zh-CN' | 'ja' | 'ko' | 'es'
-export type SeveritySettings = Record<BugSeverity, { label: string; color: string }>
+export type SeveritySettings = Record<string, { label: string; color: string }>
 
 export interface HotkeySettings {
   improvement: string
@@ -362,6 +353,7 @@ export interface DesktopApi {
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
     update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }): Promise<void>
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
+    transcribeAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<{ text: string }>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
     exportClip(args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string | null>

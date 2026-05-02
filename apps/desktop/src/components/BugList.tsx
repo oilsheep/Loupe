@@ -31,8 +31,7 @@ function fmt(ms: number): string {
 }
 
 const BASE_SEVERITIES: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
-const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
-const CLIP_MIN_SEC = 2
+const CLIP_MIN_SEC = 0
 const CLIP_MAX_SEC = 60
 const THUMB_PENDING_MS = 45_000
 const LOGCAT_COLLAPSED_LINES = 2
@@ -60,9 +59,16 @@ const AUDIO_TRIGGER_WORDS = [
 ].sort((a, b) => b.length - a.length)
 
 function visibleSeverities(severities: SeveritySettings): BugSeverity[] {
+  const customSeverities = Object.keys(severities)
+    .filter(severity => !BASE_SEVERITIES.includes(severity) && severities[severity]?.label?.trim())
+    .sort((a, b) => {
+      const aNum = Number(a.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      const bNum = Number(b.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      return aNum === bNum ? a.localeCompare(b) : aNum - bNum
+    })
   return [
     ...BASE_SEVERITIES,
-    ...CUSTOM_SEVERITIES.filter(severity => severities[severity]?.label?.trim()),
+    ...customSeverities,
   ]
 }
 
@@ -867,6 +873,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
           type="range"
           min={CLIP_MIN_SEC}
           max={CLIP_MAX_SEC}
+          step={0.1}
           value={pre}
           onChange={(e) => onPreChange(Number(e.target.value))}
           data-testid={`pre-${id}`}
@@ -877,6 +884,7 @@ function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWin
           type="range"
           min={CLIP_MIN_SEC}
           max={CLIP_MAX_SEC}
+          step={0.1}
           value={post}
           onChange={(e) => onPostChange(Number(e.target.value))}
           data-testid={`post-${id}`}
@@ -898,21 +906,61 @@ interface SeveritySelectProps {
 }
 
 function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange }: SeveritySelectProps) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const color = severityColor(severities, value)
+  useEffect(() => {
+    if (!open) return
+    function onDoc(event: globalThis.MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
   return (
-    <div className="flex items-center gap-2" data-row-click-ignore="true">
+    <div ref={rootRef} className="relative flex items-center gap-2" data-row-click-ignore="true">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as BugSeverity)}
         data-testid={`severity-select-${bugId}`}
-        aria-label="Marker severity"
-        className="max-w-40 rounded px-3 py-1.5 text-sm font-semibold text-black outline-none focus:ring-2 focus:ring-blue-600"
-        style={{ backgroundColor: color }}
+        aria-hidden="true"
+        tabIndex={-1}
+        className="sr-only"
       >
         {visibleSeverities.map(severity => (
           <option key={severity} value={severity}>{severityLabel(severities, severity)}</option>
         ))}
       </select>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        data-testid={`severity-button-${bugId}`}
+        aria-label="Marker severity"
+        className="inline-flex max-w-40 items-center gap-2 rounded px-3 py-1.5 text-sm font-semibold text-black outline-none focus:ring-2 focus:ring-blue-600"
+        style={{ backgroundColor: color }}
+      >
+        <span className="truncate">{severityLabel(severities, value)}</span>
+        <span className="text-black/70">v</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-40 mt-1 min-w-40 overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-xl">
+          {visibleSeverities.map(severity => (
+            <button
+              key={severity}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onChange(severity)
+              }}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-black hover:brightness-110"
+              style={{ backgroundColor: severityColor(severities, severity) }}
+            >
+              <span className="truncate">{severityLabel(severities, severity)}</span>
+              {severity === value && <span aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1791,7 +1839,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
             onSelect={onSelect}
             onMutated={onMutated}
             allowExport={allowExport}
-            shouldScrollIntoView={autoFocusLatest && b.id === selectedBugId}
+            shouldScrollIntoView={b.id === selectedBugId}
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
@@ -1927,6 +1975,7 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
   const chunksRef = useRef<Blob[]>([])
   const recordStartedAtRef = useRef(0)
   const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
 
   useEffect(() => { setNote(bug.note) }, [bug.note])
   useEffect(() => { setPre(bug.preSec) }, [bug.preSec])
@@ -1934,7 +1983,7 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
   useEffect(() => { setMentionUserIds(bug.mentionUserIds ?? []) }, [bug.mentionUserIds])
   useEffect(() => {
     if (!shouldScrollIntoView) return
-    rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [shouldScrollIntoView, bug.id])
   useEffect(() => {
     const el = noteRef.current
@@ -2006,8 +2055,18 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
       if (blob.size === 0) return
       const durationMs = Date.now() - recordStartedAtRef.current
       const base64 = await blobToBase64(blob)
-      await api.bug.saveAudio({ sessionId, bugId: bug.id, base64, durationMs, mimeType: blob.type })
-      onMutated()
+      setTranscribing(true)
+      try {
+        const result = await api.bug.transcribeAudio({ sessionId, bugId: bug.id, base64, durationMs, mimeType: blob.type })
+        const text = result.text.trim()
+        if (text) {
+          const nextNote = [note.trim(), text].filter(Boolean).join('\n')
+          setNote(nextNote)
+          await save({ note: nextNote })
+        }
+      } finally {
+        setTranscribing(false)
+      }
     }
     recorderRef.current = recorder
     setRecording(true)
@@ -2027,7 +2086,7 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
         if (shouldIgnoreRowClick(event)) return
         onSelect(bug)
       }}
-      className={`cursor-pointer rounded border p-2 transition-colors ${
+      className={`scroll-my-24 cursor-pointer rounded border p-2 transition-colors ${
         isSelected
           ? 'border-blue-700 bg-zinc-900'
           : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700 hover:bg-zinc-900'
@@ -2086,12 +2145,16 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
               <button
                 onClick={toggleRecording}
                 data-testid={`record-audio-${bug.id}`}
-                title={recording ? t('bug.stopAudio') : bug.audioRel ? t('bug.replaceAudio') : t('bug.recordAudio')}
+                disabled={transcribing}
+                title={transcribing ? 'Transcribing speech to note' : recording ? t('bug.stopAudio') : 'Record speech and transcribe into note'}
                 className={`inline-flex h-8 w-8 items-center justify-center rounded text-zinc-200 hover:text-white ${
-                  recording ? 'bg-red-700 hover:bg-red-600' : bug.audioRel ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-zinc-800 hover:bg-zinc-700'
+                  recording ? 'bg-red-700 hover:bg-red-600' : transcribing ? 'bg-sky-800 opacity-80' : 'bg-zinc-800 hover:bg-zinc-700'
                 }`}
               >
-                <MicIcon />
+                {transcribing
+                  ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
+                  : <MicIcon />
+                }
               </button>
               <button
                 onClick={del}

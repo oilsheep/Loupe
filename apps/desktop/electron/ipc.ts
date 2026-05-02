@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, shell } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createServer } from 'node:http'
@@ -25,6 +25,7 @@ import { readProjectFile, writeProjectFile } from './project-file'
 import type { SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
+import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
 import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 
 export const CHANNEL = {
@@ -71,6 +72,7 @@ export const CHANNEL = {
   bugExportProgress:       'bug:exportProgress',
   bugExportCancel:         'bug:exportCancel',
   bugSaveAudio:            'bug:saveAudio',
+  bugTranscribeAudio:      'bug:transcribeAudio',
   bugMarkRequested:        'bug:markRequested',
   sessionInterrupted:      'session:interrupted',
   hotkeySetEnabled:        'hotkey:setEnabled',
@@ -661,8 +663,8 @@ async function exportBugEvidence(args: {
     outputPath,
     startMs,
     endMs,
-    narrationPath: !args.includeMicTrack && args.bug.audioRel ? join(args.deps.paths.sessionDir(args.session.id), args.bug.audioRel) : null,
-    narrationDurationMs: !args.includeMicTrack ? args.bug.audioDurationMs : null,
+    narrationPath: null,
+    narrationDurationMs: null,
     sessionMicPath: args.includeMicTrack ? args.session.micAudioPath : null,
     severity: args.bug.severity,
     note: args.bug.note,
@@ -2250,6 +2252,39 @@ export function registerIpc(deps: IpcDeps): void {
     const bytes = Buffer.from(args.base64, 'base64')
     deps.manager.saveBugAudio(args.sessionId, args.bugId, bytes, args.durationMs)
   })
+  ipcMain.handle(CHANNEL.bugTranscribeAudio, async (_e, args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<{ text: string }> => {
+    const session = deps.manager.getSession(args.sessionId)
+    if (!session) throw new Error('session not found')
+    const settings = deps.settings.get().audioAnalysis
+    const dir = join(deps.paths.audioDir(args.sessionId), 'stt')
+    mkdirSync(dir, { recursive: true })
+    const token = `${Date.now()}-${randomBytes(4).toString('hex')}`
+    const inputPath = join(dir, `${args.bugId}-${token}.webm`)
+    const wavPath = join(dir, `${args.bugId}-${token}.wav`)
+    const outputBase = join(dir, `${args.bugId}-${token}`)
+    try {
+      writeFileSync(inputPath, Buffer.from(args.base64, 'base64'))
+      const ffmpeg = resolveBundledFfmpegPath()
+      const converted = await deps.runner.run(ffmpeg, [
+        '-y',
+        '-i', inputPath,
+        '-vn',
+        '-ac', '1',
+        '-ar', '16000',
+        '-c:a', 'pcm_s16le',
+        wavPath,
+      ])
+      if (converted.code !== 0) throw new Error(`ffmpeg failed while preparing marker audio: ${converted.stderr.trim() || converted.stdout.trim()}`)
+      const engine = new FasterWhisperEngine(deps.runner, settings.modelPath || 'small')
+      const transcript = await engine.transcribe(wavPath, outputBase, { language: settings.language })
+      const text = transcript.segments.map(segment => segment.text.trim()).filter(Boolean).join(' ').trim()
+      return { text }
+    } finally {
+      for (const file of [inputPath, wavPath, `${outputBase}.json`, `${outputBase}.txt`, `${outputBase}.srt`, `${outputBase}.vtt`, `${outputBase}.tsv`]) {
+        try { rmSync(file, { force: true }) } catch {}
+      }
+    }
+  })
   ipcMain.handle(CHANNEL.bugExportCancel, async (_e, exportId: string): Promise<void> => {
     exportControllers.get(exportId)?.abort()
   })
@@ -2291,8 +2326,8 @@ export function registerIpc(deps: IpcDeps): void {
         inputPath,
         outputPath,
         startMs, endMs,
-        narrationPath: !args.includeMicTrack && bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-        narrationDurationMs: !args.includeMicTrack ? bug.audioDurationMs : null,
+        narrationPath: null,
+        narrationDurationMs: null,
         sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
         severity: bug.severity,
         severityLabel: severityStyle?.label ?? bug.severity,
@@ -2449,8 +2484,8 @@ export function registerIpc(deps: IpcDeps): void {
           outputPath,
           startMs,
           endMs,
-          narrationPath: !args.includeMicTrack && bug.audioRel ? join(deps.paths.sessionDir(session.id), bug.audioRel) : null,
-          narrationDurationMs: !args.includeMicTrack ? bug.audioDurationMs : null,
+          narrationPath: null,
+          narrationDurationMs: null,
           sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
           severity: bug.severity,
           severityLabel: severityStyle?.label ?? bug.severity,

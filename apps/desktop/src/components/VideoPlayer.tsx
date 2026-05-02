@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import type { Bug, BugSeverity, DesktopApi, SeveritySettings } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 
@@ -48,6 +48,7 @@ interface Props {
   durationMs: number
   selectedBugId: string | null
   onMarkerClick(bug: Bug): void
+  onClipWindowChange?(bug: Bug, preSec: number, postSec: number): void
 }
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
@@ -68,6 +69,23 @@ function severityLabel(severities: SeveritySettings | undefined, severity: BugSe
 
 function severityColor(severities: SeveritySettings | undefined, severity: BugSeverity): string {
   return severities?.[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
+}
+
+function formatTimelineMs(ms: number, compact = false): string {
+  const safeMs = Math.max(0, ms)
+  const totalSeconds = Math.floor(safeMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (!compact && safeMs < 10_000) return `${seconds}.${Math.floor((safeMs % 1000) / 100)}s`
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function niceTickStep(spanMs: number): number {
+  const target = spanMs / 6
+  const steps = [500, 1000, 2000, 5000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000]
+  return steps.find(step => step >= target) ?? steps[steps.length - 1]
 }
 
 function PlayIcon({ playing }: { playing: boolean }) {
@@ -101,7 +119,7 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
   )
 }
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, micAudioStartOffsetMs, transcriptSegments = [], severities, bugs, durationMs, selectedBugId, onMarkerClick }, ref) => {
+export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, micAudioStartOffsetMs, transcriptSegments = [], severities, bugs, durationMs, selectedBugId, onMarkerClick, onClipWindowChange }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const micAudioRef = useRef<HTMLAudioElement>(null)
   const clipEndMsRef = useRef<number | null>(null)
@@ -115,6 +133,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   const [waveformDurationMs, setWaveformDurationMs] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [timelineViewport, setTimelineViewport] = useState({ startMs: 0, endMs: Math.max(0, durationMs) })
   const syncingMediaRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const selectedBug = bugs.find(b => b.id === selectedBugId) ?? null
@@ -129,15 +148,30 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
       endMs: token.endMs + micOffsetMs,
     })),
   }))
-  const cursorPct = durationMs ? Math.max(0, Math.min(100, (cursorMs / durationMs) * 100)) : 0
+  const viewportStartMs = Math.max(0, Math.min(timelineViewport.startMs, Math.max(0, durationMs)))
+  const viewportEndMs = Math.max(viewportStartMs, Math.min(timelineViewport.endMs, Math.max(0, durationMs)))
+  const viewportSpanMs = Math.max(1, viewportEndMs - viewportStartMs)
+  const cursorPct = durationMs ? Math.max(0, Math.min(100, ((cursorMs - viewportStartMs) / viewportSpanMs) * 100)) : 0
+  const fullCursorPct = durationMs ? Math.max(0, Math.min(100, (cursorMs / durationMs) * 100)) : 0
   const effectiveTranscriptCursorMs = isTranscriptHovering ? transcriptCursorMs : cursorMs
   const transcriptCursorPct = durationMs ? Math.max(0, Math.min(100, (effectiveTranscriptCursorMs / durationMs) * 100)) : 0
-  const selectionStartPct = selectedBug && durationMs
-    ? Math.max(0, Math.min(100, ((selectedBug.offsetMs - selectedBug.preSec * 1000) / durationMs) * 100))
-    : 0
-  const selectionEndPct = selectedBug && durationMs
-    ? Math.max(0, Math.min(100, ((selectedBug.offsetMs + selectedBug.postSec * 1000) / durationMs) * 100))
-    : 0
+  const selectedWindowStartMs = selectedBug ? selectedBug.offsetMs - selectedBug.preSec * 1000 : 0
+  const selectedWindowEndMs = selectedBug ? selectedBug.offsetMs + selectedBug.postSec * 1000 : 0
+  const selectedWindowVisible = selectedBug && durationMs > 0 && selectedWindowEndMs >= viewportStartMs && selectedWindowStartMs <= viewportEndMs
+  const selectionStartRawPct = selectedBug && durationMs ? timelinePctForMs(selectedWindowStartMs) : 0
+  const selectionEndRawPct = selectedBug && durationMs ? timelinePctForMs(selectedWindowEndMs) : 0
+  const selectionStartPct = Math.max(0, Math.min(100, selectionStartRawPct))
+  const selectionEndPct = Math.max(0, Math.min(100, selectionEndRawPct))
+  const showSelectionStartHandle = selectionStartRawPct >= 0 && selectionStartRawPct <= 100
+  const showSelectionEndHandle = selectionEndRawPct >= 0 && selectionEndRawPct <= 100
+  const overviewStartPct = durationMs ? Math.max(0, Math.min(100, (viewportStartMs / durationMs) * 100)) : 0
+  const overviewWidthPct = durationMs ? Math.max(2, Math.min(100 - overviewStartPct, (viewportSpanMs / durationMs) * 100)) : 100
+  const rulerStepMs = niceTickStep(viewportSpanMs)
+  const rulerTicks: number[] = []
+  if (durationMs > 0) {
+    const firstTick = Math.ceil(viewportStartMs / rulerStepMs) * rulerStepMs
+    for (let ms = firstTick; ms <= viewportEndMs; ms += rulerStepMs) rulerTicks.push(ms)
+  }
   const transcriptTokens = sessionTranscriptSegments.flatMap(displayTokensForSegment).filter(token => token.text.trim())
   const transcriptWindowStart = Math.max(0, effectiveTranscriptCursorMs - 5000)
   const transcriptWindowEnd = effectiveTranscriptCursorMs + 5000
@@ -145,6 +179,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   function clampSessionMs(ms: number): number {
     const max = durationMs > 0 ? durationMs : Number.POSITIVE_INFINITY
     return Math.max(0, Math.min(max, ms))
+  }
+
+  function clampViewport(startMs: number, spanMs: number): { startMs: number; endMs: number } {
+    if (durationMs <= 0) return { startMs: 0, endMs: 0 }
+    const minSpanMs = Math.min(durationMs, 1000)
+    const nextSpanMs = Math.max(minSpanMs, Math.min(durationMs, spanMs))
+    const nextStartMs = Math.max(0, Math.min(durationMs - nextSpanMs, startMs))
+    return { startMs: nextStartMs, endMs: nextStartMs + nextSpanMs }
+  }
+
+  function timelinePctForMs(ms: number): number {
+    if (durationMs <= 0 || viewportSpanMs <= 0) return 0
+    return ((ms - viewportStartMs) / viewportSpanMs) * 100
   }
 
   function micTimeForSessionMs(ms: number): number {
@@ -211,6 +258,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
     if (video) video.playbackRate = playbackRate
     if (audio) audio.playbackRate = playbackRate
   }, [playbackRate])
+
+  useEffect(() => {
+    setTimelineViewport(current => {
+      if (durationMs <= 0) return { startMs: 0, endMs: 0 }
+      const currentSpan = Math.max(1, current.endMs - current.startMs)
+      if (current.endMs <= 0 || current.startMs >= durationMs) return { startMs: 0, endMs: durationMs }
+      return clampViewport(current.startMs, Math.min(durationMs, currentSpan))
+    })
+  }, [durationMs])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -410,9 +466,70 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   }
 
   function seekFromTimeline(e: MouseEvent<HTMLDivElement>) {
-    const ms = timeFromTimelineEvent(e)
+    const ms = timeFromVisibleTimelineEvent(e)
     if (ms === null) return
     seekPlaybackToMs(ms, { pause: true })
+  }
+
+  function dragPlayhead(e: ReactPointerEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null
+    if (target?.closest('button,[data-clip-handle="true"]')) return
+    const ms = timeFromPointer(e.currentTarget, e.clientX)
+    if (ms !== null) seekPlaybackToMs(ms, { pause: true })
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const move = (event: PointerEvent) => {
+      const nextMs = timeFromPointer(el, event.clientX)
+      if (nextMs !== null) seekPlaybackToMs(nextMs, { pause: true })
+    }
+    const up = () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', up)
+      el.removeEventListener('pointercancel', up)
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', up)
+    el.addEventListener('pointercancel', up)
+  }
+
+  function timeFromPointer(el: HTMLElement, clientX: number): number | null {
+    if (durationMs <= 0) return null
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0) return null
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    return viewportStartMs + viewportSpanMs * pct
+  }
+
+  function dragClipHandle(kind: 'start' | 'end', e: ReactPointerEvent<HTMLButtonElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!selectedBug || !onClipWindowChange) return
+    const timeline = e.currentTarget.closest('[data-testid="timeline"]') as HTMLElement | null
+    if (!timeline) return
+    const update = (clientX: number) => {
+      const ms = timeFromPointer(timeline, clientX)
+      if (ms === null) return
+      if (kind === 'start') {
+        const preSec = Math.max(0, Math.min(60, Math.round((selectedBug.offsetMs - ms) / 100) / 10))
+        onClipWindowChange(selectedBug, preSec, selectedBug.postSec)
+        seekPlaybackToMs(selectedBug.offsetMs - preSec * 1000, { pause: true })
+      } else {
+        const postSec = Math.max(0, Math.min(60, Math.round((ms - selectedBug.offsetMs) / 100) / 10))
+        onClipWindowChange(selectedBug, selectedBug.preSec, postSec)
+        seekPlaybackToMs(selectedBug.offsetMs + postSec * 1000, { pause: true })
+      }
+    }
+    update(e.clientX)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const move = (event: PointerEvent) => update(event.clientX)
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   function timeFromTimelineEvent(e: MouseEvent<HTMLDivElement>): number | null {
@@ -421,6 +538,53 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
     if (rect.width <= 0) return null
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     return durationMs * pct
+  }
+
+  function timeFromVisibleTimelineEvent(e: MouseEvent<HTMLDivElement>): number | null {
+    if (durationMs <= 0) return null
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0) return null
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    return viewportStartMs + viewportSpanMs * pct
+  }
+
+  function zoomTimeline(e: ReactWheelEvent<HTMLDivElement>) {
+    if (durationMs <= 0) return
+    if (!e.altKey) return
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const anchorPct = rect.width > 0 ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) : 0.5
+    const anchorMs = viewportStartMs + viewportSpanMs * anchorPct
+    const factor = e.deltaY > 0 ? 1.18 : 1 / 1.18
+    const nextSpanMs = viewportSpanMs * factor
+    setTimelineViewport(clampViewport(anchorMs - nextSpanMs * anchorPct, nextSpanMs))
+  }
+
+  function dragViewportWindow(e: ReactPointerEvent<HTMLButtonElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (durationMs <= 0) return
+    const track = e.currentTarget.parentElement
+    if (!track) return
+    const rect = track.getBoundingClientRect()
+    const startClientX = e.clientX
+    const initialStartMs = viewportStartMs
+    const spanMs = viewportSpanMs
+    const update = (clientX: number) => {
+      if (rect.width <= 0) return
+      const deltaMs = ((clientX - startClientX) / rect.width) * durationMs
+      setTimelineViewport(clampViewport(initialStartMs + deltaMs, spanMs))
+    }
+    update(e.clientX)
+    const move = (event: PointerEvent) => update(event.clientX)
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   function moveTranscriptCursor(e: MouseEvent<HTMLDivElement>) {
@@ -447,7 +611,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   }
 
   const transportControls = (
-    <div className="flex items-center justify-center gap-1" data-testid="transport-controls">
+    <div className="flex items-center justify-center gap-3" data-testid="transport-controls">
       <button
         type="button"
         onClick={togglePlayback}
@@ -475,6 +639,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
           </button>
         ))}
       </div>
+      <span className="hidden whitespace-nowrap text-[11px] text-zinc-500 sm:inline">
+        Alt + wheel: zoom timeline
+      </span>
     </div>
   )
 
@@ -504,7 +671,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
             src: e.currentTarget.currentSrc,
           })
         }}
-        className={`mx-auto block max-w-full rounded-lg bg-black object-contain ${transcriptTokens.length > 0 || micAudioSrc ? 'max-h-[calc(100vh-250px)]' : 'max-h-[calc(100vh-180px)]'}`}
+        className={`mx-auto block max-w-full rounded-lg bg-black object-contain ${transcriptTokens.length > 0 || micAudioSrc ? 'max-h-[calc(100vh-330px)]' : 'max-h-[calc(100vh-260px)]'}`}
         data-testid="video-el"
       />
       {(transcriptTokens.length > 0 || micAudioSrc) && durationMs > 0 && (
@@ -607,7 +774,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
             })}
             <div
               className="pointer-events-none absolute top-1/2 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.75)]"
-              style={{ left: `${cursorPct}%` }}
+              style={{ left: `${fullCursorPct}%` }}
               title="Video playhead"
             />
             <div
@@ -618,54 +785,118 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
           </div>
         </div>
       )}
-      <div className="relative mb-1 h-8 cursor-pointer" data-testid="timeline" onClick={seekFromTimeline}>
-        <div className="pointer-events-none absolute left-0 right-0 top-1 h-4 rounded bg-zinc-800" />
-        {selectedBug && durationMs > 0 && selectionEndPct > selectionStartPct && (
-          <div
-            className="absolute top-3 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
-            data-testid="selected-clip-window"
-            style={{ left: `${selectionStartPct}%`, width: `${selectionEndPct - selectionStartPct}%` }}
-            title={`Export range: -${selectedBug.preSec}s / +${selectedBug.postSec}s`}
-          />
-        )}
-        {durationMs > 0 && (
-          <div
-            className="pointer-events-none absolute top-3 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
-            data-testid="playhead"
-            style={{ left: `${cursorPct}%` }}
-          />
-        )}
-        {bugs.map(b => {
-          const left = durationMs ? Math.max(0, Math.min(100, (b.offsetMs / durationMs) * 100)) : 0
-          const ring = b.id === selectedBugId ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.75)]' : ''
-          const url = thumbs[b.id]
-          const label = severityLabel(severities, b.severity)
-          return (
+      <div
+        className="rounded border border-zinc-800 bg-zinc-900/40 px-3 pb-2 pt-1"
+        onWheel={zoomTimeline}
+        title="Alt + mouse wheel zooms the timeline. Drag the lower overview bar to pan."
+      >
+        <div className="relative mb-1 h-8 cursor-ew-resize touch-none" data-testid="timeline" onClick={seekFromTimeline} onPointerDown={dragPlayhead}>
+          <div className="pointer-events-none absolute left-0 right-0 top-1 h-4 rounded bg-zinc-800" />
+          {selectedWindowVisible && selectionEndPct > selectionStartPct && (
+            <>
+              <div
+                className="absolute top-3 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
+                data-testid="selected-clip-window"
+                style={{ left: `${selectionStartPct}%`, width: `${selectionEndPct - selectionStartPct}%` }}
+                title={`Export range: -${selectedBug!.preSec}s / +${selectedBug!.postSec}s`}
+              />
+              {showSelectionStartHandle && (
+                <button
+                  type="button"
+                  data-clip-handle="true"
+                  aria-label="Drag clip start"
+                  onPointerDown={(e) => dragClipHandle('start', e)}
+                  className="absolute top-3 z-20 h-6 w-2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded bg-blue-400 ring-1 ring-white/70"
+                  style={{ left: `${selectionStartPct}%` }}
+                />
+              )}
+              {showSelectionEndHandle && (
+                <button
+                  type="button"
+                  data-clip-handle="true"
+                  aria-label="Drag clip end"
+                  onPointerDown={(e) => dragClipHandle('end', e)}
+                  className="absolute top-3 z-20 h-6 w-2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded bg-blue-400 ring-1 ring-white/70"
+                  style={{ left: `${selectionEndPct}%` }}
+                />
+              )}
+            </>
+          )}
+          {durationMs > 0 && (
+            <div
+              className="pointer-events-none absolute top-3 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+              data-testid="playhead"
+              style={{ left: `${cursorPct}%` }}
+            />
+          )}
+          {bugs.map(b => {
+            const left = timelinePctForMs(b.offsetMs)
+            if (left < -1 || left > 101) return null
+            const ring = b.id === selectedBugId ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.75)]' : ''
+            const url = thumbs[b.id]
+            const label = severityLabel(severities, b.severity)
+            return (
+              <div
+                key={b.id}
+                className="group absolute top-3 -translate-y-1/2"
+                style={{ left: `calc(${left}% - 2px)` }}
+              >
+                <button
+                  onClick={(e) => { e.stopPropagation(); onMarkerClick(b) }}
+                  data-testid={`marker-${b.id}`}
+                  className={`block h-3.5 w-1 rounded-sm ${ring}`}
+                  style={{ backgroundColor: severityColor(severities, b.severity) }}
+                />
+                <div
+                  className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"
+                  data-testid={`tooltip-${b.id}`}
+                >
+                  {url
+                    ? <img src={url} alt="" className="mb-2 w-full rounded" />
+                    : <div className="mb-2 h-20 w-full rounded bg-zinc-800 text-center text-[10px] leading-[5rem] text-zinc-500">no screenshot</div>
+                  }
+                  <div className="font-mono text-[10px] text-zinc-400">{Math.floor(b.offsetMs / 1000)}s - {label}</div>
+                  <div className="line-clamp-3 text-xs text-zinc-200">{b.note}</div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="relative h-8 border-t border-zinc-800/80 pt-1 text-[10px] text-zinc-500" data-testid="timeline-ruler">
+          <div className="absolute left-0 top-1 font-mono text-zinc-400">{formatTimelineMs(viewportStartMs, true)}</div>
+          <div className="absolute right-0 top-1 font-mono text-zinc-400">{formatTimelineMs(viewportEndMs, true)}</div>
+          {rulerTicks.map(tickMs => {
+            const left = timelinePctForMs(tickMs)
+            if (left < 0 || left > 100) return null
+            return (
+              <div key={tickMs} className="absolute top-0 h-6 -translate-x-1/2" style={{ left: `${left}%` }}>
+                <div className="mx-auto h-3 w-px bg-zinc-600" />
+                <div className="mt-0.5 font-mono">{formatTimelineMs(tickMs)}</div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="relative h-4 rounded bg-zinc-800" data-testid="timeline-overview">
+          {bugs.map(b => (
             <div
               key={b.id}
-              className="group absolute top-3 -translate-y-1/2"
-              style={{ left: `calc(${left}% - 2px)` }}
-            >
-              <button
-                onClick={(e) => { e.stopPropagation(); onMarkerClick(b) }}
-                data-testid={`marker-${b.id}`}
-                className={`block h-3.5 w-1 rounded-sm ${ring}`}
-                style={{ backgroundColor: severityColor(severities, b.severity) }}
-              />
-              <div
-                className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"
-                data-testid={`tooltip-${b.id}`}
-              >
-                {url
-                  ? <img src={url} alt="" className="mb-2 w-full rounded" />
-                  : <div className="mb-2 h-20 w-full rounded bg-zinc-800 text-center text-[10px] leading-[5rem] text-zinc-500">no screenshot</div>
-                }
-                <div className="font-mono text-[10px] text-zinc-400">{Math.floor(b.offsetMs / 1000)}s - {label}</div>
-                <div className="line-clamp-3 text-xs text-zinc-200">{b.note}</div>
-              </div>
-            </div>
-          )
-        })}
+              className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-y-1/2 rounded"
+              style={{
+                left: `${durationMs ? Math.max(0, Math.min(100, (b.offsetMs / durationMs) * 100)) : 0}%`,
+                backgroundColor: severityColor(severities, b.severity),
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            className="absolute top-1/2 h-3 -translate-y-1/2 cursor-grab rounded bg-blue-400/35 ring-1 ring-blue-300/70 active:cursor-grabbing"
+            style={{ left: `${overviewStartPct}%`, width: `${overviewWidthPct}%` }}
+            onPointerDown={dragViewportWindow}
+            aria-label={`Timeline viewport ${formatTimelineMs(viewportStartMs, true)} to ${formatTimelineMs(viewportEndMs, true)}`}
+            title={`Visible range: ${formatTimelineMs(viewportStartMs, true)} - ${formatTimelineMs(viewportEndMs, true)}`}
+            data-testid="timeline-viewport-window"
+          />
+        </div>
       </div>
       {!(transcriptTokens.length > 0 || micAudioSrc) && (
         <div className="flex shrink-0 items-center justify-center rounded border border-zinc-800 bg-zinc-900/70 px-2 py-1">

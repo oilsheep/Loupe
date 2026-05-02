@@ -43,19 +43,31 @@ const HOTKEY_SEVERITIES: Array<{ key: keyof HotkeySettings; severity: BugSeverit
   { key: 'normal', severity: 'normal' },
   { key: 'major', severity: 'major' },
 ]
-const CUSTOM_SEVERITIES: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
 const BACKGROUND_ANALYSIS_KEY_PREFIX = 'loupe.audioAnalysis.background.'
+const CUSTOM_COLORS = ['#8b5cf6', '#ec4899', '#14b8a6', '#eab308', '#f97316', '#06b6d4', '#84cc16', '#f43f5e']
+
+function nextCustomSeverityKey(severities: SeveritySettings): BugSeverity {
+  let index = 1
+  while (severities[`custom${index}`]) index += 1
+  return `custom${index}`
+}
 
 function visibleCustomSeverities(severities: SeveritySettings): BugSeverity[] {
-  return CUSTOM_SEVERITIES.filter(key => severities[key]?.label?.trim())
+  return Object.keys(severities)
+    .filter(key => !HOTKEY_SEVERITIES.some(item => item.severity === key) && key !== 'note' && severities[key]?.label?.trim())
+    .sort((a, b) => {
+      const aNum = Number(a.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      const bNum = Number(b.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
+      return aNum === bNum ? a.localeCompare(b) : aNum - bNum
+    })
 }
 
 function labelOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity].label
+  return severities[severity]?.label?.trim() || DEFAULT_SEVERITIES[severity]?.label || severity
 }
 
 function colorOrDefault(severities: SeveritySettings, severity: BugSeverity): string {
-  return severities[severity]?.color || DEFAULT_SEVERITIES[severity].color
+  return severities[severity]?.color || DEFAULT_SEVERITIES[severity]?.color || '#a1a1aa'
 }
 
 function clipboardHash(value: string): string {
@@ -601,10 +613,10 @@ export function Recording({ session }: { session: Session }) {
                 <div className="mt-1 grid grid-cols-[1fr_34px] gap-1">
                   <input
                     value={severities[severity]?.label ?? ''}
-                    onChange={(e) => setSeverities({ ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: e.target.value } })}
+                    onChange={(e) => setSeverities({ ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: e.target.value } })}
                     onBlur={() => saveSeverities({
                       ...severities,
-                      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: labelOrDefault(severities, severity) },
+                      [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: labelOrDefault(severities, severity) },
                     })}
                     className="min-w-0 rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
                   />
@@ -612,7 +624,7 @@ export function Recording({ session }: { session: Session }) {
                     type="color"
                     value={colorOrDefault(severities, severity)}
                     onChange={(e) => {
-                      const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), color: e.target.value } }
+                      const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { label: severity }), color: e.target.value } }
                       setSeverities(next)
                       void saveSeverities(next)
                     }}
@@ -635,26 +647,24 @@ export function Recording({ session }: { session: Session }) {
           <div className="mt-2 border-t border-zinc-900 pt-2">
             <div className="mb-1 flex items-center justify-between">
               <span className="text-[11px] font-medium text-zinc-400">Custom labels</span>
-              {customSlots.length < CUSTOM_SEVERITIES.length && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const slot = CUSTOM_SEVERITIES.find(key => !customSlots.includes(key))
-                    if (!slot) return
-                    const next = {
-                      ...severities,
-                      [slot]: { ...(severities[slot] ?? DEFAULT_SEVERITIES[slot]), label: `tag ${5 + CUSTOM_SEVERITIES.indexOf(slot)}` },
-                    }
-                    setCustomSlots([...customSlots, slot])
-                    setSeverities(next)
-                    void saveSeverities(next)
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm leading-none text-zinc-200 hover:bg-zinc-700"
-                  title={t('common.add')}
-                >
-                  +
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const slot = nextCustomSeverityKey(severities)
+                  const customCount = Object.keys(severities).filter(key => key.startsWith('custom')).length
+                  const next = {
+                    ...severities,
+                    [slot]: { label: `tag ${customCount + 1}`, color: CUSTOM_COLORS[customCount % CUSTOM_COLORS.length] },
+                  }
+                  setCustomSlots([...customSlots, slot])
+                  setSeverities(next)
+                  void saveSeverities(next)
+                }}
+                className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm leading-none text-zinc-200 hover:bg-zinc-700"
+                title={t('common.add')}
+              >
+                +
+              </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {customSlots.map(severity => (
@@ -674,7 +684,7 @@ export function Recording({ session }: { session: Session }) {
                       onClick={() => {
                         const next = {
                           ...severities,
-                          [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: '' },
+                          [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: '' },
                         }
                         setCustomSlots(customSlots.filter(slot => slot !== severity))
                         setSeverities(next)
@@ -690,12 +700,12 @@ export function Recording({ session }: { session: Session }) {
                   <div className="mt-1 grid grid-cols-[1fr_34px] gap-1">
                     <input
                       value={severities[severity]?.label ?? ''}
-                      onChange={(e) => setSeverities({ ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: e.target.value } })}
+                      onChange={(e) => setSeverities({ ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: e.target.value } })}
                       onBlur={() => {
                         const trimmed = severities[severity]?.label?.trim() ?? ''
                         const next = {
                           ...severities,
-                          [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), label: trimmed },
+                          [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { color: '#8b5cf6' }), label: trimmed },
                         }
                         if (!trimmed) setCustomSlots(customSlots.filter(slot => slot !== severity))
                         void saveSeverities(next)
@@ -706,7 +716,7 @@ export function Recording({ session }: { session: Session }) {
                       type="color"
                       value={colorOrDefault(severities, severity)}
                       onChange={(e) => {
-                        const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity]), color: e.target.value } }
+                        const next = { ...severities, [severity]: { ...(severities[severity] ?? DEFAULT_SEVERITIES[severity] ?? { label: severity }), color: e.target.value } }
                         setSeverities(next)
                         void saveSeverities(next)
                       }}

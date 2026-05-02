@@ -32,8 +32,8 @@ export const DEFAULT_AUDIO_ANALYSIS: AudioAnalysisSettings = {
   showTriggerWords: false,
 }
 
-const REQUIRED_SEVERITY_KEYS: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
-const OPTIONAL_SEVERITY_KEYS: BugSeverity[] = ['custom1', 'custom2', 'custom3', 'custom4']
+const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
+const OPTIONAL_SEVERITY_KEYS = ['custom1', 'custom2', 'custom3', 'custom4'] as const
 const SEVERITY_KEYS: BugSeverity[] = [...REQUIRED_SEVERITY_KEYS, ...OPTIONAL_SEVERITY_KEYS]
 const LEGACY_DEFAULT_LABELS: Partial<Record<BugSeverity, string>> = {
   major: 'major',
@@ -377,10 +377,19 @@ function normalizeSeverities(raw?: Partial<SeveritySettings>): SeveritySettings 
     const incomingLabel = incoming?.label?.trim()
     const legacyDefault = LEGACY_DEFAULT_LABELS[key]
     out[key] = {
-      label: REQUIRED_SEVERITY_KEYS.includes(key)
+      label: (REQUIRED_SEVERITY_KEYS as readonly string[]).includes(key)
         ? (!incomingLabel || incomingLabel === legacyDefault ? DEFAULT_SEVERITIES[key].label : incomingLabel)
         : (incomingLabel || ''),
       color: normalizeColor(incoming?.color, DEFAULT_SEVERITIES[key].color),
+    }
+  }
+  for (const [key, incoming] of Object.entries(raw ?? {})) {
+    if (key in out) continue
+    const label = incoming?.label?.trim()
+    if (!label) continue
+    out[key] = {
+      label,
+      color: normalizeColor(incoming?.color, '#8b5cf6'),
     }
   }
   return out

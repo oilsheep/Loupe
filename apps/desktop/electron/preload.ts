@@ -45,6 +45,7 @@ const api: DesktopApi = {
     getLogcatPreview: (args)    => ipcRenderer.invoke(CHANNEL.bugGetLogcatPreview, args),
     update:     (id, patch)     => ipcRenderer.invoke(CHANNEL.bugUpdate, id, patch),
     saveAudio:  (args)          => ipcRenderer.invoke(CHANNEL.bugSaveAudio, args),
+    transcribeAudio: (args)     => ipcRenderer.invoke(CHANNEL.bugTranscribeAudio, args),
     delete:     (id)            => ipcRenderer.invoke(CHANNEL.bugDelete, id),
     exportClip: (args)          => ipcRenderer.invoke(CHANNEL.bugExportClip, args),
     exportClips:(args)          => ipcRenderer.invoke(CHANNEL.bugExportClips, args),

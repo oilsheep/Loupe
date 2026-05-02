@@ -10,7 +10,7 @@ export interface ClipOptions {
   narrationPath?: string | null
   narrationDurationMs?: number | null
   sessionMicPath?: string | null
-  severity?: 'note' | 'major' | 'normal' | 'minor' | 'improvement' | 'custom1' | 'custom2' | 'custom3' | 'custom4' | null
+  severity?: string | null
   note?: string | null
   markerMs?: number | null
   deviceModel?: string | null
@@ -116,7 +116,7 @@ interface CaptionFonts {
   bold: string
 }
 
-const SEVERITY_STYLE: Record<NonNullable<ClipOptions['severity']>, { label: string; color: string }> = {
+const SEVERITY_STYLE: Record<string, { label: string; color: string }> = {
   note: { label: 'note', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
