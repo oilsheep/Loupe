@@ -63,27 +63,15 @@ jobs:
             exit 1
           fi
 
-      - name: Rebuild native modules for Electron
-        if: matrix.platform == 'mac'
-        run: pnpm rebuild:electron
-
       - name: Type check
         run: pnpm --filter desktop typecheck
 
       - name: Test
         run: pnpm desktop:test
 
-      - name: Prepare macOS vendor binaries
-        if: matrix.platform == 'mac'
-        run: pnpm vendor:prepare:mac
-
-      - name: Build renderer and main processes
-        if: matrix.platform == 'mac'
-        run: pnpm --filter desktop exec electron-vite build
-
       - name: Package macOS binary
         if: matrix.platform == 'mac'
-        run: pnpm --filter desktop exec electron-builder --mac --publish never
+        run: ./start-dev.sh build
 
       - name: Package Windows binary
         if: matrix.platform == 'win'

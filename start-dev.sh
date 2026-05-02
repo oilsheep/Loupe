@@ -5,8 +5,29 @@ cd -- "$(dirname "$0")"
 unset ELECTRON_RUN_AS_NODE
 
 echo
-echo "=== Loupe dev launcher ==="
+echo "=== Loupe launcher ==="
 echo
+
+MODE="${1:-dev}"
+case "${MODE}" in
+  --check|check) MODE="check" ;;
+  build|dist) MODE="build" ;;
+  vendor|prepare-vendor) MODE="vendor" ;;
+  dev) MODE="dev" ;;
+  *)
+    echo "Unknown mode: ${MODE}"
+    echo "Usage: ./start-dev.sh [dev|check|build|dist|vendor|prepare-vendor] [uxplay]"
+    exit 2
+    ;;
+esac
+
+VENDOR_ARGS=(--best-effort)
+if [[ "$MODE" == "vendor" ]]; then
+  VENDOR_ARGS=(--ci --with-uxplay --install-deps)
+fi
+if [[ "${2:-}" == "uxplay" ]]; then
+  VENDOR_ARGS+=(--with-uxplay --install-deps)
+fi
 
 ensure_pnpm() {
   local existing
@@ -90,42 +111,68 @@ resolve_tool_path() {
 
 ensure_pnpm || exit 1
 
+if [[ ! -f "node_modules/.modules.yaml" ]]; then
+  echo "[setup] Installing dependencies for current master..."
+  pnpm install --frozen-lockfile
+else
+  echo "[setup] Dependencies found."
+fi
+
 echo "[setup] Preparing vendored third-party binaries..."
-bash scripts/prepare-vendor-binaries.sh --best-effort || true
+bash scripts/prepare-vendor-binaries.sh "${VENDOR_ARGS[@]}"
 
-missing_tools=()
-for tool in adb scrcpy; do
-  if ! resolve_tool_path "$tool" >/dev/null; then
-    missing_tools+=("$tool")
-  fi
-done
+if [[ "$MODE" == "vendor" ]]; then
+  echo
+  echo "Vendored binary preparation complete."
+  exit 0
+fi
 
-if (( ${#missing_tools[@]} > 0 )); then
-  echo "Missing required recording tools: ${missing_tools[*]}"
+if [[ "$MODE" == "check" ]]; then
   echo
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    if [[ " ${missing_tools[*]} " == *" adb "* ]]; then
-      echo "Install adb with: brew install android-platform-tools"
+  echo "Check complete. Use ./start-dev.sh to run, or ./start-dev.sh build to package."
+  exit 0
+fi
+
+if [[ "$MODE" == "dev" ]]; then
+  missing_tools=()
+  for tool in adb scrcpy; do
+    if ! resolve_tool_path "$tool" >/dev/null; then
+      missing_tools+=("$tool")
     fi
-    if [[ " ${missing_tools[*]} " == *" scrcpy "* ]]; then
-      echo "Install scrcpy with: brew install scrcpy"
+  done
+
+  if (( ${#missing_tools[@]} > 0 )); then
+    echo "Missing required recording tools: ${missing_tools[*]}"
+    echo
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      if [[ " ${missing_tools[*]} " == *" adb "* ]]; then
+        echo "Install adb with: brew install android-platform-tools"
+      fi
+      if [[ " ${missing_tools[*]} " == *" scrcpy "* ]]; then
+        echo "Install scrcpy with: brew install scrcpy"
+      fi
+    else
+      echo "Install the missing tools and ensure they are on PATH, or set LOUPE_TOOLS_DIR to a folder containing adb and scrcpy."
     fi
-  else
-    echo "Install the missing tools and ensure they are on PATH, or set LOUPE_TOOLS_DIR to a folder containing adb and scrcpy."
+    echo
+    echo "See README.md for the full developer setup."
+    echo
+    exit 1
   fi
-  echo
-  echo "See README.md for the full developer setup."
-  echo
-  exit 1
+fi
+
+TOTAL_STEPS=3
+if [[ "$MODE" == "build" ]]; then
+  TOTAL_STEPS=4
 fi
 
 # Best-effort cleanup for stale Loupe/Electron dev processes.
 # Keep the match narrow so we do not kill unrelated Electron apps.
-echo "[1/3] Cleaning up stale Electron processes..."
+echo "[1/${TOTAL_STEPS}] Cleaning up stale Electron processes..."
 pkill -f "$(pwd)/apps/desktop" >/dev/null 2>&1 || true
 pkill -f "Loupe QA Recorder" >/dev/null 2>&1 || true
 
-echo "[2/3] Ensuring better-sqlite3 is built for Electron ABI..."
+echo "[2/${TOTAL_STEPS}] Ensuring better-sqlite3 is built for Electron ABI..."
 if ! pnpm rebuild:electron; then
   echo
   echo "Setup failed. Try running steps manually:"
@@ -136,6 +183,17 @@ if ! pnpm rebuild:electron; then
   exit 1
 fi
 
-echo "[3/3] Starting dev server..."
+if [[ "$MODE" == "build" ]]; then
+  echo "[3/${TOTAL_STEPS}] Building renderer and main processes..."
+  pnpm --filter desktop exec electron-vite build
+  echo "[4/${TOTAL_STEPS}] Packaging macOS app..."
+  pnpm --filter desktop exec electron-builder --mac --publish never
+  echo
+  echo "Build complete. Outputs are in:"
+  echo "  apps/desktop/dist"
+  exit 0
+fi
+
+echo "[3/${TOTAL_STEPS}] Starting dev server..."
 echo
 pnpm desktop:dev
