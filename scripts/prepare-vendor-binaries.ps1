@@ -3,13 +3,18 @@ param(
   [switch]$Ci,
   [switch]$Force,
   [switch]$WithUxPlay,
-  [string]$GoIosVersion = $env:GO_IOS_VERSION
+  [switch]$InstallDeps,
+  [string]$GoIosVersion = $env:GO_IOS_VERSION,
+  [string]$UxPlayRef = $env:UXPLAY_REF
 )
 
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($GoIosVersion)) {
   $GoIosVersion = 'latest'
+}
+if ([string]::IsNullOrWhiteSpace($UxPlayRef)) {
+  $UxPlayRef = 'master'
 }
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -67,6 +72,45 @@ function Expand-ArchiveAny([string]$Archive, [string]$Destination) {
     return
   }
   Fail-Or-Skip "Unsupported archive format: $Archive"
+}
+
+function Get-MsysRoot {
+  if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) {
+    return $env:MSYS2_ROOT
+  }
+  return 'C:\msys64'
+}
+
+function Get-MsysBash {
+  $Root = Get-MsysRoot
+  $Bash = Join-Path $Root 'usr\bin\bash.exe'
+  if (Test-Path $Bash) {
+    return $Bash
+  }
+  return $null
+}
+
+function Invoke-Msys([string]$Command) {
+  $Bash = Get-MsysBash
+  if (-not $Bash) {
+    Fail-Or-Skip 'MSYS2 bash was not found. Install MSYS2 at C:\msys64 or set MSYS2_ROOT.'
+    return $false
+  }
+
+  $oldMsystem = $env:MSYSTEM
+  $oldChere = $env:CHERE_INVOKING
+  $oldPath = $env:PATH
+  try {
+    $env:MSYSTEM = 'UCRT64'
+    $env:CHERE_INVOKING = '1'
+    $env:PATH = '/ucrt64/bin:/usr/bin:' + $env:PATH
+    & $Bash -lc $Command
+    return $LASTEXITCODE -eq 0
+  } finally {
+    $env:MSYSTEM = $oldMsystem
+    $env:CHERE_INVOKING = $oldChere
+    $env:PATH = $oldPath
+  }
 }
 
 function Prepare-GoIos([string]$Platform) {
@@ -162,11 +206,90 @@ function Prepare-UxPlay([string]$Platform) {
   }
 
   if ($WithUxPlay -or $env:LOUPE_BUILD_UXPLAY -eq '1') {
-    Fail-Or-Skip 'UxPlay Windows source build is not wired yet. Provide LOUPE_UXPLAY_ARCHIVE with a prebuilt uxplay.exe archive.'
+    Prepare-UxPlayFromSource $Platform
     return
   }
 
   Fail-Or-Skip 'UxPlay not prepared. Set LOUPE_UXPLAY_ARCHIVE to a prebuilt uxplay.exe archive.'
+}
+
+function Prepare-UxPlayFromSource([string]$Platform) {
+  $MsysRoot = Get-MsysRoot
+  $BonjourDefault = 'C:\Program Files\Bonjour SDK'
+  if ([string]::IsNullOrWhiteSpace($env:BONJOUR_SDK_HOME) -and -not (Test-Path $BonjourDefault)) {
+    Fail-Or-Skip 'Bonjour SDK is required to build UxPlay on Windows. Install Bonjour SDK v3.0 or set BONJOUR_SDK_HOME.'
+    return
+  }
+
+  $DestDir = Join-Path $VendorDir "uxplay\$Platform\bin"
+  $TempName = "loupe-uxplay-$([Guid]::NewGuid().ToString('N'))"
+  $WorkDirWin = Join-Path (Join-Path $MsysRoot 'tmp') $TempName
+  $WorkDirUnix = "/tmp/$TempName"
+  New-Item -ItemType Directory -Force -Path $WorkDirWin | Out-Null
+
+  try {
+    if ($InstallDeps -or $env:LOUPE_UXPLAY_INSTALL_DEPS -eq '1') {
+      Write-Step 'Installing UxPlay MSYS2 build dependencies'
+      $packages = @(
+        'git',
+        'mingw-w64-ucrt-x86_64-cmake',
+        'mingw-w64-ucrt-x86_64-gcc',
+        'mingw-w64-ucrt-x86_64-ninja',
+        'mingw-w64-ucrt-x86_64-libplist',
+        'mingw-w64-ucrt-x86_64-gstreamer',
+        'mingw-w64-ucrt-x86_64-gst-plugins-base',
+        'mingw-w64-ucrt-x86_64-gst-plugins-good',
+        'mingw-w64-ucrt-x86_64-gst-plugins-bad',
+        'mingw-w64-ucrt-x86_64-gst-libav'
+      )
+      $installCommand = 'pacman -S --needed --noconfirm ' + ($packages -join ' ')
+      if (-not (Invoke-Msys $installCommand)) {
+        Fail-Or-Skip 'UxPlay MSYS2 dependency installation failed'
+        return
+      }
+    }
+
+    Write-Step "Building UxPlay $UxPlayRef from source for $Platform"
+    $commands = @(
+      'set -e',
+      "cd '$WorkDirUnix'",
+      "git clone --depth 1 --branch '$UxPlayRef' https://github.com/FDH2/UxPlay.git UxPlay",
+      'cmake -S UxPlay -B build -G Ninja -DCMAKE_BUILD_TYPE=Release',
+      'cmake --build build --parallel'
+    ) -join '; '
+    if (-not (Invoke-Msys $commands)) {
+      Fail-Or-Skip 'UxPlay source build failed'
+      return
+    }
+
+    $Candidate = Join-Path $WorkDirWin 'build\uxplay.exe'
+    if (-not (Test-Path $Candidate)) {
+      Fail-Or-Skip 'UxPlay build did not produce uxplay.exe'
+      return
+    }
+
+    New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
+    Copy-Item -Force $Candidate (Join-Path $DestDir 'uxplay.exe')
+
+    $License = Join-Path $WorkDirWin 'UxPlay\LICENSE'
+    if (Test-Path $License) {
+      Copy-Item -Force $License (Join-Path $VendorDir 'uxplay\LICENSE.UxPlay')
+    }
+
+    $destCommand = 'dest="$(cygpath -u ''' + $DestDir + ''')"'
+    $awkCommand = 'ldd uxplay.exe | awk ''/=> \/ucrt64/ { print $3 } /^\/ucrt64/ { print $1 }'' | sort -u | while read dll; do cp -n "$dll" "$dest/"; done'
+    $copyDlls = @(
+      'set -e',
+      "cd '$WorkDirUnix/build'",
+      $destCommand,
+      $awkCommand
+    ) -join '; '
+    Invoke-Msys $copyDlls | Out-Null
+
+    Write-Step "UxPlay ready: $(Join-Path $DestDir 'uxplay.exe')"
+  } finally {
+    Remove-Item -Recurse -Force $WorkDirWin -ErrorAction SilentlyContinue
+  }
 }
 
 function Check-Scrcpy {

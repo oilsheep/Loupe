@@ -274,8 +274,12 @@ pnpm vendor:prepare:mac
 pnpm vendor:prepare:win
 ```
 
-`vendor:prepare:mac` builds UxPlay from source. `vendor:prepare:win` expects
-`LOUPE_UXPLAY_ARCHIVE` to point at a prebuilt archive containing `uxplay.exe`.
+`vendor:prepare:mac` installs the Homebrew build dependencies and builds UxPlay
+from source. `vendor:prepare:win` uses MSYS2 UCRT64 to build UxPlay from source;
+it requires Bonjour SDK v3.0 at `C:\Program Files\Bonjour SDK` or
+`BONJOUR_SDK_HOME`. Windows can also skip source builds by setting
+`LOUPE_UXPLAY_ARCHIVE` to a prebuilt archive containing `uxplay.exe` and its
+runtime DLLs.
 
 Current behavior:
 
@@ -284,8 +288,12 @@ Current behavior:
 - Windows scrcpy is expected under `vendor/scrcpy`; the script verifies
   `scrcpy.exe` and `adb.exe`.
 - UxPlay can be supplied by archive with `LOUPE_UXPLAY_ARCHIVE=/path/to/archive`.
-  On macOS, `--with-uxplay` or `LOUPE_BUILD_UXPLAY=1` builds from source when the
-  required build dependencies are available.
+  On macOS, `--with-uxplay` or `LOUPE_BUILD_UXPLAY=1` builds from source.
+  Add `--install-deps` or `LOUPE_UXPLAY_INSTALL_DEPS=1` to install Homebrew
+  dependencies (`cmake`, `git`, `libplist`, `openssl@3`, `pkg-config`,
+  `gstreamer`). On Windows, source builds use MSYS2 UCRT64 packages
+  (`cmake`, `gcc`, `ninja`, `libplist`, `gstreamer`, and common GStreamer
+  plugins) plus Bonjour SDK.
 - faster-whisper is still managed by the Tool Status installer/runtime logic;
   there is no standalone faster-whisper binary prepared by these scripts.
 

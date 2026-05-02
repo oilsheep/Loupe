@@ -4,9 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_DIR="${ROOT_DIR}/apps/desktop/vendor"
 GO_IOS_VERSION="${GO_IOS_VERSION:-latest}"
+UXPLAY_REF="${UXPLAY_REF:-master}"
 MODE="normal"
 FORCE=0
 WITH_UXPLAY=0
+INSTALL_DEPS=0
 
 usage() {
   cat <<'EOF'
@@ -19,12 +21,15 @@ Options:
   --ci                Fail when a requested binary cannot be prepared.
   --force             Replace existing prepared binaries.
   --with-uxplay       Build or unpack UxPlay for the current platform.
+  --install-deps      Install UxPlay build dependencies where supported.
   -h, --help          Show this help.
 
 Environment:
   GO_IOS_VERSION              npm go-ios version or dist-tag. Default: latest
+  UXPLAY_REF                  UxPlay git branch/tag/ref. Default: master
   LOUPE_UXPLAY_ARCHIVE        tar/zip archive containing uxplay to unpack
   LOUPE_BUILD_UXPLAY=1        Build UxPlay from source on macOS
+  LOUPE_UXPLAY_INSTALL_DEPS=1 Install UxPlay build dependencies on macOS
 EOF
 }
 
@@ -34,6 +39,7 @@ while (($# > 0)); do
     --ci) MODE="ci" ;;
     --force) FORCE=1 ;;
     --with-uxplay) WITH_UXPLAY=1 ;;
+    --install-deps) INSTALL_DEPS=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -184,6 +190,33 @@ prepare_uxplay_from_archive() {
   say "UxPlay ready: ${dest}"
 }
 
+install_uxplay_deps_macos() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    fail_or_skip "Automatic UxPlay dependency installation is supported on macOS only"
+    return 1
+  fi
+  require_cmd brew || return 1
+  say "Installing UxPlay build dependencies with Homebrew"
+  HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1 \
+    brew install cmake git libplist openssl@3 pkg-config gstreamer
+}
+
+configure_uxplay_build_env_macos() {
+  local brew_prefix openssl_prefix
+  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v brew >/dev/null 2>&1; then
+    return 0
+  fi
+  brew_prefix="$(brew --prefix 2>/dev/null || true)"
+  openssl_prefix="$(brew --prefix openssl@3 2>/dev/null || true)"
+  if [[ -n "$openssl_prefix" ]]; then
+    export OPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-$openssl_prefix}"
+    export PKG_CONFIG_PATH="${openssl_prefix}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+  fi
+  if [[ -n "$brew_prefix" ]]; then
+    export PKG_CONFIG_PATH="${brew_prefix}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+  fi
+}
+
 prepare_uxplay_from_source() {
   local platform="$1"
   local dest_dir="${VENDOR_DIR}/uxplay/${platform}/bin"
@@ -195,16 +228,21 @@ prepare_uxplay_from_source() {
     return 1
   fi
 
+  if [[ "$INSTALL_DEPS" == "1" || "${LOUPE_UXPLAY_INSTALL_DEPS:-0}" == "1" ]]; then
+    install_uxplay_deps_macos || return 1
+  fi
+
   require_cmd git || return 1
   require_cmd cmake || return 1
+  configure_uxplay_build_env_macos
 
-  say "Building UxPlay from source for ${platform}"
+  say "Building UxPlay ${UXPLAY_REF} from source for ${platform}"
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/loupe-uxplay-src.XXXXXX")"
   trap "rm -rf '$work_dir'; trap - RETURN" RETURN
   source_dir="${work_dir}/UxPlay"
   build_dir="${work_dir}/build"
 
-  if ! git clone --depth 1 https://github.com/FDH2/UxPlay.git "$source_dir"; then
+  if ! git clone --depth 1 --branch "$UXPLAY_REF" https://github.com/FDH2/UxPlay.git "$source_dir"; then
     fail_or_skip "UxPlay source download failed"
     return 1
   fi
@@ -230,6 +268,7 @@ prepare_uxplay_from_source() {
   mkdir -p "$dest_dir"
   cp "$candidate" "$dest"
   chmod +x "$dest"
+  cp "${source_dir}/LICENSE" "${VENDOR_DIR}/uxplay/LICENSE.UxPlay" 2>/dev/null || true
   say "UxPlay ready: ${dest}"
 }
 
