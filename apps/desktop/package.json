@@ -79,6 +79,13 @@
         ]
       },
       {
+        "from": "vendor/go-ios",
+        "to": "vendor/go-ios",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "vendor/faster-whisper",
         "to": "vendor/faster-whisper",
         "filter": [

@@ -98,6 +98,25 @@ must include the corresponding license and source offer/source link.
 
 Used for iOS app launch and syslog capture.
 
+Lookup order follows Loupe's normal tool path resolution:
+
+1. `LOUPE_TOOLS_DIR`
+2. `~/.loupe/tools/bin`
+3. `~/.loupe/tools/go-ios/<platform-arch>/bin`
+4. `~/.loupe/tools/go-ios/bin`
+5. bundled app resources under `vendor/go-ios`
+6. project-local `vendor/go-ios`
+7. system paths such as `/opt/homebrew/bin`, `/usr/local/bin`, and `PATH`
+
+Expected bundled layouts:
+
+```text
+vendor/go-ios/darwin-arm64/bin/ios
+vendor/go-ios/darwin-x64/bin/ios
+vendor/go-ios/win32-x64/bin/ios.exe
+vendor/go-ios/linux-x64/bin/ios
+```
+
 Check:
 
 ```bash
@@ -109,6 +128,10 @@ macOS installer:
 ```bash
 npm install -g go-ios
 ```
+
+Bundling go-ios removes the npm requirement for packaged builds. It does not
+remove iOS 17+ tunnel/permission requirements such as `ios tunnel start`.
+go-ios is MIT licensed.
 
 ### faster-whisper
 
@@ -213,6 +236,7 @@ Packaged app builds include these vendor directories through `extraResources`:
 vendor/scrcpy
 vendor/whisper
 vendor/uxplay
+vendor/go-ios
 vendor/faster-whisper
 ```
 
@@ -242,6 +266,7 @@ download progress without opening a terminal.
 For the smoothest user experience, bundled releases should eventually include:
 
 - UxPlay helper binaries per platform.
+- go-ios helper binaries per platform.
 - A faster-whisper helper runtime or packaged executable.
 - A small default faster-whisper model.
 

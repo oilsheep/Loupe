@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { withToolPath } from '../tool-paths'
+import { platformKey, resolveBundledTool, withToolPath } from '../tool-paths'
 
 describe('tool-paths', () => {
   afterEach(() => {
@@ -35,6 +35,21 @@ describe('tool-paths', () => {
       expect(opts.cwd).toBe(bin)
       expect(opts.env?.PATH).toContain(bin)
       expect(opts.env?.PATH?.split(delimiter).at(-1)).toBe('/usr/bin')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves go-ios from the managed platform directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loupe-tool-'))
+    const iosName = process.platform === 'win32' ? 'ios.exe' : 'ios'
+    try {
+      const bin = join(dir, 'go-ios', platformKey(), 'bin')
+      mkdirSync(bin, { recursive: true })
+      const iosPath = join(bin, iosName)
+      writeFileSync(iosPath, '')
+      vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', dir)
+      expect(resolveBundledTool('ios')).toBe(iosPath)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
