@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -149,6 +149,14 @@ function isSlackConnected(settings: SlackPublishSettings | null): boolean {
   return Boolean(slackPublishToken(settings))
 }
 
+function isGitLabConnected(settings: GitLabPublishSettings | null): boolean {
+  return Boolean(settings?.token?.trim() && settings?.baseUrl?.trim())
+}
+
+function isGoogleDriveConnected(settings: GooglePublishSettings | null): boolean {
+  return Boolean((settings?.token?.trim() || settings?.refreshToken?.trim()) && settings?.driveFolderId?.trim())
+}
+
 function normalizeManualSlackMentions(value: string): string[] {
   return Array.from(new Set(value
     .split(/[\s,;]+/)
@@ -291,6 +299,8 @@ interface ExportConfirmDialogProps {
   hasSessionMicTrack: boolean
   hasMarkerAudioNotes: boolean
   slackConnected: boolean
+  gitlabConnected: boolean
+  googleDriveConnected: boolean
   slackConnecting: boolean
   publishSlack: boolean
   publishGitLab: boolean
@@ -354,6 +364,8 @@ function ExportConfirmDialog({
   hasSessionMicTrack,
   hasMarkerAudioNotes,
   slackConnected,
+  gitlabConnected,
+  googleDriveConnected,
   slackConnecting,
   publishSlack,
   publishGitLab,
@@ -615,18 +627,25 @@ function ExportConfirmDialog({
           </section>
 
           <section className={`rounded border p-3 ${isGitLab ? 'border-sky-700 bg-sky-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <label className="flex cursor-pointer items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">GitLab</span>
                 <span className="mt-1 block text-xs text-zinc-500">Create GitLab issue output for the selected markers.</span>
               </span>
-              <input
-                type="checkbox"
-                checked={isGitLab}
-                onChange={(e) => onPublishGitLabChange(e.target.checked)}
-                className="h-4 w-4 shrink-0 accent-blue-600"
-              />
-            </label>
+              {gitlabConnected ? (
+                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
+                  <span>Publish</span>
+                  <input
+                    type="checkbox"
+                    checked={isGitLab}
+                    onChange={(e) => onPublishGitLabChange(e.target.checked)}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                </label>
+              ) : (
+                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">????</span>
+              )}
+            </div>
 
             {isGitLab && (
               <div className="mt-3 space-y-3 border-t border-sky-900/60 pt-3">
@@ -683,18 +702,25 @@ function ExportConfirmDialog({
           </section>
 
           <section className={`rounded border p-3 ${isGoogleDrive ? 'border-emerald-700 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <label className="flex cursor-pointer items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Google Drive</span>
                 <span className="mt-1 block text-xs text-zinc-500">Upload the full local export folder to the configured Drive folder and update Google Sheet rows when enabled.</span>
               </span>
-              <input
-                type="checkbox"
-                checked={isGoogleDrive}
-                onChange={(e) => onPublishGoogleDriveChange(e.target.checked)}
-                className="h-4 w-4 shrink-0 accent-blue-600"
-              />
-            </label>
+              {googleDriveConnected ? (
+                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
+                  <span>Publish</span>
+                  <input
+                    type="checkbox"
+                    checked={isGoogleDrive}
+                    onChange={(e) => onPublishGoogleDriveChange(e.target.checked)}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                </label>
+              ) : (
+                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">????</span>
+              )}
+            </div>
           </section>
         </div>
 
@@ -1320,6 +1346,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [gitlabProjects, setGitLabProjects] = useState<GitLabProject[]>([])
   const [gitlabProjectsRefreshing, setGitLabProjectsRefreshing] = useState(false)
   const [gitlabProjectsError, setGitLabProjectsError] = useState('')
+  const [googleSettings, setGoogleSettings] = useState<GooglePublishSettings | null>(null)
   const [exportError, setExportError] = useState('')
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
@@ -1378,6 +1405,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setGitLabSettings(settings.gitlab)
       setGitLabProjectId(settings.gitlab.projectId)
       setGitLabMode(settings.gitlab.mode)
+      setGoogleSettings(settings.google)
       setMentionIdentities(settings.mentionIdentities ?? [])
     }).catch(() => {})
   }, [api])
@@ -1534,6 +1562,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setGitLabSettings(settings.gitlab)
     setGitLabProjectId(settings.gitlab.projectId)
     setGitLabMode(settings.gitlab.mode)
+    setGoogleSettings(settings.google)
     setExportError('')
     setExportProgress(null)
     setExportId(null)
@@ -1611,8 +1640,16 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setExportError('Select a Slack channel before exporting.')
       return
     }
+    if (publishGitLab && !isGitLabConnected(gitlabSettings)) {
+      setExportError('Connect GitLab before exporting to GitLab.')
+      return
+    }
     if (publishGitLab && !gitlabProjectId.trim()) {
       setExportError('Select a GitLab project before exporting.')
+      return
+    }
+    if (publishGoogleDrive && !isGoogleDriveConnected(googleSettings)) {
+      setExportError('Connect Google Drive and choose a Drive folder before exporting to Google Drive.')
       return
     }
     if (exportIncludeOriginalFiles && !skipOriginalFilesWarning && localStorage.getItem(ORIGINAL_FILES_WARNING_KEY) !== '1') {
@@ -1785,6 +1822,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           hasSessionMicTrack={hasSessionMicTrack}
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
           slackConnected={isSlackConnected(slackSettings)}
+          gitlabConnected={isGitLabConnected(gitlabSettings)}
+          googleDriveConnected={isGoogleDriveConnected(googleSettings)}
           slackConnecting={slackConnecting}
           publishSlack={publishSlack}
           publishGitLab={publishGitLab}
@@ -1820,10 +1859,14 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           onConnectSlack={() => { void connectSlackForExport() }}
           onPublishSlackChange={setPublishSlack}
           onPublishGitLabChange={(value) => {
+            if (value && !isGitLabConnected(gitlabSettings)) return
             setPublishGitLab(value)
             if (value && gitlabProjects.length === 0 && !gitlabProjectsRefreshing) void refreshGitLabProjectsForExport()
           }}
-          onPublishGoogleDriveChange={setPublishGoogleDrive}
+          onPublishGoogleDriveChange={(value) => {
+            if (value && !isGoogleDriveConnected(googleSettings)) return
+            setPublishGoogleDrive(value)
+          }}
           onSlackThreadModeChange={setSlackThreadMode}
           onSlackChannelIdChange={setSlackChannelId}
           onSlackMentionIdsChange={setSlackMentionIds}

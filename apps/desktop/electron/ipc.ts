@@ -18,7 +18,7 @@ import { doctor } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
-import { publishManifestToRemote } from './remote-publisher'
+import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
 import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
@@ -1131,6 +1131,12 @@ function exportProgress(
     clipCount,
     remaining: Math.max(0, clipCount - clipIndex),
   }
+}
+
+function remotePublishWarnings(result: RemotePublishResult): string[] {
+  if (result.target === 'multi') return result.results.flatMap(remotePublishWarnings)
+  if ('failed' in result && result.failed) return [`${result.target}: ${result.error}`]
+  return []
 }
 
 function throwIfExportCancelled(exportId: string, signal: AbortSignal): void {
@@ -2277,12 +2283,18 @@ export function registerIpc(deps: IpcDeps): void {
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
       const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
-      await publishManifestToRemote({
+      const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
-      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [outputPath, pdfPath, transcriptSubtitlePath].filter(Boolean).join('\n'), total, total, 1, 1))
+      const remoteWarnings = remotePublishWarnings(remotePublishResult)
+      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [
+        outputPath,
+        pdfPath,
+        transcriptSubtitlePath,
+        remoteWarnings.length ? `Remote publish warning:\n${remoteWarnings.join('\n')}` : '',
+      ].filter(Boolean).join('\n'), total, total, 1, 1))
       return outputPath
     } catch (err) {
       if (controller.signal.aborted) {
@@ -2423,13 +2435,18 @@ export function registerIpc(deps: IpcDeps): void {
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
       const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
-      await publishManifestToRemote({
+      const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
       })
       if (transcriptSubtitlePath) outputs.push(transcriptSubtitlePath)
-      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', `${outputs.length} file${outputs.length === 1 ? '' : 's'} exported.\n${pdfPath}`, total, total, bugs.length, bugs.length))
+      const remoteWarnings = remotePublishWarnings(remotePublishResult)
+      emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [
+        `${outputs.length} file${outputs.length === 1 ? '' : 's'} exported.`,
+        pdfPath,
+        remoteWarnings.length ? `Remote publish warning:\n${remoteWarnings.join('\n')}` : '',
+      ].filter(Boolean).join('\n'), total, total, bugs.length, bugs.length))
       return outputs
     } catch (err) {
       if (controller.signal.aborted) {

@@ -24,13 +24,15 @@ const severities = {
 }
 
 const gitlab = { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' as const, labels: [], confidential: false, mentionUsernames: [] }
+const google = { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' }
 const mentionIdentities: MentionIdentity[] = []
 
-function fakeApi(options: { slack?: any; gitlab?: any } = {}): DesktopApi {
+function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): DesktopApi {
   const slack = options.slack ?? { botToken: '', channelId: '' }
   const gitlabSettings = options.gitlab ?? gitlab
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, mentionIdentities }
-  const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings }
+  const googleSettings = options.google ?? google
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, google, mentionIdentities }
+  const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings, google: googleSettings }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -242,6 +244,20 @@ describe('BugList', () => {
     expect(api.bug.exportClip).not.toHaveBeenCalled()
   })
 
+  it('does not allow disconnected GitLab or Google Drive publish targets', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    expect(screen.getAllByText('????')).toHaveLength(2)
+    expect(screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+    expect(screen.getByText('Google Drive').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+    fireEvent.click(screen.getByTestId('confirm-export'))
+    await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
+      publish: expect.objectContaining({ target: 'local', targets: ['local'] }),
+    })))
+  })
+
   it('passes Slack thread layout through publish options', async () => {
     const api = fakeApi({ slack: { botToken: 'xoxb-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
@@ -261,7 +277,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    const gitlabToggle = screen.getByText('GitLab').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement
+    const gitlabToggle = screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]') as HTMLInputElement
     fireEvent.click(gitlabToggle)
     fireEvent.click(await screen.findByText('old/project'))
     const projectInput = await screen.findByPlaceholderText('Search or enter group/project')

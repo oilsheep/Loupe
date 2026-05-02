@@ -219,4 +219,26 @@ describe('remote publisher', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('returns a failed publish result instead of throwing when a remote target is not configured', async () => {
+    const manifest = buildExportManifest({
+      session: session(),
+      bugs: [bug()],
+      files: [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', logcatPath: null }],
+      outDir: '/exports',
+      publish: { target: 'google-drive' },
+    })
+    const appSettings = settings()
+    appSettings.google = { ...appSettings.google, token: '', refreshToken: '', driveFolderId: '' }
+
+    await expect(publishManifestToRemote({
+      manifest,
+      manifestPaths: { jsonPath: '/exports/export-manifest.json', csvPath: '/exports/export-manifest.csv' },
+      settings: appSettings,
+    })).resolves.toEqual({
+      target: 'google-drive',
+      failed: true,
+      error: 'Google OAuth token is missing',
+    })
+  })
 })

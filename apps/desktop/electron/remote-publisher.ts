@@ -14,9 +14,14 @@ interface ManifestPaths {
 export type RemotePublishResult =
   | { target: 'local'; skipped: true }
   | { target: 'multi'; results: RemotePublishResult[] }
+  | { target: 'slack' | 'gitlab' | 'google-drive'; failed: true; error: string }
   | ({ target: 'slack' } & SlackPublishResult)
   | ({ target: 'gitlab' } & GitLabPublishResult)
   | ({ target: 'google-drive' } & GooglePublishResult)
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 export async function publishManifestToRemote(args: {
   manifest: ExportManifest
@@ -31,30 +36,34 @@ export async function publishManifestToRemote(args: {
 
   const results: RemotePublishResult[] = []
   for (const target of remoteTargets) {
-    if (target === 'slack') {
-      const result = await publishManifestToSlack({
-        manifest: args.manifest,
-        manifestPaths: args.manifestPaths,
-        settings: args.settings.slack,
-        mentionIdentities: args.settings.mentionIdentities,
-      })
-      results.push({ target: 'slack', ...result })
-    } else if (target === 'gitlab') {
-      const result = await publishManifestToGitLab({
-        manifest: args.manifest,
-        manifestPaths: args.manifestPaths,
-        settings: args.settings.gitlab,
-        mentionIdentities: args.settings.mentionIdentities,
-      })
-      results.push({ target: 'gitlab', ...result })
-    } else {
-      const result = await publishManifestToGoogleDrive({
-        manifest: args.manifest,
-        manifestPaths: args.manifestPaths,
-        settings: args.settings.google,
-        mentionIdentities: args.settings.mentionIdentities,
-      })
-      results.push({ target: 'google-drive', ...result })
+    try {
+      if (target === 'slack') {
+        const result = await publishManifestToSlack({
+          manifest: args.manifest,
+          manifestPaths: args.manifestPaths,
+          settings: args.settings.slack,
+          mentionIdentities: args.settings.mentionIdentities,
+        })
+        results.push({ target: 'slack', ...result })
+      } else if (target === 'gitlab') {
+        const result = await publishManifestToGitLab({
+          manifest: args.manifest,
+          manifestPaths: args.manifestPaths,
+          settings: args.settings.gitlab,
+          mentionIdentities: args.settings.mentionIdentities,
+        })
+        results.push({ target: 'gitlab', ...result })
+      } else {
+        const result = await publishManifestToGoogleDrive({
+          manifest: args.manifest,
+          manifestPaths: args.manifestPaths,
+          settings: args.settings.google,
+          mentionIdentities: args.settings.mentionIdentities,
+        })
+        results.push({ target: 'google-drive', ...result })
+      }
+    } catch (err) {
+      results.push({ target, failed: true, error: errorMessage(err) })
     }
   }
   return results.length === 1 ? results[0] : { target: 'multi', results }
