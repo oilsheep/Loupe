@@ -13,6 +13,7 @@ This notice summarizes the main third-party components used by Loupe. For exact 
 | FFmpeg libraries included with scrcpy builds (`avcodec`, `avformat`, `avutil`, `swresample`) | Media decoding/encoding support used by scrcpy | FFmpeg licensing applies, commonly LGPL/GPL depending on build configuration | https://ffmpeg.org/legal.html |
 | SDL2 | scrcpy windowing/input dependency | zlib License | https://www.libsdl.org/license.php |
 | libusb | USB access dependency | LGPL 2.1 or later | https://github.com/libusb/libusb |
+| UxPlay | AirPlay receiver fallback for iOS view-only recording | GPL-3.0-only; packaged builds should retain `apps/desktop/vendor/uxplay/LICENSE.UxPlay` and `apps/desktop/vendor/uxplay/SOURCE_OFFER.UxPlay.txt` | https://github.com/FDH2/UxPlay |
 
 ## npm Runtime Dependencies
 

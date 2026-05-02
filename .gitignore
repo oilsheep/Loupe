@@ -29,8 +29,6 @@ apps/desktop/vendor/whisper/**/main
 # Prepared third-party CLI binaries are generated for local dev/CI packaging
 apps/desktop/vendor/go-ios/**/bin/
 apps/desktop/vendor/go-ios/LICENSE.go-ios
-apps/desktop/vendor/uxplay/**/bin/
-apps/desktop/vendor/uxplay/LICENSE*
 apps/desktop/vendor/uxplay/.build/
 apps/desktop/vendor/faster-whisper/**/bin/
 apps/desktop/vendor/faster-whisper/**/Scripts/

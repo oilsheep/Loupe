@@ -289,9 +289,21 @@ pnpm vendor:prepare:win
 `vendor:prepare:mac` installs the Homebrew build dependencies and builds UxPlay
 from source. `vendor:prepare:win` uses MSYS2 UCRT64 to build UxPlay from source;
 it requires Bonjour SDK v3.0 at `C:\Program Files\Bonjour SDK` or
-`BONJOUR_SDK_HOME`. Windows can also skip source builds by setting
+`BONJOUR_SDK_HOME`. If you already have a local Bonjour SDK MSI installer, set
+`LOUPE_BONJOUR_SDK_INSTALLER` and the PowerShell script will install it before
+building. The existing Windows launcher also auto-detects `BonjourSDK.msi`
+or `bonjoursdksetup.exe` from the repo root, `scripts/`, or
+`apps/desktop/vendor/uxplay/`. Windows can also download the SDK automatically
+when `LOUPE_BONJOUR_SDK_DOWNLOAD_URL` points to a direct `.msi` or `.exe` URL.
+If not set, the script defaults to
+`https://office.macaca.games/bonjoursdk/bonjoursdksetup.exe`. Optionally set
+`LOUPE_BONJOUR_SDK_DOWNLOAD_SHA256` to verify the downloaded installer.
+If `C:\msys64` is missing, the script also installs `MSYS2.MSYS2` via `winget`
+and then continues with the UCRT64 package installation. Windows can
+also skip source builds by setting
 `LOUPE_UXPLAY_ARCHIVE` to a prebuilt archive containing `uxplay.exe` and its
-runtime DLLs.
+runtime DLLs. Checked-in binaries under `apps/desktop/vendor/uxplay` are also
+supported and are copied into packaged builds as-is.
 
 Current behavior:
 
@@ -305,7 +317,12 @@ Current behavior:
   dependencies (`cmake`, `git`, `libplist`, `openssl@3`, `pkg-config`,
   `gstreamer`). On Windows, source builds use MSYS2 UCRT64 packages
   (`cmake`, `gcc`, `ninja`, `libplist`, `gstreamer`, and common GStreamer
-  plugins) plus Bonjour SDK.
+  plugins) plus Bonjour SDK. `LOUPE_BONJOUR_SDK_INSTALLER` may point to a
+  local Bonjour SDK `.msi` or `.exe` file for unattended installation before
+  the build. `LOUPE_BONJOUR_SDK_DOWNLOAD_URL` may point to a direct installer
+  URL, with optional `LOUPE_BONJOUR_SDK_DOWNLOAD_SHA256` verification. If MSYS2
+  is absent, the script installs it through `winget` before running the MSYS2
+  package steps.
 - faster-whisper is still managed by the Tool Status installer/runtime logic;
   there is no standalone faster-whisper binary prepared by these scripts.
 

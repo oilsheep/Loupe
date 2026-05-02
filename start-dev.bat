@@ -17,9 +17,31 @@ if /I "%MODE%"=="prepare-vendor" set "MODE=vendor"
 if /I "%MODE%"=="dev" set "MODE=dev"
 
 set "VENDOR_ARGS=-BestEffort"
-if /I "%MODE%"=="build" set "VENDOR_ARGS=-Ci -WithUxPlay -InstallDeps"
+if /I "%MODE%"=="build" set "VENDOR_ARGS=-Ci"
 if /I "%MODE%"=="vendor" set "VENDOR_ARGS=-Ci -WithUxPlay -InstallDeps"
-if /I "%~2"=="uxplay" set "VENDOR_ARGS=-BestEffort -WithUxPlay -InstallDeps"
+if /I "%~2"=="uxplay" set "VENDOR_ARGS=%VENDOR_ARGS% -WithUxPlay -InstallDeps"
+
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "BonjourSDK.msi" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\BonjourSDK.msi"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "bonjoursdksetup.exe" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\bonjoursdksetup.exe"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "scripts\BonjourSDK.msi" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\scripts\BonjourSDK.msi"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "scripts\bonjoursdksetup.exe" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\scripts\bonjoursdksetup.exe"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "apps\desktop\vendor\uxplay\BonjourSDK.msi" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\apps\desktop\vendor\uxplay\BonjourSDK.msi"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "apps\desktop\vendor\uxplay\bonjour-sdk.msi" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\apps\desktop\vendor\uxplay\bonjour-sdk.msi"
+)
+if "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  if exist "apps\desktop\vendor\uxplay\bonjoursdksetup.exe" set "LOUPE_BONJOUR_SDK_INSTALLER=%CD%\apps\desktop\vendor\uxplay\bonjoursdksetup.exe"
+)
 
 set "PNPM=pnpm"
 where pnpm >nul 2>nul
@@ -44,6 +66,12 @@ if not exist "node_modules\.modules.yaml" (
 )
 
 echo [setup] Preparing vendored third-party binaries...
+if not "%LOUPE_BONJOUR_SDK_INSTALLER%"=="" (
+  echo [setup] Bonjour SDK installer detected: %LOUPE_BONJOUR_SDK_INSTALLER%
+)
+if not "%LOUPE_BONJOUR_SDK_DOWNLOAD_URL%"=="" (
+  echo [setup] Bonjour SDK download URL detected.
+)
 where powershell >nul 2>nul
 if not errorlevel 1 (
   powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\prepare-vendor-binaries.ps1" %VENDOR_ARGS%
@@ -116,6 +144,16 @@ echo   start-dev.bat vendor
 echo.
 echo To try building UxPlay during dev startup:
 echo   start-dev.bat dev uxplay
+echo.
+echo To auto-install Bonjour SDK during UxPlay build, place BonjourSDK.msi in:
+echo   .\BonjourSDK.msi
+echo   .\bonjoursdksetup.exe
+echo   .\scripts\BonjourSDK.msi
+echo   .\scripts\bonjoursdksetup.exe
+echo   .\apps\desktop\vendor\uxplay\BonjourSDK.msi
+echo   .\apps\desktop\vendor\uxplay\bonjoursdksetup.exe
+echo Or set:
+echo   LOUPE_BONJOUR_SDK_DOWNLOAD_URL=https://office.macaca.games/bonjoursdk/bonjoursdksetup.exe
 echo.
 pause
 exit /b 1

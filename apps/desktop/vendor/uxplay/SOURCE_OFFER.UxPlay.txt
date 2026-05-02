@@ -1,0 +1,23 @@
+Bundled component: UxPlay
+License: GPL-3.0-only
+
+Upstream project:
+https://github.com/FDH2/UxPlay
+
+Upstream release archives:
+https://github.com/FDH2/UxPlay/releases
+
+Convenience source archive:
+https://github.com/FDH2/UxPlay/archive/refs/heads/master.zip
+
+Loupe-specific packaging/build scripts for the bundled binary are part of this
+repository, primarily:
+- scripts/prepare-vendor-binaries.ps1
+- apps/desktop/vendor/uxplay/README.md
+
+This file is included so packaged Loupe distributions that bundle UxPlay also
+carry a GPL source link/source-offer notice alongside the binary.
+
+If you redistribute Loupe with bundled UxPlay binaries, preserve this file or
+replace it with your own equivalent notice covering the exact corresponding
+source for the UxPlay binary you ship.
