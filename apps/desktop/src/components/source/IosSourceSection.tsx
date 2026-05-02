@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesktopApi, PcCaptureSource, UxPlayReceiverStatus } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { SelectRecordingSource } from '@/lib/recordingSource'
@@ -31,6 +31,7 @@ export function IosSourceSection({
 }) {
   const { t } = useI18n()
   const [iosMode, setIosMode] = useState<'mirror' | 'uxplay'>(platform === 'darwin' ? 'mirror' : 'uxplay')
+  const userSelectedMode = useRef(false)
   const [uxPlayRunning, setUxPlayRunning] = useState(false)
   const [uxPlayMessage, setUxPlayMessage] = useState<string | null>(null)
   const [uxPlayMessageKey, setUxPlayMessageKey] = useState<UxPlayReceiverStatus['messageKey'] | null>(null)
@@ -40,7 +41,8 @@ export function IosSourceSection({
   const uxPlaySources = useMemo(() => windowSources.filter(source => isUxPlaySource(source, uxPlayRunning)), [uxPlayRunning, windowSources])
 
   useEffect(() => {
-    if (platform && !isMac) setIosMode('uxplay')
+    if (!platform || userSelectedMode.current) return
+    setIosMode(isMac ? 'mirror' : 'uxplay')
   }, [isMac, platform])
 
   useEffect(() => {
@@ -136,7 +138,10 @@ export function IosSourceSection({
             <button
               key={mode}
               type="button"
-              onClick={() => setIosMode(mode)}
+              onClick={() => {
+                userSelectedMode.current = true
+                setIosMode(mode)
+              }}
               className={`rounded px-2 py-1.5 ${iosMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
               {label}
