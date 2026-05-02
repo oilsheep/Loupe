@@ -4,7 +4,7 @@ import type { IProcessRunner } from '../process-runner'
 import { PassThrough } from 'node:stream'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { managedFasterWhisperModelDir, managedFasterWhisperPython, managedFasterWhisperVenvDir } from '../audio-analysis/fasterWhisperRuntime'
 
 const UXPLAY_LOOKUP_CMD = process.platform === 'win32' ? 'where' : '/usr/bin/which'
@@ -23,7 +23,8 @@ function createManagedModelRoot(): string {
 function fakeRunner(behaviour: Record<string, { code: number; stdout?: string; stderr?: string } | Error>): IProcessRunner {
   return {
     async run(cmd) {
-      const r = behaviour[cmd]
+      const base = basename(cmd).replace(/\.exe$/i, '')
+      const r = behaviour[cmd] ?? behaviour[basename(cmd)] ?? behaviour[base]
       if (r instanceof Error) throw r
       if (!r) throw new Error(`unexpected cmd: ${cmd}`)
       return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', code: r.code }
@@ -48,17 +49,19 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      ffmpeg: { code: 0, stdout: 'ffmpeg version 7.1' },
       [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
-    expect(checks).toHaveLength(6)
+    expect(checks).toHaveLength(7)
     expect(checks.every(c => c.ok)).toBe(true)
     expect(checks[0].version).toContain('1.0.41')
     expect(checks[1].version).toContain('2.7')
     expect(checks[2].version).toContain('/tmp/uxplay')
     expect(checks[3].version).toContain('1.0.211')
-    expect(checks[4].version).toContain('1.0.3')
-    expect(checks[5].version).toContain('faster-whisper/models/small')
+    expect(checks[4].version).toContain('ffmpeg version 7.1')
+    expect(checks[5].version).toContain('1.0.3')
+    expect(checks[6].version).toContain('faster-whisper/models/small')
   })
 
   it('reports not ok when binary missing', async () => {
@@ -68,6 +71,7 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      ffmpeg: { code: 0, stdout: 'ffmpeg version 7.1' },
       [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)
@@ -86,6 +90,7 @@ describe('doctor', () => {
       scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
       [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
       ios: { code: 0, stdout: '1.0.211' },
+      ffmpeg: { code: 0, stdout: 'ffmpeg version 7.1' },
       [PYTHON_CMD]: { code: 0, stdout: '1.0.3' },
     })
     const checks = await doctor(r)

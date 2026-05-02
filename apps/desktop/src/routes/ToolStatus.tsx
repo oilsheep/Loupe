@@ -15,6 +15,7 @@ const TOOL_DESCRIPTIONS: Record<ToolCheck['name'], string> = {
   scrcpy: 'toolStatus.tool.scrcpy',
   uxplay: 'toolStatus.tool.uxplay',
   'go-ios': 'toolStatus.tool.goIos',
+  ffmpeg: 'toolStatus.tool.ffmpeg',
   'faster-whisper': 'toolStatus.tool.fasterWhisper',
   'faster-whisper-model': 'toolStatus.tool.fasterWhisperModel',
 }

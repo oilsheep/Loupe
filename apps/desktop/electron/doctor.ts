@@ -5,9 +5,10 @@ import { join } from 'node:path'
 import type { SpawnOptions } from 'node:child_process'
 import { managedToolsDir, resolveBundledTool, toolSearchPath } from './tool-paths'
 import { DEFAULT_FASTER_WHISPER_MODEL, DEFAULT_FASTER_WHISPER_MODEL_REPO, hasFasterWhisperModel, managedFasterWhisperModelDir, managedFasterWhisperPython, managedFasterWhisperVenvDir, resolveFasterWhisperPython } from './audio-analysis/fasterWhisperRuntime'
+import { resolveBundledFfmpegPath } from './ffmpeg'
 
 export interface ToolCheck {
-  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'faster-whisper' | 'faster-whisper-model'
+  name: 'adb' | 'scrcpy' | 'uxplay' | 'go-ios' | 'ffmpeg' | 'faster-whisper' | 'faster-whisper-model'
   ok: boolean
   version?: string
   error?: string
@@ -18,6 +19,7 @@ const TOOLS: { name: ToolCheck['name']; cmd: string; args: string[] }[] = [
   { name: 'scrcpy',          cmd: 'scrcpy',          args: ['--version'] },
   { name: 'uxplay',          cmd: 'uxplay',          args: [] },
   { name: 'go-ios',          cmd: 'ios',             args: ['--version'] },
+  { name: 'ffmpeg',          cmd: 'ffmpeg',          args: ['-version'] },
   { name: 'faster-whisper',  cmd: 'python',          args: [] },
   { name: 'faster-whisper-model', cmd: 'model',       args: [] },
 ]
@@ -30,6 +32,7 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'scrcpy') return 'Install with: brew install scrcpy'
     if (name === 'uxplay') return 'Use Loupe’s installer to build UxPlay from source, or install uxplay manually and make sure it is on PATH.'
     if (name === 'go-ios') return 'Install with: npm install -g go-ios'
+    if (name === 'ffmpeg') return 'Packaged builds include FFmpeg. For development, run pnpm install again to restore @ffmpeg-installer/ffmpeg.'
     if (name === 'faster-whisper') return 'Use Loupe’s installer to create a managed faster-whisper Python environment.'
     if (name === 'faster-whisper-model') return 'Use Loupe’s installer to download the managed faster-whisper model.'
   }
@@ -38,6 +41,7 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'scrcpy') return 'Install scrcpy and ensure it is on PATH.'
     if (name === 'uxplay') return 'Install UxPlay and ensure it is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and ensure the ios command is on PATH.'
+    if (name === 'ffmpeg') return 'Packaged builds include FFmpeg. For development, run pnpm install again to restore @ffmpeg-installer/ffmpeg.'
     if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
     if (name === 'faster-whisper-model') return 'Download a faster-whisper model into Loupe’s managed tools folder.'
   }
@@ -45,6 +49,7 @@ function installHint(name: ToolCheck['name']): string | null {
     if (name === 'adb' || name === 'scrcpy') return 'Packaged Windows builds include bundled Android tools; dev builds still require adb/scrcpy on PATH unless you point LOUPE_TOOLS_DIR at a tool folder.'
     if (name === 'uxplay') return 'Install UxPlay and make sure uxplay.exe is on PATH.'
     if (name === 'go-ios') return 'Install go-ios and make sure ios.exe is on PATH.'
+    if (name === 'ffmpeg') return 'Packaged builds include FFmpeg. For development, run pnpm install again to restore @ffmpeg-installer/ffmpeg.'
     if (name === 'faster-whisper') return 'Install faster-whisper in Loupe’s managed Python environment or set LOUPE_PYTHON.'
     if (name === 'faster-whisper-model') return 'Download a faster-whisper model into Loupe’s managed tools folder.'
   }
@@ -71,6 +76,11 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
         out.push(check)
         continue
       }
+      if (t.name === 'ffmpeg') {
+        const check = await checkFfmpegAvailable(runner)
+        out.push(check)
+        continue
+      }
       if (t.name === 'faster-whisper-model') {
         out.push(checkFasterWhisperModelAvailable())
         continue
@@ -88,6 +98,21 @@ export async function doctor(runner: IProcessRunner): Promise<ToolCheck[]> {
     }
   }
   return out
+}
+
+async function checkFfmpegAvailable(runner: IProcessRunner): Promise<ToolCheck> {
+  try {
+    const ffmpeg = resolveBundledFfmpegPath()
+    const r = await runner.run(ffmpeg, ['-version'])
+    if (r.code === 0) {
+      const version = (r.stdout || r.stderr).split('\n')[0].trim()
+      return { name: 'ffmpeg', ok: true, version: `${version || 'ffmpeg'} (${ffmpeg})` }
+    }
+    return { name: 'ffmpeg', ok: false, error: formatToolError('ffmpeg', (r.stderr || `exit ${r.code}`).trim()) }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { name: 'ffmpeg', ok: false, error: formatToolError('ffmpeg', message) }
+  }
 }
 
 function checkFasterWhisperModelAvailable(): ToolCheck {
