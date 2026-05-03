@@ -118,6 +118,7 @@ jobs:
         if: matrix.platform == 'mac'
         env:
           LOUPE_SIGN_MAC: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && '1' || '0' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -142,6 +143,8 @@ jobs:
             exit 1
           fi
 
+          ls -la "${app_path}/Contents/_CodeSignature" || true
+          codesign --display --verbose=4 "${app_path}"
           codesign --verify --verbose=4 "${app_path}"
           xcrun stapler validate "${app_path}"
           spctl --assess --type execute --verbose=4 "${app_path}"

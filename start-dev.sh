@@ -185,7 +185,7 @@ fi
 
 if [[ "$MODE" == "build" ]]; then
   if [[ "${LOUPE_SIGN_MAC:-0}" == "1" ]]; then
-    export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-true}"
+    export CSC_IDENTITY_AUTO_DISCOVERY=true
     if [[ -z "${APPLE_KEYCHAIN_PROFILE:-}" ]] && {
       [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]
     } && {
