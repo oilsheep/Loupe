@@ -146,7 +146,10 @@ APPLE_API_ISSUER
 
 ## GitHub Actions Release Build
 
-目前 workflow 只會在 tag build 時自動簽名、notarize，並建立 GitHub Release：
+目前 workflow 在以下情況會自動簽名、notarize macOS build：
+
+- GitHub Actions 手動執行 `Build desktop binaries`。
+- 推送 `v*` tag，並建立 GitHub Release：
 
 ```bash
 git tag v0.1.0
