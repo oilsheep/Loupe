@@ -184,6 +184,24 @@ if ! pnpm rebuild:electron; then
 fi
 
 if [[ "$MODE" == "build" ]]; then
+  if [[ "${LOUPE_SIGN_MAC:-0}" == "1" ]]; then
+    export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-true}"
+    if [[ -z "${APPLE_KEYCHAIN_PROFILE:-}" ]] && {
+      [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]
+    } && {
+      [[ -z "${APPLE_API_KEY:-}" || -z "${APPLE_API_KEY_ID:-}" || -z "${APPLE_API_ISSUER:-}" ]]
+    }; then
+      echo "Signed macOS builds require notarization credentials."
+      echo "Set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID,"
+      echo "or set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER,"
+      echo "or set APPLE_KEYCHAIN_PROFILE."
+      exit 1
+    fi
+    echo "[signing] macOS signing and notarization enabled."
+    echo "[signing] Use a Developer ID Application certificate for GitHub/download distribution."
+  else
+    export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-false}"
+  fi
   echo "[3/${TOTAL_STEPS}] Building renderer and main processes..."
   pnpm --filter desktop exec electron-vite build
   echo "[4/${TOTAL_STEPS}] Packaging macOS app..."

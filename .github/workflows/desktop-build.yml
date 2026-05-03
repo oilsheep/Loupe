@@ -2,6 +2,9 @@ name: Build desktop binaries
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -69,8 +72,59 @@ jobs:
       - name: Test
         run: pnpm desktop:test
 
+      - name: Prepare Apple API key
+        if: matrix.platform == 'mac' && startsWith(github.ref, 'refs/tags/')
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          if [[ -z "${APPLE_API_KEY_BASE64}" ]]; then
+            exit 0
+          fi
+          key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "${APPLE_API_KEY_BASE64}" | base64 --decode > "${key_path}"
+          chmod 600 "${key_path}"
+          echo "APPLE_API_KEY=${key_path}" >> "${GITHUB_ENV}"
+
+      - name: Verify Apple signing secrets
+        if: matrix.platform == 'mac' && startsWith(github.ref, 'refs/tags/')
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [[ -z "${CSC_LINK}" || -z "${CSC_KEY_PASSWORD}" ]]; then
+            echo "::error::Set CSC_LINK and CSC_KEY_PASSWORD secrets for the Developer ID Application certificate."
+            exit 1
+          fi
+          if [[ -n "${APPLE_API_KEY_BASE64}" || -n "${APPLE_API_KEY_ID}" || -n "${APPLE_API_ISSUER}" ]]; then
+            if [[ -z "${APPLE_API_KEY_BASE64}" || -z "${APPLE_API_KEY_ID}" || -z "${APPLE_API_ISSUER}" ]]; then
+              echo "::error::Set APPLE_API_KEY_BASE64, APPLE_API_KEY_ID, and APPLE_API_ISSUER together."
+              exit 1
+            fi
+            exit 0
+          fi
+          if [[ -z "${APPLE_ID}" || -z "${APPLE_APP_SPECIFIC_PASSWORD}" || -z "${APPLE_TEAM_ID}" ]]; then
+            echo "::error::Set Apple notarization secrets: either APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or APPLE_API_KEY_BASE64 + APPLE_API_KEY_ID + APPLE_API_ISSUER."
+            exit 1
+          fi
+
       - name: Package macOS binary
         if: matrix.platform == 'mac'
+        env:
+          LOUPE_SIGN_MAC: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '0' }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: ./start-dev.sh build
 
       - name: Package Windows binary
@@ -88,3 +142,34 @@ jobs:
             !apps/desktop/dist/latest*.yml
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: loupe-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Loupe ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            release-assets/**/*.dmg
+            release-assets/**/*.exe
+            release-assets/**/*.msi
+            release-assets/**/*.pkg
+            release-assets/**/*.zip
