@@ -10,7 +10,7 @@ import { SessionManager } from './session'
 import { openDb } from './db'
 import { createPaths, defaultRoot } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl } from './ipc'
-import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from './settings'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import type { HotkeySettings } from '@shared/types'
 
@@ -230,6 +230,7 @@ app.whenReady().then(async () => {
     locale: 'system',
     severities: DEFAULT_SEVERITIES,
     audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
+    commonSession: DEFAULT_COMMON_SESSION,
     slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },

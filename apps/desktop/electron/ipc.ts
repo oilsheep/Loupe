@@ -106,6 +106,7 @@ export const CHANNEL = {
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsSetAudioAnalysis:'settings:setAudioAnalysis',
+  settingsSetCommonSession:'settings:setCommonSession',
   settingsChooseWhisperModel:'settings:chooseWhisperModel',
   settingsChooseExportRoot:'settings:chooseExportRoot',
   audioAnalysisAnalyzeSession:'audioAnalysis:analyzeSession',
@@ -675,6 +676,8 @@ async function exportBugEvidence(args: {
     markerMs: args.bug.offsetMs,
     deviceModel: args.session.deviceModel,
     buildVersion: args.session.buildVersion,
+    platform: args.session.platform,
+    project: args.session.project,
     androidVersion: args.session.androidVersion,
     testNote: args.session.testNote,
     tester: args.session.tester,
@@ -882,10 +885,11 @@ function buildSlackSummaryText(session: Session, entries: ReportEntry[], pdfPath
   const counts = [...groups.values()].map(items => `${items[0].severityLabel}: ${items.length}`).join(' / ')
   const majorItems = entries.filter(entry => entry.bug.severity === 'major')
   const focusItems = (majorItems.length > 0 ? majorItems : sortedReportEntries(entries)).slice(0, 8)
+  const os = session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`
+  const meta = [session.project, session.buildVersion, session.platform, session.deviceModel, os].map(v => v?.trim()).filter(Boolean).join(' / ')
   const lines = [
     `*${normalizedReportTitle(reportTitle)}*`,
-    `Build: ${session.buildVersion || '-'}`,
-    `Device: ${session.deviceModel || '-'} / ${session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`}`,
+    `Meta: ${meta || '-'}`,
     `Tester: ${session.tester || '-'} / ${formatReportDate(session.startedAt)}`,
     session.testNote ? `Test note: ${session.testNote}` : '',
     `Markers: ${entries.length}${counts ? ` (${counts})` : ''}`,
@@ -905,6 +909,8 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
   const groups = groupReportEntries(entries)
   const groupList = [...groups.entries()]
   const total = entries.length
+  const reportOs = session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion}`
+  const reportMeta = [session.project, session.buildVersion, session.platform, session.deviceModel, reportOs].map(value => value?.trim()).filter(Boolean).join(' / ')
   const summaryCards = groupList.map(([severity, items]) => {
     const first = items[0]
     return `
@@ -1098,7 +1104,7 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
       <div class="kicker">QA RESULT REPORT</div>
       <h1>${escapeHtml(normalizedReportTitle(reportTitle))}</h1>
       <div class="subtitle">
-        ${escapeHtml(session.deviceModel)} / ${escapeHtml(session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion}`)} / ${escapeHtml(session.buildVersion)}
+        ${escapeHtml(reportMeta || '-')}
         <br />
         Tester: ${escapeHtml(session.tester || '-')} / Session: ${escapeHtml(formatReportDate(session.startedAt))}
         ${session.testNote ? `<br />${escapeHtml(session.testNote)}` : ''}
@@ -1933,7 +1939,7 @@ export function registerIpc(deps: IpcDeps): void {
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
-  ipcMain.handle(CHANNEL.sessionImportVideo, async (_e, args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session> => {
+  ipcMain.handle(CHANNEL.sessionImportVideo, async (_e, args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session> => {
     return deps.manager.importVideo(args)
   })
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
@@ -1964,7 +1970,7 @@ export function registerIpc(deps: IpcDeps): void {
     emitSessionLoadProgress(event.sender, sessionLoadProgress(id, 'complete', 'Session ready', 4, 4))
     return result
   })
-  ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { buildVersion: string; testNote: string; tester: string }) => {
+  ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) => {
     deps.manager.updateSessionMetadata(id, patch)
   })
   ipcMain.handle(CHANNEL.sessionUpdateMicAudioOffset, async (_e, id: string, startOffsetMs: number): Promise<Session> => {
@@ -2218,6 +2224,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetLocale, async (_e, locale: AppLocale) => deps.settings.setLocale(locale))
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))
   ipcMain.handle(CHANNEL.settingsSetAudioAnalysis, async (_e, audioAnalysis: AudioAnalysisSettings) => deps.settings.setAudioAnalysis(audioAnalysis))
+  ipcMain.handle(CHANNEL.settingsSetCommonSession, async (_e, commonSession) => deps.settings.setCommonSession(commonSession))
   ipcMain.handle(CHANNEL.settingsChooseWhisperModel, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
     const win = deps.getWindow()
     const pick = await (win
@@ -2376,6 +2383,8 @@ export function registerIpc(deps: IpcDeps): void {
         clipEndMs: endMs,
         deviceModel: session.deviceModel,
         buildVersion: session.buildVersion,
+        platform: session.platform,
+        project: session.project,
         androidVersion: session.androidVersion,
         testNote: session.testNote,
         tester: session.tester,
@@ -2534,6 +2543,8 @@ export function registerIpc(deps: IpcDeps): void {
           clipEndMs: endMs,
           deviceModel: session.deviceModel,
           buildVersion: session.buildVersion,
+          platform: session.platform,
+          project: session.project,
           androidVersion: session.androidVersion,
           testNote: session.testNote,
           tester: session.tester,

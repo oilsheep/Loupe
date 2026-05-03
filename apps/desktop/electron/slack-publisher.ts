@@ -278,11 +278,12 @@ function formatSlackDate(ms: number): string {
 
 function deviceLabel(session: ExportManifest['session']): string {
   const os = session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`
-  return `${session.deviceModel || '-'} / ${os}`
+  return [session.platform, session.deviceModel || '-', os].filter(Boolean).join(' / ')
 }
 
 function markerThreadInfoText(manifest: ExportManifest): string {
   const lines = [
+    ...(manifest.session.project ? [`Project: ${manifest.session.project}`] : []),
     `Build: ${manifest.session.buildVersion || '-'}`,
     `Device: ${deviceLabel(manifest.session)}`,
     `Tester: ${manifest.session.tester || '-'} / ${formatSlackDate(new Date(manifest.session.startedAt).getTime())}`,

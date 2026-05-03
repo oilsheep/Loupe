@@ -27,6 +27,8 @@ export interface ExportManifest {
   session: {
     id: string
     buildVersion: string
+    platform?: string
+    project?: string
     testNote: string
     tester: string
     deviceId: string
@@ -103,6 +105,8 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
     session: {
       id: args.session.id,
       buildVersion: args.session.buildVersion,
+      platform: args.session.platform ?? '',
+      project: args.session.project ?? '',
       testNote: args.session.testNote,
       tester: args.session.tester,
       deviceId: args.session.deviceId,
@@ -142,6 +146,8 @@ export function manifestToCsv(manifest: ExportManifest): string {
     [
       'Session ID',
       'Build',
+      'Platform',
+      'Project',
       'Tester',
       'Test Note',
       'Device',
@@ -165,6 +171,8 @@ export function manifestToCsv(manifest: ExportManifest): string {
     ...manifest.markers.map(marker => [
       manifest.session.id,
       manifest.session.buildVersion,
+      manifest.session.platform,
+      manifest.session.project,
       manifest.session.tester,
       manifest.session.testNote,
       manifest.session.deviceModel,
@@ -199,6 +207,8 @@ export function slackSessionMessage(manifest: ExportManifest): string {
     'Loupe QA Export',
     '',
     `Build: ${manifest.session.buildVersion || '(none)'}`,
+    `Platform: ${manifest.session.platform || '(none)'}`,
+    `Project: ${manifest.session.project || '(none)'}`,
     `Tester: ${manifest.session.tester || '(none)'}`,
     `Device: ${manifest.session.deviceModel || '(none)'} / Android ${manifest.session.androidVersion || '(none)'}`,
     `Markers: ${manifest.markers.length}`,

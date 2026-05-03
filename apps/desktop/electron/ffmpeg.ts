@@ -15,6 +15,8 @@ export interface ClipOptions {
   markerMs?: number | null
   deviceModel?: string | null
   buildVersion?: string | null
+  platform?: string | null
+  project?: string | null
   androidVersion?: string | null
   testNote?: string | null
   tester?: string | null
@@ -268,7 +270,9 @@ function buildCaptionLines(opts: ClipOptions, layout: CaptionLayout = { noteChar
   }
 
   addWrapped(compactLine([
+    opts.project,
     opts.buildVersion,
+    opts.platform,
     formatOsLabel(opts.androidVersion),
     opts.deviceModel,
   ]), layout.metaChars)

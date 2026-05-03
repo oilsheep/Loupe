@@ -139,6 +139,15 @@ export interface AudioAnalysisSettings {
   showTriggerWords: boolean
 }
 
+export interface CommonSessionSettings {
+  platforms: string[]
+  projects: string[]
+  testers: string[]
+  lastPlatform: string
+  lastProject: string
+  lastTester: string
+}
+
 export interface GoogleDriveFolder {
   id: string
   name: string
@@ -162,6 +171,7 @@ export interface AppSettings {
   locale: AppLocale
   severities: SeveritySettings
   audioAnalysis: AudioAnalysisSettings
+  commonSession?: CommonSessionSettings
   slack: SlackPublishSettings
   gitlab: GitLabPublishSettings
   google: GooglePublishSettings
@@ -171,6 +181,8 @@ export interface AppSettings {
 export interface Session {
   id: string
   buildVersion: string
+  platform?: string
+  project?: string
   testNote: string
   tester: string
   deviceId: string
@@ -339,18 +351,18 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     chooseVideoFile():                                             Promise<string | null>
     chooseAudioFile():                                             Promise<string | null>
-    importVideo(args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session>
+    importVideo(args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
     discard(sessionId: string):                                    Promise<void>
     list():                                                        Promise<Session[]>
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
     openProject():                                                 Promise<Session | null>
-    updateMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }): Promise<void>
+    updateMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }): Promise<void>
     updateMicAudioOffset(id: string, startOffsetMs: number):       Promise<Session>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
     saveMicRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string>
@@ -397,6 +409,7 @@ export interface DesktopApi {
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>
+    setCommonSession(settings: CommonSessionSettings):             Promise<AppSettings>
     chooseWhisperModel():                                          Promise<AppSettings | null>
     chooseExportRoot():                                            Promise<AppSettings | null>
   }

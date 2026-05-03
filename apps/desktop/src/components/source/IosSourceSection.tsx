@@ -112,8 +112,8 @@ export function IosSourceSection({
 
   return (
     <div className="rounded border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-200">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <div className="font-medium">{t('device.iosRecording')}</div>
           <div className="mt-0.5 text-xs leading-5 text-zinc-500">
             {isMac ? t('device.iosMacHelp') : t('device.iosUnsupportedHelp')}
@@ -123,7 +123,7 @@ export function IosSourceSection({
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+          className="w-full whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 sm:w-auto"
         >
           {loading ? t('device.loading') : t('common.refresh')}
         </button>
@@ -142,7 +142,7 @@ export function IosSourceSection({
                 userSelectedMode.current = true
                 setIosMode(mode)
               }}
-              className={`rounded px-2 py-1.5 ${iosMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`min-w-0 rounded px-2 py-1.5 text-center leading-tight ${iosMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
               {label}
             </button>
@@ -154,11 +154,11 @@ export function IosSourceSection({
         <>
           <div className="mt-3 rounded border border-zinc-800 bg-zinc-950/80 p-3 text-xs leading-5 text-zinc-400">
             <div>{t('device.iosMacSteps')}</div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <button
                 type="button"
                 onClick={() => { void openMirroring() }}
-                className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600"
+                className="w-full whitespace-nowrap rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 sm:w-auto"
               >
                 {t('device.openIphoneMirroring')}
               </button>
@@ -166,7 +166,7 @@ export function IosSourceSection({
                 href="https://support.apple.com/en-us/120421"
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-blue-300 hover:text-blue-200"
+                className="text-xs leading-5 text-blue-300 hover:text-blue-200"
               >
                 {t('device.iosAppleGuide')}
               </a>
@@ -205,11 +205,11 @@ export function IosSourceSection({
         <>
           <div className="mt-3 rounded border border-zinc-800 bg-zinc-950/80 p-3 text-xs leading-5 text-zinc-400">
             <div>{t('device.iosUxPlayHelp')}</div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <button
                 type="button"
                 onClick={() => { void startUxPlay() }}
-                className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600"
+                className="w-full whitespace-nowrap rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 sm:w-auto"
               >
                 {uxPlayRunning ? t('device.restartUxPlay') : t('device.startUxPlay')}
               </button>
@@ -217,7 +217,7 @@ export function IosSourceSection({
                 type="button"
                 onClick={() => { void stopUxPlay() }}
                 disabled={!uxPlayRunning}
-                className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                className="w-full whitespace-nowrap rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50 sm:w-auto"
               >
                 {t('device.stopUxPlay')}
               </button>

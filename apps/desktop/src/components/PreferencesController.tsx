@@ -18,6 +18,7 @@ import type {
   AppLocale,
   AppSettings,
   AudioAnalysisSettings,
+  CommonSessionSettings,
   GitLabProject,
   GitLabPublishSettings,
   GoogleDriveFolder,
@@ -92,6 +93,15 @@ const DEFAULT_AUDIO_ANALYSIS_SETTINGS: AudioAnalysisSettings = {
   showTriggerWords: false,
 }
 
+const DEFAULT_COMMON_SESSION_SETTINGS: CommonSessionSettings = {
+  platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
+  projects: [],
+  testers: [],
+  lastPlatform: '',
+  lastProject: '',
+  lastTester: '',
+}
+
 function parseListInput(value: string): string[] {
   return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
 }
@@ -102,6 +112,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [audioAnalysis, setAudioAnalysis] = useState<AudioAnalysisSettings>(DEFAULT_AUDIO_ANALYSIS_SETTINGS)
+  const [commonSession, setCommonSession] = useState<CommonSessionSettings>(DEFAULT_COMMON_SESSION_SETTINGS)
   const [audioAnalysisSaved, setAudioAnalysisSaved] = useState(false)
   const [slack, setSlack] = useState<SlackPublishSettings>(DEFAULT_SLACK_SETTINGS)
   const [slackSaved, setSlackSaved] = useState(false)
@@ -143,6 +154,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setHotkeys(settings.hotkeys)
     setSeverities(settings.severities)
     setAudioAnalysis(settings.audioAnalysis)
+    setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION_SETTINGS)
     setAudioAnalysisSaved(false)
     setSlack(settings.slack)
     setGitLab(settings.gitlab)
@@ -203,6 +215,11 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     const settings = await api.settings.setAudioAnalysis(next)
     setAudioAnalysis(settings.audioAnalysis)
     setAudioAnalysisSaved(true)
+  }
+
+  async function saveCommonSession(next: CommonSessionSettings) {
+    const settings = await api.settings.setCommonSession(next)
+    setCommonSession(settings.commonSession ?? next)
   }
 
   function updateAudioAnalysis(next: AudioAnalysisSettings) {
@@ -586,6 +603,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       severities={severities}
       audioAnalysis={audioAnalysis}
       audioAnalysisSaved={audioAnalysisSaved}
+      commonSession={commonSession}
       slack={slack}
       slackSaved={slackSaved}
       startingSlackOAuth={startingSlackOAuth}
@@ -634,6 +652,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onAudioAnalysisChange={updateAudioAnalysis}
       onSaveAudioAnalysis={saveAudioAnalysis}
       onAudioAnalysisLanguageChange={(language) => { void changeAudioAnalysisLanguage(language) }}
+      onCommonSessionChange={setCommonSession}
+      onSaveCommonSession={(next) => { void saveCommonSession(next) }}
       onSlackChange={(next) => { setSlack(next); setSlackSaved(false) }}
       onStartSlackOAuth={startSlackUserOAuth}
       onRefreshSlackUsers={() => { void refreshSlackUsers() }}

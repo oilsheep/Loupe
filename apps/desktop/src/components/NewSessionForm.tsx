@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { AudioAnalysisSettings, DesktopApi, IosAppInfo } from '@shared/types'
+import type { AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 import {
@@ -74,9 +74,19 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const pushRecent = useApp(s => s.pushRecentBuild)
   const goRecording = useApp(s => s.goRecording)
 
-  const [build, setBuild] = useState(recent[0] ?? '')
+  const [build, setBuild] = useState('')
+  const [platform, setPlatform] = useState('')
+  const [project, setProject] = useState('')
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
+  const [commonSession, setCommonSession] = useState<CommonSessionSettings>({
+    platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
+    projects: [],
+    testers: [],
+    lastPlatform: '',
+    lastProject: '',
+    lastTester: '',
+  })
   const [logcatPackageName, setLogcatPackageName] = useState('')
   const [logcatPackageOptions, setLogcatPackageOptions] = useState<string[]>([])
   const [logcatPackageMenuOpen, setLogcatPackageMenuOpen] = useState(false)
@@ -115,6 +125,12 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       setAudioLanguage(language)
       setTriggerKeywords(keywords)
       setTriggerWordsCustomized(!sharedIsPresetTriggerWords(keywords))
+      if (settings.commonSession) {
+        setCommonSession(settings.commonSession)
+        setPlatform(settings.commonSession.lastPlatform)
+        setProject(settings.commonSession.lastProject)
+        setTester(settings.commonSession.lastTester)
+      }
     }).catch(() => {
       if (cancelled) return
       setAudioLanguage('auto')
@@ -190,6 +206,8 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         deviceId,
         connectionMode: backendConnectionMode,
         buildVersion: build.trim(),
+        platform: platform.trim(),
+        project: project.trim(),
         testNote: note.trim(),
         tester: tester.trim(),
         recordPcScreen,
@@ -206,6 +224,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         logcatMinPriority: isPcLikeSource ? undefined : logcatMinPriority,
         logcatLineCount: connectionMode === 'ios' || !isPcLikeSource ? logcatLineCount : undefined,
       })
+      await saveCommonSessionLast().catch(() => {})
       pushRecent(build.trim())
       goRecording(session)
     } catch (e) {
@@ -213,6 +232,29 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     } finally {
       setBusy(false)
     }
+  }
+
+  async function saveCommonSessionLast(overrides: Partial<CommonSessionSettings> = {}) {
+    const next = {
+      ...commonSession,
+      ...overrides,
+      lastPlatform: platform.trim(),
+      lastProject: project.trim(),
+      lastTester: tester.trim(),
+    }
+    const saved = await api.settings.setCommonSession(next)
+    setCommonSession(saved.commonSession ?? next)
+  }
+
+  async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
+    const text = value.trim()
+    if (!text) return
+    const next = {
+      ...commonSession,
+      [kind]: Array.from(new Set([...(commonSession[kind] ?? []), text])),
+    }
+    const saved = await api.settings.setCommonSession(next)
+    setCommonSession(saved.commonSession ?? next)
   }
 
   function changeAudioLanguage(language: string) {
@@ -319,6 +361,44 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
 
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.9fr)_minmax(260px,1.1fr)]">
         <label className="text-xs font-semibold text-zinc-200">
+          Platform
+          <div className="mt-1 flex gap-2">
+            <input
+              value={platform}
+              onChange={e => setPlatform(e.target.value)}
+              list="common-platforms"
+              placeholder="android"
+              className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+            {platform.trim() && !commonSession.platforms.includes(platform.trim()) && (
+              <button type="button" onClick={() => { void addCommonValue('platforms', platform) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">
+                Add
+              </button>
+            )}
+          </div>
+          <datalist id="common-platforms">{commonSession.platforms.map(item => <option key={item} value={item} />)}</datalist>
+        </label>
+
+        <label className="text-xs font-semibold text-zinc-200">
+          Project
+          <div className="mt-1 flex gap-2">
+            <input
+              value={project}
+              onChange={e => setProject(e.target.value)}
+              list="common-projects"
+              placeholder="Project name"
+              className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+            {project.trim() && !commonSession.projects.includes(project.trim()) && (
+              <button type="button" onClick={() => { void addCommonValue('projects', project) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">
+                Add
+              </button>
+            )}
+          </div>
+          <datalist id="common-projects">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
+        </label>
+
+        <label className="text-xs font-semibold text-zinc-200">
           {t('new.buildVersion')}
           <input
             value={build}
@@ -334,13 +414,22 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-xs text-zinc-400">
             {t('new.tester')}
-            <input
-              value={tester}
-              onChange={e => setTester(e.target.value)}
-              placeholder={t('new.testerPlaceholder')}
-              data-testid="tester"
-              className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-            />
+            <div className="mt-1 flex gap-2">
+              <input
+                value={tester}
+                onChange={e => setTester(e.target.value)}
+                list="common-testers"
+                placeholder={t('new.testerPlaceholder')}
+                data-testid="tester"
+                className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              {tester.trim() && !commonSession.testers.includes(tester.trim()) && (
+                <button type="button" onClick={() => { void addCommonValue('testers', tester) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">
+                  Add
+                </button>
+              )}
+            </div>
+            <datalist id="common-testers">{commonSession.testers.map(item => <option key={item} value={item} />)}</datalist>
           </label>
           <label className="text-xs text-zinc-400">
             {t('new.testNote')}

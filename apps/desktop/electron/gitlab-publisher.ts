@@ -306,8 +306,9 @@ function mentionText(settings: GitLabPublishSettings, marker: ExportManifest['ma
 function sessionLines(manifest: ExportManifest): string[] {
   const session = manifest.session
   const lines = [
+    ...(session.project ? [`Project: ${session.project}`] : []),
     `Build: ${session.buildVersion || '-'}`,
-    `Device: ${session.deviceModel || '-'} / ${session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`}`,
+    `Device: ${[session.platform, session.deviceModel || '-', session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`].filter(Boolean).join(' / ')}`,
     `Tester: ${session.tester || '-'}`,
   ]
   if (session.ramTotalGb != null) lines.push(`RAM: ${session.ramTotalGb.toFixed(1)}G`)

@@ -118,6 +118,8 @@ export interface StartArgs {
   deviceId: string
   connectionMode: 'usb' | 'wifi' | 'pc'
   buildVersion: string
+  platform?: string
+  project?: string
   testNote: string
   tester?: string
   recordMic?: boolean
@@ -140,6 +142,8 @@ export interface ImportVideoArgs {
   audioPath?: string
   audioStartOffsetMs?: number
   buildVersion: string
+  platform?: string
+  project?: string
   testNote: string
   tester?: string
   analyzeAudio?: boolean
@@ -202,6 +206,8 @@ export class SessionManager {
     paths.ensureSessionDirs(id)
     const sess: Session = {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
+      platform: args.platform?.trim() ?? '',
+      project: args.project?.trim() ?? '',
       tester: args.tester?.trim() ?? '',
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
       ramTotalGb: 'ramTotalGb' in info ? info.ramTotalGb ?? null : null,
@@ -319,6 +325,8 @@ export class SessionManager {
     const session: Session = {
       id,
       buildVersion: args.buildVersion,
+      platform: args.platform?.trim() ?? '',
+      project: args.project?.trim() ?? '',
       testNote: args.testNote,
       tester: args.tester?.trim() ?? '',
       deviceId: `import:${id}`,
@@ -504,11 +512,13 @@ export class SessionManager {
     this.persistProject(session.id)
     return bug
   }
-  updateSessionMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }) {
+  updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) {
     const session = this.deps.db.getSession(id)
     if (!session) throw new Error('session not found')
     this.deps.db.updateSessionMetadata(id, {
       buildVersion: patch.buildVersion.trim(),
+      platform: patch.platform?.trim() ?? '',
+      project: patch.project?.trim() ?? '',
       testNote: patch.testNote.trim(),
       tester: patch.tester.trim(),
     })

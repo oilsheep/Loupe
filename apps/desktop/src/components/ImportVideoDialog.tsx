@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
-import type { AudioAnalysisProgress, AudioAnalysisSettings, DesktopApi, Session } from '@shared/types'
+import type { AudioAnalysisProgress, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, Session } from '@shared/types'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS as SHARED_AUDIO_LANGUAGE_OPTIONS, triggerPreset as sharedTriggerPreset } from '@/lib/audioAnalysisPresets'
 
 interface Props {
@@ -44,9 +44,19 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
   const [inputPath, setInputPath] = useState('')
   const [audioPath, setAudioPath] = useState('')
   const [audioOffsetSec, setAudioOffsetSec] = useState('0')
-  const [build, setBuild] = useState(recent[0] ?? '')
+  const [build, setBuild] = useState('')
+  const [platform, setPlatform] = useState('')
+  const [project, setProject] = useState('')
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
+  const [commonSession, setCommonSession] = useState<CommonSessionSettings>({
+    platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
+    projects: [],
+    testers: [],
+    lastPlatform: '',
+    lastProject: '',
+    lastTester: '',
+  })
   const [analyzeAudio, setAnalyzeAudio] = useState(true)
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
@@ -66,6 +76,12 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
       setAudioSettings(next)
       setAudioLanguage(next.language || 'auto')
       setTriggerKeywords(next.triggerKeywords?.trim() || sharedTriggerPreset(next.language || 'auto').words)
+      if (settings.commonSession) {
+        setCommonSession(settings.commonSession)
+        setPlatform(settings.commonSession.lastPlatform)
+        setProject(settings.commonSession.lastProject)
+        setTester(settings.commonSession.lastTester)
+      }
     }).catch(() => {})
     return () => { cancelled = true }
   }, [api, open])
@@ -133,10 +149,13 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
         audioPath: audioPath.trim() || undefined,
         audioStartOffsetMs: Math.round((Number(audioOffsetSec) || 0) * 1000),
         buildVersion: build.trim(),
+        platform: platform.trim(),
+        project: project.trim(),
         testNote: note.trim(),
         tester: tester.trim(),
         analyzeAudio,
       })
+      await saveCommonSessionLast().catch(() => {})
       pushRecent(build.trim())
       if (!analyzeAudio) {
         onClose()
@@ -162,6 +181,28 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function saveCommonSessionLast() {
+    const next = {
+      ...commonSession,
+      lastPlatform: platform.trim(),
+      lastProject: project.trim(),
+      lastTester: tester.trim(),
+    }
+    const saved = await api.settings.setCommonSession(next)
+    setCommonSession(saved.commonSession ?? next)
+  }
+
+  async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
+    const text = value.trim()
+    if (!text) return
+    const next = {
+      ...commonSession,
+      [kind]: Array.from(new Set([...(commonSession[kind] ?? []), text])),
+    }
+    const saved = await api.settings.setCommonSession(next)
+    setCommonSession(saved.commonSession ?? next)
   }
 
   return (
@@ -292,6 +333,40 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
 
             <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.9fr)_minmax(260px,1.1fr)]">
               <label className="text-xs font-semibold text-zinc-200">
+                Platform
+                <div className="mt-1 flex gap-2">
+                  <input
+                    value={platform}
+                    onChange={e => setPlatform(e.target.value)}
+                    list="common-platforms-import"
+                    placeholder="android"
+                    className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  {platform.trim() && !commonSession.platforms.includes(platform.trim()) && (
+                    <button type="button" onClick={() => { void addCommonValue('platforms', platform) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">Add</button>
+                  )}
+                </div>
+                <datalist id="common-platforms-import">{commonSession.platforms.map(item => <option key={item} value={item} />)}</datalist>
+              </label>
+
+              <label className="text-xs font-semibold text-zinc-200">
+                Project
+                <div className="mt-1 flex gap-2">
+                  <input
+                    value={project}
+                    onChange={e => setProject(e.target.value)}
+                    list="common-projects-import"
+                    placeholder="Project name"
+                    className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  {project.trim() && !commonSession.projects.includes(project.trim()) && (
+                    <button type="button" onClick={() => { void addCommonValue('projects', project) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">Add</button>
+                  )}
+                </div>
+                <datalist id="common-projects-import">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
+              </label>
+
+              <label className="text-xs font-semibold text-zinc-200">
                 {t('new.buildVersion')}
                 <input
                   value={build}
@@ -306,12 +381,19 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs text-zinc-400">
                   {t('new.tester')}
-                  <input
-                    value={tester}
-                    onChange={e => setTester(e.target.value)}
-                    placeholder={t('new.testerPlaceholder')}
-                    className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-                  />
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      value={tester}
+                      onChange={e => setTester(e.target.value)}
+                      list="common-testers-import"
+                      placeholder={t('new.testerPlaceholder')}
+                      className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    {tester.trim() && !commonSession.testers.includes(tester.trim()) && (
+                      <button type="button" onClick={() => { void addCommonValue('testers', tester) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">Add</button>
+                    )}
+                  </div>
+                  <datalist id="common-testers-import">{commonSession.testers.map(item => <option key={item} value={item} />)}</datalist>
                 </label>
                 <label className="text-xs text-zinc-400">
                   {t('new.testNote')}

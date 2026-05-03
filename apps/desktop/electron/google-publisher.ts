@@ -72,7 +72,9 @@ const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const SHEET_HEADERS = [
   'Export Created At',
+  'Project',
   'Build Version',
+  'Platform',
   'Device Model',
   'Android Version',
   'Tester',
@@ -407,7 +409,9 @@ function sheetRows(manifest: ExportManifest, identities: MentionIdentity[], fold
     const markerLinks = links.get(marker.id) ?? {}
     return [
       cellData(manifest.createdAt),
+      cellData(manifest.session.project ?? ''),
       cellData(manifest.session.buildVersion),
+      cellData(manifest.session.platform ?? ''),
       cellData(manifest.session.deviceModel),
       cellData(manifest.session.androidVersion),
       cellData(manifest.session.tester),

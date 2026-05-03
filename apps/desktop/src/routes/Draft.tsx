@@ -75,6 +75,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [selectedBugId, setSelectedBugId] = useState<string | null>(null)
   const [addingMarker, setAddingMarker] = useState(false)
   const [buildVersion, setBuildVersion] = useState('')
+  const [platform, setPlatform] = useState('')
+  const [project, setProject] = useState('')
   const [tester, setTester] = useState('')
   const [testNote, setTestNote] = useState('')
   const [micOffsetSec, setMicOffsetSec] = useState('0')
@@ -111,6 +113,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
     }
     setData({ session: r.session, bugs: r.bugs, videoUrl, micAudioUrl, transcriptSegments })
     setBuildVersion(r.session.buildVersion)
+    setPlatform(r.session.platform ?? '')
+    setProject(r.session.project ?? '')
     setTester(r.session.tester)
     setTestNote(r.session.testNote)
     setMicOffsetSec(String(Math.round((r.session.micAudioStartOffsetMs ?? 0) / 100) / 10))
@@ -306,9 +310,11 @@ export function Draft({ sessionId }: { sessionId: string }) {
     goHome()
   }
 
-  async function saveMetadata(next?: { buildVersion?: string; testNote?: string; tester?: string }) {
+  async function saveMetadata(next?: { buildVersion?: string; platform?: string; project?: string; testNote?: string; tester?: string }) {
     const patch = {
       buildVersion: next?.buildVersion ?? buildVersion,
+      platform: next?.platform ?? platform,
+      project: next?.project ?? project,
       testNote: next?.testNote ?? testNote,
       tester: next?.tester ?? tester,
     }
@@ -401,6 +407,26 @@ export function Draft({ sessionId }: { sessionId: string }) {
               </button>
               {metadataOpen && (
                 <div className="grid gap-2 border-t border-zinc-800 p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[11px] text-zinc-500">
+                      Platform
+                      <input
+                        value={platform}
+                        onChange={(e) => setPlatform(e.target.value)}
+                        onBlur={() => { void saveMetadata({ platform: platform.trim() }) }}
+                        className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                    <label className="text-[11px] text-zinc-500">
+                      Project
+                      <input
+                        value={project}
+                        onChange={(e) => setProject(e.target.value)}
+                        onBlur={() => { void saveMetadata({ project: project.trim() }) }}
+                        className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                  </div>
                   <label className="text-[11px] font-semibold text-zinc-300">
                     {t('new.buildVersion')}
                     <input
@@ -541,6 +567,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
             onSelect={selectBug}
             onMutated={refresh}
             buildVersion={buildVersion}
+            platform={platform}
+            project={project}
             tester={tester}
             testNote={testNote}
             hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -33,6 +33,15 @@ export const DEFAULT_AUDIO_ANALYSIS: AudioAnalysisSettings = {
 }
 DEFAULT_AUDIO_ANALYSIS.chineseScript = 'zh-TW'
 DEFAULT_AUDIO_ANALYSIS.triggerKeywords = 'record, mark, log, 記錄, 紀錄, 標記, 记录, 标记, 記一下, 记一下, マーク, ログ, 기록, 마크, 로그, grabar, marcar, registrar'
+
+export const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
+  platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
+  projects: [],
+  testers: [],
+  lastPlatform: '',
+  lastProject: '',
+  lastTester: '',
+}
 
 const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
 const OPTIONAL_SEVERITY_KEYS = ['custom1', 'custom2', 'custom3', 'custom4'] as const
@@ -301,6 +310,22 @@ function normalizeCsvList(raw?: unknown): string[] {
   return Array.from(new Set(text.split(/[,;\n]+/).map(value => value.trim()).filter(Boolean)))
 }
 
+function uniqueList(values: unknown, fallback: string[] = []): string[] {
+  const input = Array.isArray(values) ? values : fallback
+  return Array.from(new Set(input.map(value => String(value).trim()).filter(Boolean)))
+}
+
+function normalizeCommonSession(raw?: Partial<CommonSessionSettings>): CommonSessionSettings {
+  return {
+    platforms: uniqueList(raw?.platforms, DEFAULT_COMMON_SESSION.platforms),
+    projects: uniqueList(raw?.projects),
+    testers: uniqueList(raw?.testers),
+    lastPlatform: typeof raw?.lastPlatform === 'string' ? raw.lastPlatform.trim() : '',
+    lastProject: typeof raw?.lastProject === 'string' ? raw.lastProject.trim() : '',
+    lastTester: typeof raw?.lastTester === 'string' ? raw.lastTester.trim() : '',
+  }
+}
+
 function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
@@ -415,6 +440,7 @@ export class SettingsStore {
         locale: normalizeLocale(raw.locale),
         severities: normalizeSeverities(raw.severities),
         audioAnalysis: normalizeAudioAnalysis(raw.audioAnalysis),
+        commonSession: normalizeCommonSession(raw.commonSession),
         slack,
         gitlab,
         google,
@@ -483,6 +509,12 @@ export class SettingsStore {
 
   setAudioAnalysis(audioAnalysis: AudioAnalysisSettings): AppSettings {
     const next = { ...this.get(), audioAnalysis: normalizeAudioAnalysis(audioAnalysis) }
+    this.write(next)
+    return next
+  }
+
+  setCommonSession(commonSession: CommonSessionSettings): AppSettings {
+    const next = { ...this.get(), commonSession: normalizeCommonSession(commonSession) }
     this.write(next)
     return next
   }

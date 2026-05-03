@@ -267,7 +267,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             key={tab}
             type="button"
             onClick={() => setSourceTab(tab)}
-            className={`rounded px-2 py-1.5 ${sourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+            className={`min-w-0 rounded px-2 py-1.5 text-center leading-tight ${sourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
             {label}
           </button>

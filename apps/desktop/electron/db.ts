@@ -5,6 +5,8 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   build_version TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT '',
+  project TEXT NOT NULL DEFAULT '',
   test_note TEXT NOT NULL DEFAULT '',
   tester TEXT NOT NULL DEFAULT '',
   device_id TEXT NOT NULL,
@@ -52,6 +54,8 @@ type Row<T> = { [K in keyof T]: T[K] }
 function rowToSession(r: any): Session {
   return {
     id: r.id, buildVersion: r.build_version, testNote: r.test_note, deviceId: r.device_id,
+    platform: r.platform ?? '',
+    project: r.project ?? '',
     tester: r.tester ?? '',
     deviceModel: r.device_model, androidVersion: r.android_version,
     ramTotalGb: r.ram_total_gb ?? null,
@@ -103,6 +107,8 @@ function migrate(db: Database.Database): void {
   const sessionCols = (db.pragma(`table_info('sessions')`) as { name: string }[]).map(c => c.name)
   if (!sessionCols.includes('video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN video_path TEXT`)
   if (!sessionCols.includes('tester')) db.exec(`ALTER TABLE sessions ADD COLUMN tester TEXT NOT NULL DEFAULT ''`)
+  if (!sessionCols.includes('platform')) db.exec(`ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT ''`)
+  if (!sessionCols.includes('project')) db.exec(`ALTER TABLE sessions ADD COLUMN project TEXT NOT NULL DEFAULT ''`)
   if (!sessionCols.includes('pc_recording_enabled')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_recording_enabled INTEGER NOT NULL DEFAULT 0`)
   if (!sessionCols.includes('pc_video_path')) db.exec(`ALTER TABLE sessions ADD COLUMN pc_video_path TEXT`)
   if (!sessionCols.includes('ram_total_gb')) db.exec(`ALTER TABLE sessions ADD COLUMN ram_total_gb REAL`)
@@ -118,6 +124,8 @@ function migrate(db: Database.Database): void {
       CREATE TABLE sessions_new (
         id TEXT PRIMARY KEY,
         build_version TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT '',
+        project TEXT NOT NULL DEFAULT '',
         test_note TEXT NOT NULL DEFAULT '',
         tester TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL,
@@ -138,10 +146,10 @@ function migrate(db: Database.Database): void {
         mic_audio_start_offset_ms INTEGER,
         mic_audio_source TEXT
       );
-      INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
+      INSERT INTO sessions_new (id, build_version, platform, project, test_note, tester, device_id, device_model, android_version,
                                 ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
                                 pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source)
-      SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
+      SELECT id, build_version, platform, project, test_note, tester, device_id, device_model, android_version,
              ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
              pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, NULL FROM sessions;
       DROP TABLE sessions;
@@ -197,12 +205,14 @@ export function openDb(file: string) {
   migrate(db)
 
   const insertSessionStmt = db.prepare(`
-    INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
+    INSERT INTO sessions (id, build_version, platform, project, test_note, tester, device_id, device_model, android_version,
                           ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source)
-    VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
+    VALUES (@id, @buildVersion, @platform, @project, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
             @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs, @micAudioSource)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
+      platform=excluded.platform,
+      project=excluded.project,
       test_note=excluded.test_note,
       tester=excluded.tester,
       device_id=excluded.device_id,
@@ -227,7 +237,7 @@ export function openDb(file: string) {
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
   `)
   const updateSessionMetadataStmt = db.prepare(`
-    UPDATE sessions SET build_version=@buildVersion, test_note=@testNote, tester=@tester WHERE id=@id
+    UPDATE sessions SET build_version=@buildVersion, platform=@platform, project=@project, test_note=@testNote, tester=@tester WHERE id=@id
   `)
   const updateSessionPcRecordingStmt = db.prepare(`
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
@@ -274,6 +284,8 @@ export function openDb(file: string) {
     insertSession(s: Session) {
       insertSessionStmt.run({
         ...s,
+        platform: s.platform ?? '',
+        project: s.project ?? '',
         tester: s.tester ?? '',
         ramTotalGb: s.ramTotalGb ?? null,
         graphicsDevice: s.graphicsDevice ?? null,
@@ -287,8 +299,8 @@ export function openDb(file: string) {
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
       finalizeSessionStmt.run({ id, ...args })
     },
-    updateSessionMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }) {
-      updateSessionMetadataStmt.run({ id, ...patch })
+    updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) {
+      updateSessionMetadataStmt.run({ id, ...patch, platform: patch.platform ?? '', project: patch.project ?? '' })
     },
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
       updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })

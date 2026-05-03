@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
@@ -102,6 +102,7 @@ interface PreferencesDialogProps {
   severities: SeveritySettings
   audioAnalysis: AudioAnalysisSettings
   audioAnalysisSaved: boolean
+  commonSession: CommonSessionSettings
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
@@ -150,6 +151,8 @@ interface PreferencesDialogProps {
   onAudioAnalysisChange(value: AudioAnalysisSettings): void
   onSaveAudioAnalysis(value: AudioAnalysisSettings): void
   onAudioAnalysisLanguageChange(language: string): void
+  onCommonSessionChange(value: CommonSessionSettings): void
+  onSaveCommonSession(value: CommonSessionSettings): void
   onSlackChange(value: SlackPublishSettings): void
   onStartSlackOAuth(): void
   onRefreshSlackUsers(): void
@@ -189,6 +192,7 @@ export function PreferencesDialog({
   severities,
   audioAnalysis,
   audioAnalysisSaved,
+  commonSession,
   slack,
   slackSaved,
   startingSlackOAuth,
@@ -237,6 +241,8 @@ export function PreferencesDialog({
   onAudioAnalysisChange,
   onSaveAudioAnalysis,
   onAudioAnalysisLanguageChange,
+  onCommonSessionChange,
+  onSaveCommonSession,
   onSlackChange,
   onStartSlackOAuth,
   onRefreshSlackUsers,
@@ -360,6 +366,36 @@ export function PreferencesDialog({
                   </button>
                 </div>
               </label>
+            </div>
+          </section>
+
+          <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">{zh ? '\u5e38\u7528\u8cc7\u8a0a' : 'Common session info'}</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">
+                {zh ? '\u7ba1\u7406\u5e73\u53f0\u3001\u5c08\u6848\u3001\u6e2c\u8a66\u4eba\u54e1\u5e38\u7528\u503c\uff0c\u65b0 session \u6703\u81ea\u52d5\u5e36\u5165\u4e0a\u6b21\u4f7f\u7528\u7684\u5e73\u53f0\u3001\u5c08\u6848\u8207\u6e2c\u8a66\u4eba\u54e1\u3002' : 'Manage common platforms, projects, and testers. New sessions reuse the last platform, project, and tester.'}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {([
+                ['platforms', zh ? '\u5e73\u53f0' : 'Platforms'],
+                ['projects', zh ? '\u5c08\u6848' : 'Projects'],
+                ['testers', zh ? '\u6e2c\u8a66\u4eba\u54e1' : 'Testers'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="text-xs text-zinc-400">
+                  {label}
+                  <textarea
+                    value={(commonSession[key] ?? []).join('\n')}
+                    rows={5}
+                    onChange={(e) => onCommonSessionChange({
+                      ...commonSession,
+                      [key]: e.target.value.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean),
+                    })}
+                    onBlur={() => onSaveCommonSession(commonSession)}
+                    className="mt-1 w-full resize-y rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </label>
+              ))}
             </div>
           </section>
 

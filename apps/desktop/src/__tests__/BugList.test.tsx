@@ -79,6 +79,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       setExportRoot: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setHotkeys: vi.fn() as any,
       setAudioAnalysis: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setCommonSession: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseWhisperModel: vi.fn().mockResolvedValue('') as any,
       setSlack: vi.fn().mockImplementation((nextSlack) => Promise.resolve({ ...settingsWithOptions, slack: nextSlack })) as any,
       setGitLab: vi.fn().mockImplementation((nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,
@@ -238,7 +239,7 @@ describe('BugList', () => {
       publish: expect.objectContaining({ target: 'local', slackThreadMode: 'per-marker-thread' }),
       exportId: expect.any(String),
     })))
-    expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { buildVersion: '1.2.3', tester: 'Avery', testNote: 'smoke' })
+    expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { buildVersion: '1.2.3', platform: '', project: '', tester: 'Avery', testNote: 'smoke' })
     expect(alertSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })

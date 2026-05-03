@@ -14,6 +14,8 @@ interface Props {
   allowExport?: boolean
   autoFocusLatest?: boolean
   buildVersion?: string
+  platform?: string
+  project?: string
   tester?: string
   testNote?: string
   hasSessionMicTrack?: boolean
@@ -296,6 +298,8 @@ interface ExportConfirmDialogProps {
   outputRoot: string
   reportTitle: string
   buildVersion: string
+  platform: string
+  project: string
   tester: string
   testNote: string
   includeLogcat: boolean
@@ -333,6 +337,8 @@ interface ExportConfirmDialogProps {
   onOutputRootChange(value: string): void
   onReportTitleChange(value: string): void
   onBuildVersionChange(value: string): void
+  onPlatformChange(value: string): void
+  onProjectChange(value: string): void
   onTesterChange(value: string): void
   onTestNoteChange(value: string): void
   onIncludeLogcatChange(value: boolean): void
@@ -361,6 +367,8 @@ function ExportConfirmDialog({
   outputRoot,
   reportTitle,
   buildVersion,
+  platform,
+  project,
   tester,
   testNote,
   includeLogcat,
@@ -398,6 +406,8 @@ function ExportConfirmDialog({
   onOutputRootChange,
   onReportTitleChange,
   onBuildVersionChange,
+  onPlatformChange,
+  onProjectChange,
   onTesterChange,
   onTestNoteChange,
   onIncludeLogcatChange,
@@ -475,6 +485,27 @@ function ExportConfirmDialog({
             className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm font-normal text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
           />
         </label>
+
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="text-xs text-zinc-500">
+            Platform
+            <input
+              value={platform}
+              onChange={(e) => onPlatformChange(e.target.value)}
+              placeholder="android"
+              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </label>
+          <label className="text-xs text-zinc-500">
+            Project
+            <input
+              value={project}
+              onChange={(e) => onProjectChange(e.target.value)}
+              placeholder="Project"
+              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </label>
+        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label className="text-xs text-zinc-500">
@@ -1355,7 +1386,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar }: Props, ref) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
@@ -1367,6 +1398,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [exportRoot, setExportRoot] = useState('')
   const [exportReportTitle, setExportReportTitle] = useState('Loupe QA Report')
   const [exportBuildVersion, setExportBuildVersion] = useState(buildVersion)
+  const [exportPlatform, setExportPlatform] = useState(platform)
+  const [exportProject, setExportProject] = useState(project)
   const [exportTester, setExportTester] = useState(tester)
   const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
@@ -1590,6 +1623,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setExportRoot(settings.exportRoot)
     setExportReportTitle('Loupe QA Report')
     setExportBuildVersion(buildVersion)
+    setExportPlatform(platform)
+    setExportProject(project)
     setExportTester(tester)
     setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
@@ -1725,10 +1760,20 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       await api.settings.setExportRoot(trimmedRoot)
       await api.session.updateMetadata(sessionId, {
         buildVersion: exportBuildVersion.trim(),
+        platform: exportPlatform.trim(),
+        project: exportProject.trim(),
         tester: exportTester.trim(),
         testNote: exportTestNote.trim(),
       })
       let currentSettings = await api.settings.get()
+      await api.settings.setCommonSession({
+        platforms: currentSettings.commonSession?.platforms ?? ['ios', 'android', 'windows', 'macOS', 'linux'],
+        projects: currentSettings.commonSession?.projects ?? [],
+        testers: currentSettings.commonSession?.testers ?? [],
+        lastPlatform: exportPlatform.trim(),
+        lastProject: exportProject.trim(),
+        lastTester: exportTester.trim(),
+      }).then(settings => { currentSettings = settings }).catch(() => {})
       if (publishSlack && slackChannelId.trim()) {
         const manualMentions = normalizeManualSlackMentions(slackManualMentionInput)
         const nextMentionIds = Array.from(new Set([
@@ -1861,6 +1906,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           outputRoot={exportRoot}
           reportTitle={exportReportTitle}
           buildVersion={exportBuildVersion}
+          platform={exportPlatform}
+          project={exportProject}
           tester={exportTester}
           testNote={exportTestNote}
           includeLogcat={exportIncludeLogcat}
@@ -1898,6 +1945,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           onOutputRootChange={setExportRoot}
           onReportTitleChange={setExportReportTitle}
           onBuildVersionChange={setExportBuildVersion}
+          onPlatformChange={setExportPlatform}
+          onProjectChange={setExportProject}
           onTesterChange={setExportTester}
           onTestNoteChange={setExportTestNote}
           onIncludeLogcatChange={setExportIncludeLogcat}
