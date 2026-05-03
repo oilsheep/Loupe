@@ -134,6 +134,7 @@ export interface AudioAnalysisSettings {
   engine: 'whisper-cpp' | 'faster-whisper'
   modelPath: string
   language: string
+  chineseScript?: 'zh-TW' | 'zh-CN'
   triggerKeywords: string
   showTriggerWords: boolean
 }
@@ -188,6 +189,8 @@ export interface Session {
   micAudioPath: string | null
   micAudioDurationMs: number | null
   micAudioStartOffsetMs: number | null
+  /** Source of session MIC/analysis audio. `video` means extracted from the imported video and should not be played twice. */
+  micAudioSource?: 'recording' | 'video' | 'external' | null
   /** Transient recording preference for the active renderer session. Older/saved sessions may omit it. */
   micRecordingRequested?: boolean
 }
@@ -338,6 +341,9 @@ export interface DesktopApi {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
       buildVersion: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
+    chooseVideoFile():                                             Promise<string | null>
+    chooseAudioFile():                                             Promise<string | null>
+    importVideo(args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
     discard(sessionId: string):                                    Promise<void>
@@ -345,6 +351,7 @@ export interface DesktopApi {
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
     openProject():                                                 Promise<Session | null>
     updateMetadata(id: string, patch: { buildVersion: string; testNote: string; tester: string }): Promise<void>
+    updateMicAudioOffset(id: string, startOffsetMs: number):       Promise<Session>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
     saveMicRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string>
   }

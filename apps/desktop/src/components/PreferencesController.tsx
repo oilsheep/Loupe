@@ -13,9 +13,11 @@ import {
   sortGoogleFolders,
   sortIdentities,
 } from '@/components/PreferencesDialog'
+import { triggerPreset } from '@/lib/audioAnalysisPresets'
 import type {
   AppLocale,
   AppSettings,
+  AudioAnalysisSettings,
   GitLabProject,
   GitLabPublishSettings,
   GoogleDriveFolder,
@@ -80,6 +82,16 @@ const DEFAULT_GOOGLE_SETTINGS: GooglePublishSettings = {
   sheetName: '',
 }
 
+const DEFAULT_AUDIO_ANALYSIS_SETTINGS: AudioAnalysisSettings = {
+  enabled: true,
+  engine: 'faster-whisper',
+  modelPath: 'small',
+  language: 'auto',
+  chineseScript: 'zh-TW',
+  triggerKeywords: triggerPreset('auto').words,
+  showTriggerWords: false,
+}
+
 function parseListInput(value: string): string[] {
   return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
 }
@@ -89,6 +101,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [exportRoot, setExportRoot] = useState('')
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [audioAnalysis, setAudioAnalysis] = useState<AudioAnalysisSettings>(DEFAULT_AUDIO_ANALYSIS_SETTINGS)
+  const [audioAnalysisSaved, setAudioAnalysisSaved] = useState(false)
   const [slack, setSlack] = useState<SlackPublishSettings>(DEFAULT_SLACK_SETTINGS)
   const [slackSaved, setSlackSaved] = useState(false)
   const [startingSlackOAuth, setStartingSlackOAuth] = useState(false)
@@ -128,6 +142,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setExportRoot(settings.exportRoot)
     setHotkeys(settings.hotkeys)
     setSeverities(settings.severities)
+    setAudioAnalysis(settings.audioAnalysis)
+    setAudioAnalysisSaved(false)
     setSlack(settings.slack)
     setGitLab(settings.gitlab)
     setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
@@ -181,6 +197,28 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   async function saveSeverities(next: SeveritySettings) {
     const settings = await api.settings.setSeverities(next)
     setSeverities(settings.severities)
+  }
+
+  async function saveAudioAnalysis(next: AudioAnalysisSettings) {
+    const settings = await api.settings.setAudioAnalysis(next)
+    setAudioAnalysis(settings.audioAnalysis)
+    setAudioAnalysisSaved(true)
+  }
+
+  function updateAudioAnalysis(next: AudioAnalysisSettings) {
+    setAudioAnalysis(next)
+    setAudioAnalysisSaved(false)
+  }
+
+  async function changeAudioAnalysisLanguage(language: string) {
+    const next: AudioAnalysisSettings = {
+      ...audioAnalysis,
+      language,
+      chineseScript: language === 'zh' ? (audioAnalysis.chineseScript ?? 'zh-TW') : audioAnalysis.chineseScript,
+      triggerKeywords: triggerPreset(language).words,
+    }
+    setAudioAnalysis(next)
+    await saveAudioAnalysis(next)
   }
 
   async function resetDefaultLabels() {
@@ -546,6 +584,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       exportRoot={exportRoot}
       hotkeys={hotkeys}
       severities={severities}
+      audioAnalysis={audioAnalysis}
+      audioAnalysisSaved={audioAnalysisSaved}
       slack={slack}
       slackSaved={slackSaved}
       startingSlackOAuth={startingSlackOAuth}
@@ -591,6 +631,9 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onSeveritiesChange={setSeverities}
       onSaveSeverities={saveSeverities}
       onResetLabels={resetDefaultLabels}
+      onAudioAnalysisChange={updateAudioAnalysis}
+      onSaveAudioAnalysis={saveAudioAnalysis}
+      onAudioAnalysisLanguageChange={(language) => { void changeAudioAnalysisLanguage(language) }}
       onSlackChange={(next) => { setSlack(next); setSlackSaved(false) }}
       onStartSlackOAuth={startSlackUserOAuth}
       onRefreshSlackUsers={() => { void refreshSlackUsers() }}

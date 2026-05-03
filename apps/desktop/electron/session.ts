@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { extname, join } from 'node:path'
 import type { Adb } from './adb'
 import type { Scrcpy } from './scrcpy'
 import type { LogcatBuffer } from './logcat'
@@ -9,7 +10,7 @@ import type { Db } from './db'
 import type { Paths } from './paths'
 import type { Session, Bug, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
-import { assertVideoInputReadable, extractThumbnail, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
+import { assertVideoInputReadable, extractAudioTrack, extractThumbnail, probeMediaDurationMs, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
 import { ClickRecorder } from './click-recorder'
 import { TelemetrySampler } from './telemetry'
@@ -132,6 +133,16 @@ export interface StartArgs {
   iosLogLaunchApp?: boolean
   iosLogFilter?: string
   iosLogMinLevel?: string
+}
+
+export interface ImportVideoArgs {
+  inputPath: string
+  audioPath?: string
+  audioStartOffsetMs?: number
+  buildVersion: string
+  testNote: string
+  tester?: string
+  analyzeAudio?: boolean
 }
 
 export interface MarkBugArgs {
@@ -258,6 +269,80 @@ export class SessionManager {
       }
     }
     return sess
+  }
+
+  async importVideo(args: ImportVideoArgs): Promise<Session> {
+    if (this.active) throw new Error('a session is already active')
+    const inputPath = args.inputPath.trim()
+    if (!inputPath || !existsSync(inputPath)) throw new Error('video file not found')
+    const { db, paths, runner } = this.deps
+    const importedAt = this.now()
+    const id = this.makeSessionId(args.buildVersion, importedAt)
+    paths.ensureSessionDirs(id)
+
+    const ffmpegPath = resolveBundledFfmpegPath()
+    await assertVideoInputReadable(runner, ffmpegPath, { inputPath })
+    const durationMs = await probeMediaDurationMs(runner, ffmpegPath, { inputPath })
+    const sourceExt = extname(inputPath).toLowerCase()
+    const outVideoPath = ['.mp4', '.m4v', '.mov'].includes(sourceExt)
+      ? paths.videoFile(id)
+      : join(paths.sessionDir(id), `imported-video${sourceExt || '.mp4'}`)
+    const shouldRemuxToMp4 = ['.mp4', '.m4v', '.mov'].includes(sourceExt)
+    if (inputPath !== outVideoPath && shouldRemuxToMp4) {
+      try {
+        await remuxForHtml5Playback(runner, ffmpegPath, { inputPath, outputPath: outVideoPath })
+      } catch (err) {
+        console.warn(`Loupe: imported video remux failed for ${id}; copying original video`, err)
+        copyFileSync(inputPath, outVideoPath)
+      }
+    } else if (inputPath !== outVideoPath) {
+      copyFileSync(inputPath, outVideoPath)
+    }
+
+    const audioInputPath = args.audioPath?.trim()
+    if (audioInputPath && !existsSync(audioInputPath)) throw new Error('audio file not found')
+    let micAudioPath: string | null = null
+    let micAudioDurationMs: number | null = null
+    let micAudioStartOffsetMs: number | null = null
+    let micAudioSource: Session['micAudioSource'] = null
+    if (audioInputPath || args.analyzeAudio) {
+      const sourceAudioPath = audioInputPath || outVideoPath
+      micAudioPath = paths.micAudioFile(id)
+      await extractAudioTrack(runner, ffmpegPath, { inputPath: sourceAudioPath, outputPath: micAudioPath })
+      micAudioDurationMs = audioInputPath
+        ? await probeMediaDurationMs(runner, ffmpegPath, { inputPath: audioInputPath }).catch(() => durationMs)
+        : durationMs
+      micAudioStartOffsetMs = Math.round(args.audioStartOffsetMs ?? 0)
+      micAudioSource = audioInputPath ? 'external' : 'video'
+    }
+
+    const session: Session = {
+      id,
+      buildVersion: args.buildVersion,
+      testNote: args.testNote,
+      tester: args.tester?.trim() ?? '',
+      deviceId: `import:${id}`,
+      deviceModel: 'Imported video',
+      androidVersion: 'Video',
+      ramTotalGb: null,
+      graphicsDevice: null,
+      connectionMode: 'pc',
+      status: 'draft',
+      durationMs,
+      startedAt: importedAt,
+      endedAt: importedAt + durationMs,
+      videoPath: null,
+      pcRecordingEnabled: true,
+      pcVideoPath: outVideoPath,
+      micAudioPath,
+      micAudioDurationMs,
+      micAudioStartOffsetMs,
+      micAudioSource,
+      micRecordingRequested: Boolean(args.analyzeAudio || audioInputPath),
+    }
+    db.insertSession(session)
+    this.persistProject(session.id)
+    return session
   }
 
   async markBug(args: MarkBugArgs = {}): Promise<Bug> {
@@ -450,9 +535,19 @@ export class SessionManager {
       micAudioPath: out,
       micAudioDurationMs: Math.max(0, Math.round(durationMs)),
       micAudioStartOffsetMs: Math.max(0, Math.round(startOffsetMs)),
+      micAudioSource: 'recording',
     })
     this.persistProject(sessionId)
     return out
+  }
+  updateSessionMicAudioOffset(sessionId: string, startOffsetMs: number): Session {
+    const session = this.deps.db.getSession(sessionId)
+    if (!session) throw new Error('session not found')
+    this.deps.db.updateSessionMicAudioOffset(sessionId, Math.round(startOffsetMs))
+    this.persistProject(sessionId)
+    const updated = this.deps.db.getSession(sessionId)
+    if (!updated) throw new Error('session not found')
+    return updated
   }
   updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
     this.deps.db.updateBug(id, patch)

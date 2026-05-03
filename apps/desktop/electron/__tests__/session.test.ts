@@ -107,6 +107,96 @@ describe('SessionManager', () => {
       .rejects.toThrow(/already/)
   })
 
+  it('imports an existing video as a draft session and prepares audio analysis input', async () => {
+    const inputPath = join(root, 'source.mp4')
+    writeFileSync(inputPath, 'fake video')
+    const runner = {
+      run: vi.fn().mockImplementation(async (_cmd: string, args: string[]) => {
+        if (args.includes('-hide_banner')) return { stdout: '', stderr: 'Duration: 00:00:12.34, start: 0.000000', code: 1 }
+        return { stdout: '', stderr: '', code: 0 }
+      }) as any,
+      spawn: vi.fn() as any,
+    }
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner,
+      captureScreenshot: stubs.screenshot,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'import-1',
+    })
+
+    const session = await mgr.importVideo({
+      inputPath,
+      buildVersion: 'MR',
+      testNote: 'scope',
+      tester: 'QA',
+      analyzeAudio: true,
+    })
+
+    expect(session.status).toBe('draft')
+    expect(session.connectionMode).toBe('pc')
+    expect(session.durationMs).toBe(12_340)
+    expect(session.pcVideoPath).toBe(paths.videoFile('import-1'))
+    expect(session.micAudioPath).toBe(paths.micAudioFile('import-1'))
+    expect(session.micAudioSource).toBe('video')
+    expect(db.getSession('import-1')?.micAudioDurationMs).toBe(12_340)
+    expect(existsSync(paths.projectFile('import-1'))).toBe(true)
+    expect(runner.run).toHaveBeenCalledWith(expect.any(String), expect.arrayContaining(['-map', '0:a:0']))
+  })
+
+  it('imports an external narration track with an adjustable offset', async () => {
+    const inputPath = join(root, 'source.mp4')
+    const audioPath = join(root, 'narration.wav')
+    writeFileSync(inputPath, 'fake video')
+    writeFileSync(audioPath, 'fake audio')
+    const runner = {
+      run: vi.fn().mockImplementation(async (_cmd: string, args: string[]) => {
+        if (args.includes('-hide_banner')) {
+          const input = args[args.length - 1]
+          return {
+            stdout: '',
+            stderr: String(input).includes('narration') ? 'Duration: 00:00:09.50, start: 0.000000' : 'Duration: 00:00:12.34, start: 0.000000',
+            code: 1,
+          }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      }) as any,
+      spawn: vi.fn() as any,
+    }
+    mgr = new SessionManager({
+      db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
+      runner,
+      captureScreenshot: stubs.screenshot,
+      prepareVideoForPlayback: stubs.prepareVideo,
+      clickRecorder: stubs.clickRecorder,
+      telemetrySampler: stubs.telemetrySampler,
+      now: () => nowMs,
+      newId: ((seq) => () => `bug-${seq++}`)(1),
+      makeSessionId: () => 'import-audio',
+    })
+
+    const session = await mgr.importVideo({
+      inputPath,
+      audioPath,
+      audioStartOffsetMs: -1250,
+      buildVersion: 'MR',
+      testNote: 'scope',
+      tester: 'QA',
+      analyzeAudio: true,
+    })
+
+    expect(session.micAudioSource).toBe('external')
+    expect(session.micAudioStartOffsetMs).toBe(-1250)
+    expect(session.micAudioDurationMs).toBe(9_500)
+    const updated = mgr.updateSessionMicAudioOffset(session.id, 2500)
+    expect(updated.micAudioStartOffsetMs).toBe(2500)
+    expect(db.getSession(session.id)?.micAudioStartOffsetMs).toBe(2500)
+  })
+
   it('markBug snapshots scrcpy elapsed, captures screenshot+logcat, inserts row', async () => {
     await mgr.start({ deviceId: 'ABC', connectionMode: 'usb', buildVersion: '', testNote: '' })
     advance(7000)

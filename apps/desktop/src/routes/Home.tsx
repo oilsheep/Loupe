@@ -6,19 +6,21 @@ import { PreferencesController } from '@/components/PreferencesController'
 import { RecentSessions } from '@/components/RecentSessions'
 import { HomeTopBar } from '@/components/HomeTopBar'
 import { MissingToolsNotice } from '@/components/MissingToolsNotice'
+import { ImportVideoDialog } from '@/components/ImportVideoDialog'
+import { ToolStatus } from '@/routes/ToolStatus'
 import type { ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingSourceSelection } from '@/lib/recordingSource'
 
 export function Home() {
-  const { t } = useI18n()
+  const { t, resolvedLocale } = useI18n()
   const goDraft = useApp(s => s.goDraft)
-  const goTools = useApp(s => s.goTools)
-  const goLegal = useApp(s => s.goLegal)
   const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [importVideoOpen, setImportVideoOpen] = useState(false)
 
   useEffect(() => { api.doctor().then(setChecks) }, [])
 
@@ -28,6 +30,13 @@ export function Home() {
     <div className="grid h-screen grid-cols-[340px_1fr] bg-zinc-950 text-zinc-100">
       <aside className="border-r border-zinc-800 p-4">
         <h1 className="mb-4 text-lg font-semibold">Loupe</h1>
+        <button
+          type="button"
+          onClick={() => setImportVideoOpen(true)}
+          className="mb-4 w-full rounded border border-blue-700/60 bg-blue-700/15 px-3 py-2 text-left text-sm font-medium text-blue-100 hover:bg-blue-700/25"
+        >
+          {resolvedLocale.startsWith('zh') ? '分析已有影片' : t('importVideo.button')}
+        </button>
         <DevicePicker
           api={api}
           selectedId={selected?.id ?? null}
@@ -36,17 +45,18 @@ export function Home() {
       </aside>
       <main className="flex min-w-0 flex-col overflow-hidden">
         <PreferencesController open={preferencesOpen} onClose={() => setPreferencesOpen(false)} />
+        {toolsOpen && <ToolStatus onClose={() => setToolsOpen(false)} />}
+        <ImportVideoDialog api={api} open={importVideoOpen} onClose={() => setImportVideoOpen(false)} />
 
         <HomeTopBar
           selectedLabel={selected?.label}
           missingTools={missing}
-          onOpenTools={goTools}
-          onOpenLegal={goLegal}
+          onOpenTools={() => setToolsOpen(true)}
           onOpenPreferences={() => setPreferencesOpen(true)}
         />
 
         <div className="overflow-auto p-5">
-          <MissingToolsNotice missingTools={missing} onOpenTools={goTools} />
+          <MissingToolsNotice missingTools={missing} onOpenTools={() => setToolsOpen(true)} />
 
           <section className="mb-4 border border-zinc-800 bg-zinc-900/40 p-3">
             <h2 className="mb-3 text-sm font-medium text-zinc-300">{t('home.newSession')}</h2>

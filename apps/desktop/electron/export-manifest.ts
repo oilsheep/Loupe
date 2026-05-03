@@ -66,7 +66,7 @@ function csvCell(value: unknown): string {
 }
 
 const DEFAULT_SEVERITY_STYLE: Record<BugSeverity, { label: string; color: string }> = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },

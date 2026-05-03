@@ -52,7 +52,7 @@ interface Props {
 }
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
@@ -137,7 +137,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   const syncingMediaRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const selectedBug = bugs.find(b => b.id === selectedBugId) ?? null
-  const micOffsetMs = Math.max(0, micAudioStartOffsetMs ?? 0)
+  const micOffsetMs = micAudioStartOffsetMs ?? 0
   const sessionTranscriptSegments = transcriptSegments.map(segment => ({
     ...segment,
     startMs: segment.startMs + micOffsetMs,
@@ -604,6 +604,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
     const video = videoRef.current
     if (!audio || !video || syncingMediaRef.current) return
     const sessionMs = audio.currentTime * 1000 + micOffsetMs
+    if (sessionMs < 0) return
     if (Math.abs(video.currentTime * 1000 - sessionMs) > 250) {
       video.currentTime = sessionMs / 1000
       updatePlaybackCursor(sessionMs)

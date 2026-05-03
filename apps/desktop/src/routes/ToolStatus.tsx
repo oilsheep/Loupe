@@ -20,9 +20,14 @@ const TOOL_DESCRIPTIONS: Record<ToolCheck['name'], string> = {
   'faster-whisper-model': 'toolStatus.tool.fasterWhisperModel',
 }
 
-export function ToolStatus() {
+interface ToolStatusProps {
+  onClose?: () => void
+}
+
+export function ToolStatus({ onClose }: ToolStatusProps = {}) {
   const { t } = useI18n()
   const goHome = useApp(s => s.goHome)
+  const close = onClose ?? goHome
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [loading, setLoading] = useState(true)
   const [installingTools, setInstallingTools] = useState(false)
@@ -102,18 +107,12 @@ export function ToolStatus() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-zinc-800 px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="tool-status-dialog">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl">
+      <header className="shrink-0 border-b border-zinc-800 px-4 py-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <button
-              type="button"
-              onClick={goHome}
-              className="text-xs text-zinc-400 hover:text-zinc-200"
-            >
-              {t('toolStatus.backHome')}
-            </button>
-            <h1 className="mt-2 text-xl font-semibold">{t('toolStatus.title')}</h1>
+            <h1 className="text-xl font-semibold">{t('toolStatus.title')}</h1>
             <p className="mt-1 text-sm text-zinc-500">{t('toolStatus.subtitle')}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -133,11 +132,18 @@ export function ToolStatus() {
             >
               {installingTools ? t('home.installingTools') : t('toolStatus.installMissing')}
             </button>
+            <button
+              type="button"
+              onClick={close}
+              className="rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700"
+            >
+              {t('common.close')}
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-5 p-6">
+      <main className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <section className="grid gap-3 sm:grid-cols-3">
           <div className="border border-zinc-800 bg-zinc-900/40 p-4">
             <div className="text-xs uppercase tracking-wide text-zinc-500">{t('toolStatus.total')}</div>
@@ -226,6 +232,7 @@ export function ToolStatus() {
           </pre>
         )}
       </main>
+      </div>
     </div>
   )
 }

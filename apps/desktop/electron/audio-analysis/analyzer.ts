@@ -8,6 +8,7 @@ import { resolveBundledFfmpegPath } from '../ffmpeg'
 import { transcriptToMarkerSuggestions } from './classifier'
 import { FasterWhisperEngine } from './fasterWhisper'
 import { WhisperCppEngine } from './whisperCpp'
+import { convertTranscriptChineseScript } from './chinese-script'
 
 export interface AudioAnalyzerDeps {
   paths: Paths
@@ -20,6 +21,7 @@ export interface AudioAnalyzerDeps {
         engine: 'whisper-cpp' | 'faster-whisper'
         modelPath: string
         language: string
+        chineseScript?: 'zh-TW' | 'zh-CN'
         triggerKeywords: string
         showTriggerWords: boolean
       }
@@ -58,6 +60,7 @@ export class AudioAnalyzer {
     const session = this.deps.manager.getSession(sessionId)
     if (!session) throw new Error('session not found')
     if (!session.micAudioPath || !existsSync(session.micAudioPath)) throw new Error('QA microphone recording was not found for this session.')
+    const sourceLabel = session.micAudioSource === 'video' ? 'video audio' : 'microphone audio'
 
     const dir = analysisDir(this.deps.paths, sessionId)
     mkdirSync(dir, { recursive: true })
@@ -67,8 +70,8 @@ export class AudioAnalyzer {
 
     emit(onProgress, sessionId, {
       phase: 'prepare',
-      message: 'Preparing microphone audio',
-      detail: 'Converting session mic recording to 16k mono WAV.',
+      message: `Preparing ${sourceLabel}`,
+      detail: `Converting ${sourceLabel} to 16k mono WAV.`,
       current: 0,
       total,
       generated: 0,
@@ -89,7 +92,7 @@ export class AudioAnalyzer {
 
     emit(onProgress, sessionId, {
       phase: 'transcribe',
-      message: 'Transcribing microphone audio',
+      message: `Transcribing ${sourceLabel}`,
       detail: settings.engine === 'faster-whisper'
         ? 'Running faster-whisper with word timestamps. GPU is attempted first; if the native GPU runtime crashes, Loupe retries CPU automatically.'
         : 'Running offline whisper.cpp.',
@@ -101,7 +104,11 @@ export class AudioAnalyzer {
     const engine = settings.engine === 'whisper-cpp'
       ? new WhisperCppEngine(this.deps.runner, settings.modelPath)
       : new FasterWhisperEngine(this.deps.runner, settings.modelPath)
-    const transcript = await engine.transcribe(wavPath, outputBase, { language: settings.language, signal })
+    const engineLanguage = settings.language === 'zh-TW' || settings.language === 'zh-CN' ? 'zh' : settings.language
+    const transcript = await engine.transcribe(wavPath, outputBase, { language: engineLanguage, signal })
+    if (engineLanguage === 'zh' && settings.chineseScript) {
+      transcript.segments = convertTranscriptChineseScript(transcript.segments, settings.chineseScript)
+    }
     throwIfAborted()
     writeFileSync(join(dir, 'audio-transcript.raw-normalized.json'), `${JSON.stringify(transcript.segments, null, 2)}\n`, 'utf8')
     writeFileSync(join(dir, 'audio-transcript.normalized.json'), `${JSON.stringify(transcript.segments, null, 2)}\n`, 'utf8')
@@ -138,7 +145,7 @@ export class AudioAnalyzer {
     throwIfAborted()
     const removedAutoMarkers = this.deps.manager.deleteAutoAudioMarkers(sessionId)
     bugs = this.deps.manager.listBugs(sessionId)
-    const micStartOffsetMs = Math.max(0, session.micAudioStartOffsetMs ?? 0)
+    const micStartOffsetMs = session.micAudioStartOffsetMs ?? 0
     for (const suggestion of suggestions) {
       throwIfAborted()
       const offsetMs = clampOffset(suggestion.offsetMs + micStartOffsetMs, session.durationMs)

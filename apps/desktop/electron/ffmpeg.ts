@@ -43,6 +43,15 @@ export interface VideoInputReadableOptions {
   inputPath: string
 }
 
+export interface MediaDurationOptions {
+  inputPath: string
+}
+
+export interface ExtractAudioOptions {
+  inputPath: string
+  outputPath: string
+}
+
 export interface ThumbnailOptions {
   inputPath: string
   outputPath: string
@@ -117,7 +126,7 @@ interface CaptionFonts {
 }
 
 const SEVERITY_STYLE: Record<string, { label: string; color: string }> = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
@@ -670,6 +679,39 @@ export async function assertVideoInputReadable(runner: IProcessRunner, ffmpegPat
     ? 'The recording looks incomplete or corrupt, usually because scrcpy stopped before the MP4 metadata was finalized.'
     : 'The recording could not be opened as a video file.'
   throw new Error(`Cannot export this session because the source recording is not readable: ${opts.inputPath}\n${hint}\n${detail}`)
+}
+
+function parseDurationMs(text: string): number | null {
+  const m = text.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/)
+  if (!m) return null
+  const hours = Number(m[1])
+  const minutes = Number(m[2])
+  const seconds = Number(m[3])
+  if (![hours, minutes, seconds].every(Number.isFinite)) return null
+  return Math.max(0, Math.round(((hours * 3600) + (minutes * 60) + seconds) * 1000))
+}
+
+export async function probeMediaDurationMs(runner: IProcessRunner, ffmpegPath: string, opts: MediaDurationOptions): Promise<number> {
+  const r = await runner.run(ffmpegPath, ['-hide_banner', '-i', opts.inputPath]).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    return { code: -1, stdout: '', stderr: message }
+  })
+  const durationMs = parseDurationMs(`${r.stderr}\n${r.stdout}`)
+  if (durationMs !== null) return durationMs
+  throw new Error(`Unable to read media duration: ${opts.inputPath}`)
+}
+
+export async function extractAudioTrack(runner: IProcessRunner, ffmpegPath: string, opts: ExtractAudioOptions): Promise<void> {
+  const r = await runner.run(ffmpegPath, [
+    '-y',
+    '-i', opts.inputPath,
+    '-vn',
+    '-map', '0:a:0',
+    '-c:a', 'libopus',
+    '-b:a', '96k',
+    opts.outputPath,
+  ])
+  if (r.code !== 0) throw new Error(`ffmpeg audio extract failed (code ${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
 }
 
 /** Resolved at runtime so tests don't import the binary. */

@@ -1,19 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AudioAnalysisProgress, Bug, BugSeverity, HotkeySettings, Session, SeveritySettings } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { BugList } from '@/components/BugList'
+import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
 import { useI18n } from '@/lib/i18n'
 
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000)
   const m = Math.floor(s / 60), r = s % 60
   return `${m.toString().padStart(2, '0')}:${r.toString().padStart(2, '0')}`
-}
-
-function progressPercent(progress: AudioAnalysisProgress | null): number {
-  if (!progress || progress.total <= 0) return 0
-  return Math.max(0, Math.min(100, Math.round((progress.current / progress.total) * 100)))
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -27,7 +23,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 const DEFAULT_HOTKEYS: HotkeySettings = { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }
 const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
@@ -178,6 +174,7 @@ export function Recording({ session }: { session: Session }) {
   const [postAnalysisStatus, setPostAnalysisStatus] = useState<string | null>(null)
   const [postAnalysisPrompt, setPostAnalysisPrompt] = useState<{
     sessionId: string
+    durationMs: number | null
     progress: AudioAnalysisProgress | null
     error: string | null
   } | null>(null)
@@ -464,7 +461,7 @@ export function Recording({ session }: { session: Session }) {
           total: 4,
           generated: 0,
         }
-        setPostAnalysisPrompt({ sessionId: updated.id, progress: initialProgress, error: null })
+        setPostAnalysisPrompt({ sessionId: updated.id, durationMs: updated.durationMs, progress: initialProgress, error: null })
         setPostAnalysisStatus('analyzing')
         void api.audioAnalysis.analyzeSession(updated.id)
           .catch(e => {
@@ -487,7 +484,7 @@ export function Recording({ session }: { session: Session }) {
 
   async function abandonPostAnalysis() {
     if (!postAnalysisPrompt) return
-    const ok = window.confirm('放棄音訊分析？這次 session 會直接進入 review，不會自動產生語音點位。')
+    const ok = window.confirm('Cancel audio analysis and enter review? Existing session data will be kept.')
     if (!ok) return
     await api.audioAnalysis.cancel(postAnalysisPrompt.sessionId).catch(() => {})
     sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`)
@@ -694,7 +691,7 @@ export function Recording({ session }: { session: Session }) {
                       title={t('bug.deleteConfirm')}
                       aria-label={t('bug.deleteConfirm')}
                     >
-                      ×
+                      ?
                     </button>
                   </div>
                   <div className="mt-1 grid grid-cols-[1fr_34px] gap-1">
@@ -744,47 +741,14 @@ export function Recording({ session }: { session: Session }) {
         />
       </main>
       {postAnalysisPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
-            <div className="text-lg font-semibold text-zinc-100">正在分析麥克風音訊</div>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-              Loupe 正在用離線 STT 分析 QA 語音，完成後會自動產生可編輯的音訊點位。你可以等待完成，或先進入 review 讓它在背景處理。
-            </p>
-            <div className="mt-5 rounded border border-zinc-800 bg-zinc-950/60 p-3">
-              <div className="flex items-center justify-between gap-3 text-sm text-zinc-300">
-                <span className="min-w-0 truncate">{postAnalysisPrompt.progress?.message ?? 'Preparing audio analysis'}</span>
-                <span className="font-mono tabular-nums text-zinc-400">{progressPercent(postAnalysisPrompt.progress)}%</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
-                  style={{ width: `${progressPercent(postAnalysisPrompt.progress)}%` }}
-                />
-              </div>
-              <div className="mt-2 min-h-5 break-words text-xs leading-relaxed text-zinc-500">
-                {postAnalysisPrompt.error
-                  ? postAnalysisPrompt.error
-                  : postAnalysisPrompt.progress?.detail ?? '請稍候，分析期間 session 內容不會遺失。'}
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={abandonPostAnalysis}
-                className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
-              >
-                放棄
-              </button>
-              <button
-                type="button"
-                onClick={continueAnalysisInBackground}
-                className="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-600"
-              >
-                背景處理
-              </button>
-            </div>
-          </div>
-        </div>
+        <AudioAnalysisWaitDialog
+          progress={postAnalysisPrompt.progress}
+          error={postAnalysisPrompt.error}
+          sourceLabel="microphone"
+          mediaDurationMs={postAnalysisPrompt.durationMs}
+          onCancel={abandonPostAnalysis}
+          onBackground={continueAnalysisInBackground}
+        />
       )}
     </div>
   )

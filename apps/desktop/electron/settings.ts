@@ -12,7 +12,7 @@ export const DEFAULT_HOTKEYS: HotkeySettings = {
 }
 
 export const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
@@ -31,11 +31,14 @@ export const DEFAULT_AUDIO_ANALYSIS: AudioAnalysisSettings = {
   triggerKeywords: '記錄, 紀錄, 记录, 標記, record, mark, log, 記録, マーク, ログ, 기록, 마크, 로그, grabar, marcar, registrar',
   showTriggerWords: false,
 }
+DEFAULT_AUDIO_ANALYSIS.chineseScript = 'zh-TW'
+DEFAULT_AUDIO_ANALYSIS.triggerKeywords = 'record, mark, log, 記錄, 紀錄, 標記, 记录, 标记, 記一下, 记一下, マーク, ログ, 기록, 마크, 로그, grabar, marcar, registrar'
 
 const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
 const OPTIONAL_SEVERITY_KEYS = ['custom1', 'custom2', 'custom3', 'custom4'] as const
 const SEVERITY_KEYS: BugSeverity[] = [...REQUIRED_SEVERITY_KEYS, ...OPTIONAL_SEVERITY_KEYS]
 const LEGACY_DEFAULT_LABELS: Partial<Record<BugSeverity, string>> = {
+  note: 'note',
   major: 'major',
   normal: 'normal',
   minor: 'minor',
@@ -356,6 +359,7 @@ function normalizeAudioAnalysis(raw?: Partial<AudioAnalysisSettings>): AudioAnal
         ? 'small'
         : '',
     language: typeof raw?.language === 'string' && raw.language.trim() ? raw.language.trim() : 'auto',
+    chineseScript: raw?.chineseScript === 'zh-CN' ? 'zh-CN' : 'zh-TW',
     triggerKeywords,
     showTriggerWords: raw?.showTriggerWords === true,
   }

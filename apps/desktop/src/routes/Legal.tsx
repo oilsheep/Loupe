@@ -15,7 +15,7 @@ interface ThirdPartySection {
   items: ThirdPartyItem[]
 }
 
-const THIRD_PARTY_SECTIONS: ThirdPartySection[] = [
+export const THIRD_PARTY_SECTIONS: ThirdPartySection[] = [
   {
     titleKey: 'legal.section.app',
     items: [
@@ -150,37 +150,45 @@ const THIRD_PARTY_SECTIONS: ThirdPartySection[] = [
   },
 ]
 
-export function Legal() {
+interface LegalProps {
+  onClose?: () => void
+}
+
+export function Legal({ onClose }: LegalProps = {}) {
   const { t } = useI18n()
   const goHome = useApp(s => s.goHome)
+  const close = onClose ?? goHome
   const totalItems = useMemo(
     () => THIRD_PARTY_SECTIONS.reduce((count, section) => count + section.items.length, 0),
     [],
   )
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-zinc-800 px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="legal-dialog">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl">
+      <header className="shrink-0 border-b border-zinc-800 px-4 py-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <button
-              type="button"
-              onClick={goHome}
-              className="text-xs text-zinc-400 hover:text-zinc-200"
-            >
-              {t('legal.backHome')}
-            </button>
-            <h1 className="mt-2 text-xl font-semibold">{t('legal.title')}</h1>
+            <h1 className="text-xl font-semibold">{t('legal.title')}</h1>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">{t('legal.subtitle')}</p>
           </div>
-          <div className="shrink-0 border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-right">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">{t('legal.total')}</div>
-            <div className="mt-1 font-mono text-2xl text-zinc-100">{totalItems}</div>
+          <div className="flex shrink-0 items-start gap-2">
+            <div className="border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-right">
+              <div className="text-xs uppercase tracking-wide text-zinc-500">{t('legal.total')}</div>
+              <div className="mt-1 font-mono text-2xl text-zinc-100">{totalItems}</div>
+            </div>
+            <button
+              type="button"
+              onClick={close}
+              className="rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700"
+            >
+              {t('common.close')}
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl space-y-5 p-6">
+      <main className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <section className="border border-yellow-900/70 bg-yellow-950/20 p-4">
           <h2 className="text-sm font-semibold text-yellow-100">{t('legal.noticeTitle')}</h2>
           <p className="mt-2 text-sm leading-6 text-yellow-100/80">{t('legal.noticeBody')}</p>
@@ -227,6 +235,7 @@ export function Legal() {
           </section>
         ))}
       </main>
+      </div>
     </div>
   )
 }

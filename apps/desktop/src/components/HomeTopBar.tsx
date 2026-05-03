@@ -5,11 +5,10 @@ interface HomeTopBarProps {
   selectedLabel?: string
   missingTools: ToolCheck[]
   onOpenTools(): void
-  onOpenLegal(): void
   onOpenPreferences(): void
 }
 
-export function HomeTopBar({ selectedLabel, missingTools, onOpenTools, onOpenLegal, onOpenPreferences }: HomeTopBarProps) {
+export function HomeTopBar({ selectedLabel, missingTools, onOpenTools, onOpenPreferences }: HomeTopBarProps) {
   const { t } = useI18n()
   const missingCount = missingTools.length
 
@@ -32,13 +31,6 @@ export function HomeTopBar({ selectedLabel, missingTools, onOpenTools, onOpenLeg
               {missingCount}
             </span>
           )}
-        </button>
-        <button
-          type="button"
-          onClick={onOpenLegal}
-          className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
-        >
-          {t('home.legal')}
         </button>
         <button
           type="button"

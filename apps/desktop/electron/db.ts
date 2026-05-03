@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   pc_video_path TEXT,
   mic_audio_path TEXT,
   mic_audio_duration_ms INTEGER,
-  mic_audio_start_offset_ms INTEGER
+  mic_audio_start_offset_ms INTEGER,
+  mic_audio_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS bugs (
@@ -63,6 +64,7 @@ function rowToSession(r: any): Session {
     micAudioPath: r.mic_audio_path ?? null,
     micAudioDurationMs: r.mic_audio_duration_ms ?? null,
     micAudioStartOffsetMs: r.mic_audio_start_offset_ms ?? null,
+    micAudioSource: r.mic_audio_source ?? null,
   }
 }
 function rowToBug(r: any): Bug {
@@ -108,6 +110,7 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('mic_audio_path')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_path TEXT`)
   if (!sessionCols.includes('mic_audio_duration_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_duration_ms INTEGER`)
   if (!sessionCols.includes('mic_audio_start_offset_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_start_offset_ms INTEGER`)
+  if (!sessionCols.includes('mic_audio_source')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_source TEXT`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -132,14 +135,15 @@ function migrate(db: Database.Database): void {
         pc_video_path TEXT,
         mic_audio_path TEXT,
         mic_audio_duration_ms INTEGER,
-        mic_audio_start_offset_ms INTEGER
+        mic_audio_start_offset_ms INTEGER,
+        mic_audio_source TEXT
       );
       INSERT INTO sessions_new (id, build_version, test_note, tester, device_id, device_model, android_version,
                                 ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-                                pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms)
+                                pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source)
       SELECT id, build_version, test_note, tester, device_id, device_model, android_version,
              ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path,
-             pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms FROM sessions;
+             pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, NULL FROM sessions;
       DROP TABLE sessions;
       ALTER TABLE sessions_new RENAME TO sessions;
       CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
@@ -194,9 +198,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, test_note, tester, device_id, device_model, android_version,
-                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms)
+                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source)
     VALUES (@id, @buildVersion, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs)
+            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs, @micAudioSource)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       test_note=excluded.test_note,
@@ -216,7 +220,8 @@ export function openDb(file: string) {
       pc_video_path=excluded.pc_video_path,
       mic_audio_path=excluded.mic_audio_path,
       mic_audio_duration_ms=excluded.mic_audio_duration_ms,
-      mic_audio_start_offset_ms=excluded.mic_audio_start_offset_ms
+      mic_audio_start_offset_ms=excluded.mic_audio_start_offset_ms,
+      mic_audio_source=excluded.mic_audio_source
   `)
   const finalizeSessionStmt = db.prepare(`
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
@@ -228,7 +233,10 @@ export function openDb(file: string) {
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
   `)
   const updateSessionMicRecordingStmt = db.prepare(`
-    UPDATE sessions SET mic_audio_path=@micAudioPath, mic_audio_duration_ms=@micAudioDurationMs, mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
+    UPDATE sessions SET mic_audio_path=@micAudioPath, mic_audio_duration_ms=@micAudioDurationMs, mic_audio_start_offset_ms=@micAudioStartOffsetMs, mic_audio_source=@micAudioSource WHERE id=@id
+  `)
+  const updateSessionMicAudioOffsetStmt = db.prepare(`
+    UPDATE sessions SET mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
   `)
   const getSessionStmt   = db.prepare(`SELECT * FROM sessions WHERE id = ?`)
   const listSessionsStmt = db.prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
@@ -273,6 +281,7 @@ export function openDb(file: string) {
         micAudioPath: s.micAudioPath ?? null,
         micAudioDurationMs: s.micAudioDurationMs ?? null,
         micAudioStartOffsetMs: s.micAudioStartOffsetMs ?? null,
+        micAudioSource: s.micAudioSource ?? null,
       })
     },
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
@@ -284,8 +293,16 @@ export function openDb(file: string) {
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
       updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })
     },
-    updateSessionMicRecording(id: string, patch: { micAudioPath: string | null; micAudioDurationMs: number | null; micAudioStartOffsetMs?: number | null }) {
-      updateSessionMicRecordingStmt.run({ id, ...patch, micAudioStartOffsetMs: patch.micAudioStartOffsetMs ?? null })
+    updateSessionMicRecording(id: string, patch: { micAudioPath: string | null; micAudioDurationMs: number | null; micAudioStartOffsetMs?: number | null; micAudioSource?: Session['micAudioSource'] }) {
+      updateSessionMicRecordingStmt.run({
+        id,
+        ...patch,
+        micAudioStartOffsetMs: patch.micAudioStartOffsetMs ?? null,
+        micAudioSource: patch.micAudioSource ?? null,
+      })
+    },
+    updateSessionMicAudioOffset(id: string, startOffsetMs: number) {
+      updateSessionMicAudioOffsetStmt.run({ id, micAudioStartOffsetMs: Math.round(startOffsetMs) })
     },
     getSession(id: string): Session | undefined {
       const r = getSessionStmt.get(id) as any

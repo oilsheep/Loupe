@@ -42,10 +42,14 @@ describe('Db', () => {
 
   it('updates session MIC recording metadata', () => {
     db.insertSession(fixSession())
-    db.updateSessionMicRecording('sess-1', { micAudioPath: 'C:/tmp/session-mic.webm', micAudioDurationMs: 12345 })
+    db.updateSessionMicRecording('sess-1', { micAudioPath: 'C:/tmp/session-mic.webm', micAudioDurationMs: 12345, micAudioSource: 'external', micAudioStartOffsetMs: -500 })
     const s = db.getSession('sess-1')
     expect(s?.micAudioPath).toBe('C:/tmp/session-mic.webm')
     expect(s?.micAudioDurationMs).toBe(12345)
+    expect(s?.micAudioStartOffsetMs).toBe(-500)
+    expect(s?.micAudioSource).toBe('external')
+    db.updateSessionMicAudioOffset('sess-1', 750)
+    expect(db.getSession('sess-1')?.micAudioStartOffsetMs).toBe(750)
   })
 
   it('listSessions returns rows newest-first', () => {

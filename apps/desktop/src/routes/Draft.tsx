@@ -4,6 +4,7 @@ import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
 import { BugList, type BugListHandle } from '@/components/BugList'
+import { PreferencesController } from '@/components/PreferencesController'
 import { useI18n } from '@/lib/i18n'
 
 interface Loaded { session: Session; bugs: Bug[]; videoUrl: string; micAudioUrl: string | null; transcriptSegments: TranscriptSegment[] }
@@ -18,7 +19,7 @@ const AUDIO_ANALYSIS_LANGUAGE_OPTIONS = [
 ]
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
@@ -76,6 +77,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [buildVersion, setBuildVersion] = useState('')
   const [tester, setTester] = useState('')
   const [testNote, setTestNote] = useState('')
+  const [micOffsetSec, setMicOffsetSec] = useState('0')
   const [loadProgress, setLoadProgress] = useState<SessionLoadProgress | null>(null)
   const [analysisProgress, setAnalysisProgress] = useState<AudioAnalysisProgress | null>(null)
   const [analyzingAudio, setAnalyzingAudio] = useState(false)
@@ -85,6 +87,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [metadataOpen, setMetadataOpen] = useState(false)
   const [audioPanelOpen, setAudioPanelOpen] = useState(false)
+  const [preferencesOpen, setPreferencesOpen] = useState(false)
   const playerRef = useRef<VideoPlayerHandle>(null)
   const bugListRef = useRef<BugListHandle>(null)
 
@@ -93,7 +96,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
     if (!r) { goHome(); return }
     const videoRel = r.session.connectionMode === 'pc' && r.session.pcVideoPath ? 'pc-recording.webm' : 'video.mp4'
     const videoUrl = await assetUrl(sessionId, videoRel)
-    const micAudioUrl = r.session.micAudioPath ? await assetUrl(sessionId, 'session-mic.webm') : null
+    const importedVideoAnalysisAudio = r.session.deviceId.startsWith('import:') && (r.session.micAudioSource ?? 'video') === 'video'
+    const micAudioUrl = r.session.micAudioPath && !importedVideoAnalysisAudio ? await assetUrl(sessionId, 'session-mic.webm') : null
     let transcriptSegments: TranscriptSegment[] = []
     try {
       const transcriptUrl = await assetUrl(sessionId, 'analysis/audio-transcript.normalized.json')
@@ -109,6 +113,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
     setBuildVersion(r.session.buildVersion)
     setTester(r.session.tester)
     setTestNote(r.session.testNote)
+    setMicOffsetSec(String(Math.round((r.session.micAudioStartOffsetMs ?? 0) / 100) / 10))
   }, [sessionId, goHome])
 
   useEffect(() => api.onSessionLoadProgress((progress) => {
@@ -133,18 +138,18 @@ export function Draft({ sessionId }: { sessionId: string }) {
       void refresh()
     }
   }), [refresh, sessionId])
+  const reloadSettings = useCallback(async () => {
+    const settings = await api.settings.get()
+    setAudioSettings(settings.audioAnalysis)
+    setSeverities(settings.severities)
+  }, [])
   useEffect(() => {
     let cancelled = false
-    api.settings.get().then(settings => {
-      if (!cancelled) {
-        setAudioSettings(settings.audioAnalysis)
-        setSeverities(settings.severities)
-      }
-    }).catch(err => {
+    reloadSettings().catch(err => {
       if (!cancelled) setAnalysisError(err instanceof Error ? err.message : String(err))
     })
     return () => { cancelled = true }
-  }, [])
+  }, [reloadSettings])
   useEffect(() => { refresh() }, [refresh])
 
   const analyzeAudio = useCallback(async () => {
@@ -323,8 +328,23 @@ export function Draft({ sessionId }: { sessionId: string }) {
     }
   }
 
+  async function saveMicOffset() {
+    if (!session.micAudioPath) return
+    const offsetMs = Math.round((Number(micOffsetSec) || 0) * 1000)
+    const updated = await api.session.updateMicAudioOffset(session.id, offsetMs)
+    setData(prev => prev ? { ...prev, session: { ...prev.session, ...updated } } : prev)
+    setMicOffsetSec(String(Math.round((updated.micAudioStartOffsetMs ?? 0) / 100) / 10))
+  }
+
   return (
     <div className="grid h-screen grid-cols-[minmax(0,1fr)_460px] grid-rows-[auto_1fr] bg-zinc-950 text-zinc-100">
+      <PreferencesController
+        open={preferencesOpen}
+        onClose={() => {
+          setPreferencesOpen(false)
+          void reloadSettings()
+        }}
+      />
       <header className="col-span-2 flex items-center justify-between gap-3 border-b border-zinc-800 p-3 text-sm">
         <div>
           <button onClick={goHome} className="text-zinc-400 hover:text-zinc-200">{t('draft.home')}</button>
@@ -332,6 +352,12 @@ export function Draft({ sessionId }: { sessionId: string }) {
           <span className="ml-3 text-zinc-500">{bugs.length} markers · {Math.round(dur / 1000)}s</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setPreferencesOpen(true)}
+            className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+          >
+            {t('home.preferences')}
+          </button>
           <button
             onClick={() => bugListRef.current?.exportAll()}
             className="rounded bg-blue-700 px-3 py-1 text-xs text-white hover:bg-blue-600"
@@ -469,8 +495,32 @@ export function Draft({ sessionId }: { sessionId: string }) {
                   </div>
                   {session.micAudioPath && (
                     <div className="mt-2 rounded border border-sky-900/60 bg-sky-950/30 px-2 py-1 text-[11px] leading-snug text-sky-100">
-                      Re-analysis uses the current Preferences / session-start language and trigger words. Audio auto markers are replaced; manual markers stay untouched.
+                      {session.micAudioSource === 'video'
+                        ? 'Re-analysis uses the imported video audio. It is not played separately during review to avoid duplicate sound; use offset only if the transcript timing needs alignment.'
+                        : 'Re-analysis uses the session MIC track. Adjust offset if the narration starts earlier or later than the video.'}
                     </div>
+                  )}
+                  {session.micAudioPath && (
+                    <label className="mt-2 block text-[11px] text-zinc-500">
+                      {session.micAudioSource === 'video' ? 'Analysis audio offset (seconds)' : 'MIC offset (seconds)'}
+                      <div className="mt-1 flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={micOffsetSec}
+                          onChange={(e) => setMicOffsetSec(e.target.value)}
+                          onBlur={() => { void saveMicOffset() }}
+                          className="w-24 rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { void saveMicOffset() }}
+                          className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 hover:bg-zinc-700"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </label>
                   )}
                   {showAnalysisProgress && analysisProgress?.detail && (
                     <div className="mt-2 break-words text-[11px] leading-snug text-zinc-500">{analysisProgress.detail}</div>
@@ -493,7 +543,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             buildVersion={buildVersion}
             tester={tester}
             testNote={testNote}
-            hasSessionMicTrack={Boolean(session.micAudioPath)}
+            hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}
             markerToolbar={markerToolbar}
           />
         </div>

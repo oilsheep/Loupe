@@ -3,6 +3,12 @@ import { useApp } from '@/lib/store'
 import type { AudioAnalysisSettings, DesktopApi, IosAppInfo } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
+import {
+  AUDIO_ANALYSIS_LANGUAGE_OPTIONS as SHARED_AUDIO_LANGUAGE_OPTIONS,
+  isPresetTriggerWords as sharedIsPresetTriggerWords,
+  normalizeTriggerWords as sharedNormalizeTriggerWords,
+  triggerPreset as sharedTriggerPreset,
+} from '@/lib/audioAnalysisPresets'
 
 interface Props {
   api: DesktopApi
@@ -81,7 +87,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [recordMic, setRecordMic] = useState(true)
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
-  const [triggerKeywords, setTriggerKeywords] = useState(triggerPreset('auto').words)
+  const [triggerKeywords, setTriggerKeywords] = useState(sharedTriggerPreset('auto').words)
   const [triggerWordsCustomized, setTriggerWordsCustomized] = useState(false)
   const [iosBundleId, setIosBundleId] = useState('')
   const [iosAppName, setIosAppName] = useState('')
@@ -104,15 +110,15 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       if (cancelled) return
       const next = settings.audioAnalysis
       const language = next.language || 'auto'
-      const keywords = next.triggerKeywords?.trim() || triggerPreset(language).words
+      const keywords = next.triggerKeywords?.trim() || sharedTriggerPreset(language).words
       setAudioSettings(next)
       setAudioLanguage(language)
       setTriggerKeywords(keywords)
-      setTriggerWordsCustomized(!isPresetTriggerWords(keywords))
+      setTriggerWordsCustomized(!sharedIsPresetTriggerWords(keywords))
     }).catch(() => {
       if (cancelled) return
       setAudioLanguage('auto')
-      setTriggerKeywords(triggerPreset('auto').words)
+      setTriggerKeywords(sharedTriggerPreset('auto').words)
       setTriggerWordsCustomized(false)
     })
     return () => { cancelled = true }
@@ -176,7 +182,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         const saved = await api.settings.setAudioAnalysis({
           ...current,
           language: audioLanguage,
-          triggerKeywords: triggerKeywords.trim() || triggerPreset(audioLanguage).words,
+          triggerKeywords: triggerKeywords.trim() || sharedTriggerPreset(audioLanguage).words,
         })
         setAudioSettings(saved.audioAnalysis)
       }
@@ -210,21 +216,21 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   }
 
   function changeAudioLanguage(language: string) {
-    const wasPreset = !triggerWordsCustomized && isPresetTriggerWords(triggerKeywords)
+    const wasPreset = !triggerWordsCustomized && sharedIsPresetTriggerWords(triggerKeywords)
     setAudioLanguage(language)
     if (wasPreset) {
-      setTriggerKeywords(triggerPreset(language).words)
+      setTriggerKeywords(sharedTriggerPreset(language).words)
       setTriggerWordsCustomized(false)
     }
   }
 
   function useSuggestedTriggers() {
-    setTriggerKeywords(triggerPreset(audioLanguage).words)
+    setTriggerKeywords(sharedTriggerPreset(audioLanguage).words)
     setTriggerWordsCustomized(false)
   }
 
-  const suggestedTriggerWords = triggerPreset(audioLanguage).words
-  const triggerMatchesSuggestion = normalizeTriggerWords(triggerKeywords) === normalizeTriggerWords(suggestedTriggerWords)
+  const suggestedTriggerWords = sharedTriggerPreset(audioLanguage).words
+  const triggerMatchesSuggestion = sharedNormalizeTriggerWords(triggerKeywords) === sharedNormalizeTriggerWords(suggestedTriggerWords)
 
   return (
     <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void start() }}>
@@ -277,7 +283,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
                 onChange={e => changeAudioLanguage(e.target.value)}
                 className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
               >
-                {AUDIO_ANALYSIS_LANGUAGE_OPTIONS.map(option => (
+                {SHARED_AUDIO_LANGUAGE_OPTIONS.map(option => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
@@ -297,7 +303,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
             </label>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs leading-5 text-zinc-500">
-            <span className="text-zinc-400">{triggerPreset(audioLanguage).hint}</span>
+            <span className="text-zinc-400">{sharedTriggerPreset(audioLanguage).hint}</span>
             {!triggerMatchesSuggestion && (
               <button
                 type="button"

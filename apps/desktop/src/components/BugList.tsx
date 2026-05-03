@@ -39,7 +39,7 @@ const LOGCAT_EXPANDED_LINES = 10
 const ORIGINAL_FILES_WARNING_KEY = 'loupe.skipOriginalFilesWarning'
 
 const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },

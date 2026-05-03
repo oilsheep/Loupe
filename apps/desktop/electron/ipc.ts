@@ -52,6 +52,9 @@ export const CHANNEL = {
   deviceListPackages:      'device:listPackages',
   deviceListIosApps:        'device:listIosApps',
   sessionStart:            'session:start',
+  sessionChooseVideoFile:  'session:chooseVideoFile',
+  sessionChooseAudioFile:  'session:chooseAudioFile',
+  sessionImportVideo:      'session:importVideo',
   sessionMarkBug:          'session:markBug',
   sessionStop:             'session:stop',
   sessionDiscard:          'session:discard',
@@ -60,6 +63,7 @@ export const CHANNEL = {
   sessionLoadProgress:     'session:loadProgress',
   sessionOpenProject:      'session:openProject',
   sessionUpdateMetadata:   'session:updateMetadata',
+  sessionUpdateMicAudioOffset:'session:updateMicAudioOffset',
   sessionSavePcRecording:  'session:savePcRecording',
   sessionSaveMicRecording: 'session:saveMicRecording',
   sessionResolveAssetPath: 'session:resolveAssetPath',
@@ -1902,6 +1906,36 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return session
   })
+  ipcMain.handle(CHANNEL.sessionChooseVideoFile, async (): Promise<string | null> => {
+    const win = deps.getWindow?.()
+    const result = await (win
+      ? dialog.showOpenDialog(win, {
+        title: 'Choose video to analyze',
+        properties: ['openFile'],
+        filters: [{ name: 'Video', extensions: ['mp4', 'webm', 'mov', 'mkv', 'm4v'] }],
+      })
+      : dialog.showOpenDialog({
+        title: 'Choose video to analyze',
+        properties: ['openFile'],
+        filters: [{ name: 'Video', extensions: ['mp4', 'webm', 'mov', 'mkv', 'm4v'] }],
+      }))
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+  ipcMain.handle(CHANNEL.sessionChooseAudioFile, async (): Promise<string | null> => {
+    const win = deps.getWindow?.()
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose narration audio',
+      properties: ['openFile'],
+      filters: [{ name: 'Audio or video', extensions: ['wav', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'webm', 'mp4', 'mov', 'mkv'] }],
+    }
+    const result = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+  ipcMain.handle(CHANNEL.sessionImportVideo, async (_e, args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session> => {
+    return deps.manager.importVideo(args)
+  })
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
   ipcMain.handle(CHANNEL.sessionStop, async () => {
     await stopPcFfmpegRecording()
@@ -1933,6 +1967,9 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { buildVersion: string; testNote: string; tester: string }) => {
     deps.manager.updateSessionMetadata(id, patch)
   })
+  ipcMain.handle(CHANNEL.sessionUpdateMicAudioOffset, async (_e, id: string, startOffsetMs: number): Promise<Session> => {
+    return deps.manager.updateSessionMicAudioOffset(id, startOffsetMs)
+  })
   ipcMain.handle(CHANNEL.sessionSavePcRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string> => {
     const bytes = Buffer.from(args.base64, 'base64')
     return deps.manager.savePcRecording(args.sessionId, bytes)
@@ -1960,6 +1997,7 @@ export function registerIpc(deps: IpcDeps): void {
       micAudioPath: recoveredMicAudioPath,
       micAudioDurationMs: project.session.micAudioDurationMs ?? null,
       micAudioStartOffsetMs: project.session.micAudioStartOffsetMs ?? null,
+      micAudioSource: project.session.micAudioSource ?? null,
     }
     const currentVideoPath = session.connectionMode === 'pc' ? session.pcVideoPath : session.videoPath
     if (!currentVideoPath || !existsSync(currentVideoPath)) {

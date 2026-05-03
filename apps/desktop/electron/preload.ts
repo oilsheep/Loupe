@@ -30,6 +30,9 @@ const api: DesktopApi = {
   },
   session: {
     start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),
+    chooseVideoFile: ()         => ipcRenderer.invoke(CHANNEL.sessionChooseVideoFile),
+    chooseAudioFile: ()         => ipcRenderer.invoke(CHANNEL.sessionChooseAudioFile),
+    importVideo: (args)         => ipcRenderer.invoke(CHANNEL.sessionImportVideo, args),
     markBug: (args)             => ipcRenderer.invoke(CHANNEL.sessionMarkBug, args),
     stop:    ()                 => ipcRenderer.invoke(CHANNEL.sessionStop),
     discard: (id)               => ipcRenderer.invoke(CHANNEL.sessionDiscard, id),
@@ -37,6 +40,7 @@ const api: DesktopApi = {
     get:     (id)               => ipcRenderer.invoke(CHANNEL.sessionGet, id),
     openProject: ()             => ipcRenderer.invoke(CHANNEL.sessionOpenProject),
     updateMetadata: (id, patch) => ipcRenderer.invoke(CHANNEL.sessionUpdateMetadata, id, patch),
+    updateMicAudioOffset: (id, startOffsetMs) => ipcRenderer.invoke(CHANNEL.sessionUpdateMicAudioOffset, id, startOffsetMs),
     savePcRecording: (args)     => ipcRenderer.invoke(CHANNEL.sessionSavePcRecording, args),
     saveMicRecording: (args)    => ipcRenderer.invoke(CHANNEL.sessionSaveMicRecording, args),
   },

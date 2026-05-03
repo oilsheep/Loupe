@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, BugSeverity, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
+import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
+import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
 
 export function identityIdFromName(value: string): string {
   return value
@@ -98,6 +100,8 @@ interface PreferencesDialogProps {
   exportRoot: string
   hotkeys: HotkeySettings
   severities: SeveritySettings
+  audioAnalysis: AudioAnalysisSettings
+  audioAnalysisSaved: boolean
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
@@ -143,6 +147,9 @@ interface PreferencesDialogProps {
   onSeveritiesChange(value: SeveritySettings): void
   onSaveSeverities(value: SeveritySettings): void
   onResetLabels(): void
+  onAudioAnalysisChange(value: AudioAnalysisSettings): void
+  onSaveAudioAnalysis(value: AudioAnalysisSettings): void
+  onAudioAnalysisLanguageChange(language: string): void
   onSlackChange(value: SlackPublishSettings): void
   onStartSlackOAuth(): void
   onRefreshSlackUsers(): void
@@ -180,6 +187,8 @@ export function PreferencesDialog({
   exportRoot,
   hotkeys,
   severities,
+  audioAnalysis,
+  audioAnalysisSaved,
   slack,
   slackSaved,
   startingSlackOAuth,
@@ -225,6 +234,9 @@ export function PreferencesDialog({
   onSeveritiesChange,
   onSaveSeverities,
   onResetLabels,
+  onAudioAnalysisChange,
+  onSaveAudioAnalysis,
+  onAudioAnalysisLanguageChange,
   onSlackChange,
   onStartSlackOAuth,
   onRefreshSlackUsers,
@@ -255,7 +267,8 @@ export function PreferencesDialog({
   onSaveMentionIdentities,
   onClose,
 }: PreferencesDialogProps) {
-  const { t } = useI18n()
+  const { t, resolvedLocale } = useI18n()
+  const zh = resolvedLocale.startsWith('zh')
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
 
   useEffect(() => {
@@ -347,6 +360,62 @@ export function PreferencesDialog({
                   </button>
                 </div>
               </label>
+            </div>
+          </section>
+
+          <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">{zh ? '語音辨識' : 'Speech recognition'}</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">
+                {zh ? '設定語音自動打點的預設語言與觸發詞。切換語言會套用建議觸發詞，之後仍可手動修改。' : 'Set default language and trigger words for audio auto-markers. Changing language applies suggested triggers, which you can still edit.'}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-xs text-zinc-400">
+                  {zh ? '辨識語言' : 'Recognition language'}
+                  <select
+                    value={audioAnalysis.language || 'auto'}
+                    onChange={(e) => onAudioAnalysisLanguageChange(e.target.value)}
+                    className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                  >
+                    {AUDIO_ANALYSIS_LANGUAGE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                {(audioAnalysis.language || 'auto') === 'zh' && (
+                  <label className="block text-xs text-zinc-400">
+                    {zh ? '中文輸出' : 'Chinese output'}
+                    <select
+                      value={audioAnalysis.chineseScript ?? 'zh-TW'}
+                      onChange={(e) => {
+                        const next = { ...audioAnalysis, chineseScript: e.target.value as AudioAnalysisSettings['chineseScript'] }
+                        onAudioAnalysisChange(next)
+                        onSaveAudioAnalysis(next)
+                      }}
+                      className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    >
+                      {CHINESE_SCRIPT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+              <label className="block text-xs text-zinc-400">
+                {zh ? '觸發詞' : 'Trigger words'}
+                <textarea
+                  value={audioAnalysis.triggerKeywords}
+                  rows={3}
+                  onChange={(e) => onAudioAnalysisChange({ ...audioAnalysis, triggerKeywords: e.target.value })}
+                  onBlur={() => onSaveAudioAnalysis({
+                    ...audioAnalysis,
+                    triggerKeywords: audioAnalysis.triggerKeywords.trim() || triggerPreset(audioAnalysis.language || 'auto').words,
+                  })}
+                  className="mt-1 w-full resize-y rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                />
+                <span className="mt-1 block text-[11px] leading-5 text-zinc-500">
+                  {triggerPreset(audioAnalysis.language || 'auto').hint}
+                </span>
+              </label>
+              {audioAnalysisSaved && <div className="text-xs text-emerald-300">{t('common.saved')}</div>}
             </div>
           </section>
 
@@ -850,6 +919,27 @@ export function PreferencesDialog({
               </details>
             </div>
           </section>
+
+          <section className="mt-4 border-t border-zinc-800 pt-4">
+            <div className="text-sm font-medium text-zinc-200">{t('legal.title')}</div>
+            <div className="mt-1 text-xs leading-5 text-zinc-500">{t('legal.noticeBody')}</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {THIRD_PARTY_SECTIONS.map(section => (
+                <details key={section.titleKey} className="rounded border border-zinc-800 bg-zinc-950/50 p-3">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t(section.titleKey)}</summary>
+                  <div className="mt-2 space-y-2">
+                    {section.items.map(item => (
+                      <div key={item.name} className="text-[11px] leading-5 text-zinc-500">
+                        <div className="font-medium text-zinc-300">{item.name} <span className="text-zinc-600">/ {item.license}</span></div>
+                        <div>{t(item.usageKey)}</div>
+                        <a href={item.source} target="_blank" rel="noreferrer" className="text-blue-300 hover:text-blue-200">{item.source}</a>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -859,7 +949,7 @@ export function PreferencesDialog({
 
 export const DEFAULT_HOTKEYS: HotkeySettings = { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }
 export const DEFAULT_SEVERITIES: SeveritySettings = {
-  note: { label: 'note', color: '#a1a1aa' },
+  note: { label: 'default', color: '#a1a1aa' },
   major: { label: 'Critical', color: '#ff4d4f' },
   normal: { label: 'Bug', color: '#f59e0b' },
   minor: { label: 'Polish', color: '#22b8f0' },
