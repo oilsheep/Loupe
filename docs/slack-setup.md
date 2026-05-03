@@ -1,190 +1,208 @@
 # Loupe Slack Publish Setup
 
-Loupe can publish exported QA evidence to Slack after clips are exported. The current Slack flow in Loupe primarily uses Slack user OAuth for channel browsing and publishing, and can still fall back to a bot token where needed.
+Loupe can publish exported QA evidence to Slack after local clips, reports, and summaries are generated. Slack support has two explicit connection modes:
 
-## 1. Create a Slack App
+| Mode | Best for | What Loupe stores | Notes |
+| --- | --- | --- | --- |
+| Connect with OAuth | Most teams and user-friendly setup | Slack user OAuth token | Publishes as the authorized Slack user. Requires a Slack app with OAuth configured. |
+| Use Bot Token | IT-managed or legacy setup | Bot User OAuth Token (`xoxb-...`) | Publishes as the Slack app bot. The bot must be invited to private channels. |
+
+## Slack app permissions
+
+Configure scopes in **Slack App > OAuth & Permissions**. After changing scopes, reinstall the Slack app to the workspace.
+
+### OAuth mode: User Token Scopes
+
+| Scope | Required | Why Loupe needs it |
+| --- | --- | --- |
+| `chat:write` | Required | Create session summary messages and marker thread messages. |
+| `files:write` | Required | Upload exported videos, PDFs, and report files. |
+| `channels:read` | Required | List public channels for export channel selection. |
+| `groups:read` | Required for private channels | List private channels the authorized user can access. |
+| `users:read` | Recommended | Load Slack users for mention lookup. |
+
+### Bot Token mode: Bot Token Scopes
+
+| Scope | Required | Why Loupe needs it |
+| --- | --- | --- |
+| `chat:write` | Required | Create session summary messages and marker thread messages as the Slack app bot. |
+| `files:write` | Required | Upload exported videos, PDFs, and report files. |
+| `channels:read` | Required | List public channels for export channel selection. |
+| `groups:read` | Required for private channels | List private channels the bot can access. The bot must still be invited to private channels. |
+| `users:read` | Recommended | Load Slack users for mention lookup. |
+| `users:read.email` | Optional | Improve mention matching by email when your team uses identity mapping. |
+| `chat:write.public` | Optional | Allow posting to public channels without inviting the bot first. Private channels still require inviting the bot. |
+
+## Multi-company Slack app note
+
+A Slack app that is not distributed can usually only be installed in the workspace that owns it. If multiple companies need to use Loupe, use one of these approaches:
+
+1. Each company creates its own Slack app and fills OAuth credentials or a bot token in Loupe.
+2. A future Loupe-hosted Slack app can use Slack distribution, but that requires a public HTTPS OAuth callback service.
+
+Useful Slack docs:
+
+- [Slack app distribution](https://docs.slack.dev/distribution)
+- [Installing with OAuth](https://docs.slack.dev/authentication/installing-with-oauth)
+
+## Option A: Connect with OAuth
+
+Use this when users should connect Loupe through a browser and publish as their Slack account. This is the recommended path for most QA teams.
+
+<details>
+<summary><strong>Step 1: Create or choose a Slack app</strong></summary>
 
 1. Open <https://api.slack.com/apps>.
-2. Click **Create New App**.
-3. Choose **From scratch**.
-4. Pick the workspace that should receive Loupe reports.
+2. Create a new app in the target workspace, or choose a company-managed Loupe app.
+3. Open **OAuth & Permissions**.
 
-## 2. Configure OAuth For Connect Slack
+</details>
 
-If you want Loupe to use your own Slack app for **Connect Slack**, create an OAuth app configuration in Slack and copy the client credentials from there.
+<details>
+<summary><strong>Step 2: Add the Loupe redirect URL</strong></summary>
 
-1. In the Slack app page, open **Basic Information**.
-2. Under **App Credentials**, copy **Client ID**.
-3. If your Slack app uses a client secret, also copy **Client Secret**.
-4. Open **OAuth & Permissions**.
-5. Add this redirect URL:
+In the Slack app dashboard:
 
-```text
-loupe://slack-oauth
-```
-
-6. Save the redirect URL.
-
-Loupe requests these user OAuth scopes when you click **Connect Slack**:
-
-- `chat:write`
-- `files:write`
-- `users:read`
-- `channels:read`
-- `groups:read`
-
-### How Loupe resolves the Slack client ID
-
-Loupe reads the Slack OAuth client credentials in this order:
-
-1. `slack.oauthClientId`, `slack.oauthClientSecret` in the saved Loupe settings.
-2. Process environment variables:
-   - `LOUPE_SLACK_OAUTH_CLIENT_ID`
-   - `LOUPE_SLACK_OAUTH_CLIENT_SECRET`
-3. Built-in defaults:
-   - Client ID: `2178062560.11055652367536`
-
-The redirect URI is hardcoded in Loupe:
+1. Use the left sidebar to open **OAuth & Permissions**.
+2. Scroll to **Redirect URLs**.
+3. Click **Add New Redirect URL**.
+4. Enter this URL:
 
 ```text
 loupe://slack-oauth
 ```
 
-At the moment, Loupe's Publish UI shows **Connect Slack**, but does not expose separate text fields for Slack OAuth client settings. If you need to override the built-in Slack app in local development, use one of these approaches before clicking **Connect Slack**:
+5. Click **Add**.
+6. Click **Save URLs**.
+7. Wait for Slack to confirm the URL was saved, then return to Loupe.
 
-- set `LOUPE_SLACK_OAUTH_CLIENT_ID` and `LOUPE_SLACK_OAUTH_CLIENT_SECRET` before launching Loupe
-- or edit the saved settings JSON and fill `slack.oauthClientId` and `slack.oauthClientSecret`
+For a distributed public Slack app, Slack generally expects HTTPS redirect infrastructure. This local custom scheme is best suited for company-owned/internal app setup.
 
-## 3. Add Bot Token Scopes
+</details>
 
-Open **OAuth & Permissions** and add these **Bot Token Scopes**:
+<details>
+<summary><strong>Step 3: Fill OAuth settings in Loupe</strong></summary>
 
-- `chat:write`
-- `files:write`
-- `users:read`
+1. Open **Preferences**.
+2. Open **Publish > Slack**.
+3. Select **Connect with OAuth**.
+4. Copy **Client ID** and **Client Secret** from Slack **Basic Information**.
+5. Paste them into Loupe.
+
+</details>
+
+<details>
+<summary><strong>Step 4: Connect and refresh Slack data</strong></summary>
+
+1. Click **Connect Slack**.
+2. Finish authorization in the browser.
+3. Return to Loupe.
+4. Refresh Slack users if you want mention lookup.
+5. During export, choose the Slack channel and thread layout.
+
+</details>
+
+## Option B: Use Bot Token
+
+Use this when IT wants to manage a Slack app and hand Loupe a bot token. This is useful for managed enterprise setups or teams that do not want each QA user to run OAuth.
+
+<details>
+<summary><strong>Step 1: Create or choose a company Slack app</strong></summary>
+
+1. Open <https://api.slack.com/apps>.
+2. Create an app in the target workspace, or choose a company-managed app.
+3. Open **OAuth & Permissions**.
+
+</details>
+
+<details>
+<summary><strong>Step 2: Add bot token scopes</strong></summary>
+
+Recommended bot scopes:
+
+```text
+chat:write
+files:write
+users:read
+channels:read
+groups:read
+```
 
 Optional:
 
-- `chat:write.public` if you want the bot to post to public channels without inviting it first.
-
-After changing scopes, click **Install to Workspace** or **Reinstall to Workspace**.
-
-Copy the **Bot User OAuth Token**. It starts with:
-
 ```text
-xoxb-
+chat:write.public
+users:read.email
 ```
 
-The bot token is mainly useful for the legacy bot-token publish path. For the current Loupe UI flow, **Connect Slack** uses user OAuth and stores a user access token after browser authorization.
+Use `chat:write.public` only if the bot should post to public channels without being invited. Use `users:read.email` only if your team needs richer mention lookup.
 
-## 4. Add the Bot to the Slack Channel
+</details>
 
-For most channels, invite the bot before publishing:
+<details>
+<summary><strong>Step 3: Install or reinstall the Slack app</strong></summary>
 
-```text
-/invite @your-bot-name
-```
+1. Click **Install to Workspace** or **Reinstall to Workspace** after changing scopes.
+2. Slack will generate a **Bot User OAuth Token**.
+3. Copy the token that starts with `xoxb-`.
 
-If the bot is not in the channel, Slack returns:
+</details>
 
-```text
-not_in_channel
-```
+<details>
+<summary><strong>Step 4: Paste the token into Loupe</strong></summary>
 
-Private channels always require inviting the bot.
+1. In Loupe, open **Preferences > Publish > Slack**.
+2. Select **Use Bot Token**.
+3. Paste the `xoxb-...` token.
+4. Click **Save Slack settings**.
 
-## 5. Copy the Channel ID
+</details>
 
-1. Open the Slack channel.
-2. Click the channel name.
-3. Open **About** or **Channel details**.
-4. Copy the channel ID.
+<details>
+<summary><strong>Step 5: Invite bot to private channels</strong></summary>
 
-Channel IDs usually look like:
+For private channels, open the Slack channel and invite the Slack app/bot before publishing. Otherwise Slack may return `not_in_channel` or `channel_not_found`.
 
-```text
-C1234567890
-```
+</details>
 
-Private channel or group IDs may start with `G`.
+<details>
+<summary><strong>Step 6: Refresh channels and users before export</strong></summary>
 
-## 6. Configure Loupe
+1. Refresh Slack users in Preferences if you want mention lookup.
+2. Open export.
+3. Refresh channels if the target channel is missing.
+4. Choose the channel and publish.
 
-1. Open Loupe.
-2. Go to the Home screen.
-3. Find the **Publish** section.
-4. Click **Connect Slack**.
-5. Finish authorization in the browser.
-6. Click **Refresh** in the Slack publish section so Loupe can fetch channels.
-7. Select the target channel.
-8. Refresh users if needed to fetch the workspace user list and seed the shared mention identity table.
-9. Optional: add fallback users manually with a readable alias format such as `Miki=U1234567890` or `QA Lead=<@U2345678901>`.
+</details>
 
-If your build still uses the legacy bot-token path, configure these values in saved settings before publishing:
+## Publish from Review
 
-- `slack.botToken`
-- `slack.channelId`
-
-Slack mentions must use user IDs under the hood, not display names, because display names are not guaranteed to be unique. Loupe fetches display names for the UI, stores the matching IDs, and sends Slack's mention format, for example `<@U1234567890>`.
-
-## 7. Publish From Review
-
-1. Record a session and stop it.
-2. For each marker that needs attention, open the **Mention people** picker and select one or more mention identities.
-3. Select one or more markers in Review.
-4. Click Export / Publish.
-5. Set **Publish target** to **Slack**.
-6. Choose one Slack thread layout:
-   - **All markers in one thread**: posts one session message, then uploads every selected marker clip, preview image, and logcat file under that same thread.
-   - **Every marker per thread**: posts one message per marker, then uploads that marker's clip, preview image, and logcat file under its own thread.
-7. Click **Publish**.
-
-When marker mentions are configured, Loupe adds the relevant mentions to the session thread and the marker attachment/comment in **All markers in one thread** mode, or to each marker root message in **Every marker per thread** mode. If a marker has no selected users, Loupe falls back to the optional fallback users from Publish settings.
-
-The mention model is provider-neutral: marker picks store Loupe mention identity ids. Loupe prefers email when matching Slack and GitLab users, then falls back to provider IDs and names. Slack resolves identities to `<@USERID>`, while GitLab resolves the same people to `@username` when a GitLab username is configured.
+1. Export selected markers.
+2. In the export dialog, enable **Slack**.
+3. Choose a Slack channel.
+4. Pick thread layout:
+   - **All markers in one thread**: one session message, then marker files in that thread.
+   - **Every marker per thread**: one root message per marker.
+5. Publish.
 
 ## Troubleshooting
 
-### `Slack OAuth client ID is missing`
+### `invalid_team_for_non_distributed_app`
 
-Loupe could not find a client ID from saved settings, environment variables, or the built-in default path.
+The Slack app is not distributed and is being installed outside the workspace that owns it. Create a Slack app in that workspace, or use a distributed Slack app with HTTPS OAuth callback infrastructure.
 
-Check these values:
+### Missing scopes
 
-- `slack.oauthClientId` in saved settings
-- `LOUPE_SLACK_OAUTH_CLIENT_ID` in the launch environment
-- the Slack app **Client ID** copied from **Basic Information**
+Add the required scopes, reinstall the Slack app, then reconnect Slack in Loupe.
 
-If you use your own Slack app, also make sure the redirect URI in Slack exactly matches:
+### Channel not found or bot not in channel
 
-```text
-loupe://slack-oauth
-```
+For bot token mode, invite the Slack app/bot to the target channel. For private channels, the bot must be a member.
 
-### `not_in_channel`
+### Token revoked or wrong workspace
 
-The bot is not a member of the target channel. Invite it:
+Reconnect OAuth or paste the current bot token from the correct Slack workspace.
 
-```text
-/invite @your-bot-name
-```
+### File upload failure
 
-If you are posting to a public channel without inviting the bot, add the `chat:write.public` scope and reinstall the Slack app.
-
-### `missing_scope`
-
-The app is missing a required permission. Add `chat:write`, `files:write`, and `users:read`, then reinstall the Slack app.
-
-### `invalid_auth`
-
-The token is wrong, revoked, or from a different workspace. Copy the current **Bot User OAuth Token** from Slack app settings.
-
-### `files.getUploadURLExternal failed: invalid_arguments`
-
-Slack rejected one file upload request. Common causes:
-
-- the file is empty
-- the filename is too long or contains characters Slack rejects
-- the workspace restricts uploads
-
-Loupe shortens filenames for Slack uploads and continues publishing remaining files when one attachment fails.
+Loupe shortens filenames for Slack uploads and continues publishing remaining files when one attachment fails. Check the export result message for failed file details.

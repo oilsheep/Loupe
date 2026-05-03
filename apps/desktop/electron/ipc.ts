@@ -233,7 +233,52 @@ function safeFilePart(value: string): string {
 }
 
 function slackApiTokenForUsers(settings: SlackPublishSettings): string {
-  return (settings.publishIdentity === 'user' ? settings.userToken : settings.botToken)?.trim() || settings.botToken.trim() || settings.userToken?.trim() || ''
+  return settings.publishIdentity === 'bot'
+    ? settings.botToken.trim()
+    : settings.userToken?.trim() || ''
+}
+
+function friendlySlackDirectoryError(settings: SlackPublishSettings, err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/token_expired/i.test(message)) {
+    return new Error(settings.publishIdentity === 'bot'
+      ? 'Slack bot token expired or was revoked. Paste a new bot token in Preferences, save Slack settings, then refresh again.'
+      : 'Slack OAuth token expired. Reconnect Slack in Preferences, then refresh channels again.')
+  }
+  if (/invalid_auth|not_authed|account_inactive/i.test(message)) {
+    return new Error(settings.publishIdentity === 'bot'
+      ? 'Slack bot token is invalid or revoked. Paste a valid bot token in Preferences, save Slack settings, then refresh again.'
+      : 'Slack OAuth connection is invalid or revoked. Reconnect Slack in Preferences, then refresh again.')
+  }
+  if (/missing_scope/i.test(message)) {
+    return new Error('Slack is missing required permissions. Update the Slack app scopes, reinstall the app, then reconnect or save the token again.')
+  }
+  return err instanceof Error ? err : new Error(message)
+}
+
+function clearExpiredSlackToken(settings: SlackPublishSettings): SlackPublishSettings {
+  return settings.publishIdentity === 'bot'
+    ? { ...settings, botToken: '', channels: [], channelsFetchedAt: null }
+    : {
+      ...settings,
+      userToken: '',
+      oauthUserId: '',
+      oauthTeamId: '',
+      oauthTeamName: '',
+      oauthConnectedAt: null,
+      oauthUserScopes: [],
+      channels: [],
+      channelsFetchedAt: null,
+      mentionUsers: [],
+      usersFetchedAt: null,
+    }
+}
+
+function maybeClearExpiredSlackToken(settings: SettingsStore, slack: SlackPublishSettings, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/token_expired|invalid_auth|not_authed|account_inactive/i.test(message)) {
+    settings.setSlack(clearExpiredSlackToken(slack))
+  }
 }
 
 async function refreshSlackDirectory(settings: SlackPublishSettings, token: string): Promise<Partial<SlackPublishSettings>> {
@@ -2194,9 +2239,15 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async () => {
     const settings = deps.settings.get()
     const token = slackApiTokenForUsers(settings.slack)
-    const directory = (settings.slack.mentionUsers ?? []).length > 0 && (settings.slack.channels ?? []).length === 0
-      ? await refreshSlackChannelsOnly(settings.slack, token)
-      : await refreshSlackDirectory(settings.slack, token)
+    let directory: Partial<SlackPublishSettings>
+    try {
+      directory = (settings.slack.mentionUsers ?? []).length > 0 && (settings.slack.channels ?? []).length === 0
+        ? await refreshSlackChannelsOnly(settings.slack, token)
+        : await refreshSlackDirectory(settings.slack, token)
+    } catch (err) {
+      maybeClearExpiredSlackToken(deps.settings, settings.slack, err)
+      throw friendlySlackDirectoryError(settings.slack, err)
+    }
     const next = deps.settings.setSlack({
       ...settings.slack,
       ...directory,
@@ -2216,7 +2267,13 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async () => {
     const settings = deps.settings.get()
-    const directory = await refreshSlackChannelsOnly(settings.slack, slackApiTokenForUsers(settings.slack))
+    let directory: Partial<SlackPublishSettings>
+    try {
+      directory = await refreshSlackChannelsOnly(settings.slack, slackApiTokenForUsers(settings.slack))
+    } catch (err) {
+      maybeClearExpiredSlackToken(deps.settings, settings.slack, err)
+      throw friendlySlackDirectoryError(settings.slack, err)
+    }
     return deps.settings.setSlack({
       ...settings.slack,
       ...directory,

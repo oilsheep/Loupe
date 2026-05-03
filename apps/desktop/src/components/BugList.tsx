@@ -163,11 +163,31 @@ function slackPublishToken(settings: SlackPublishSettings | null): string {
   if (!settings) return ''
   const userToken = settings.userToken?.trim() ?? ''
   const botToken = settings.botToken.trim()
-  return settings.publishIdentity === 'bot' ? botToken : userToken || botToken
+  return settings.publishIdentity === 'bot' ? botToken : userToken
 }
 
 function isSlackConnected(settings: SlackPublishSettings | null): boolean {
   return Boolean(slackPublishToken(settings))
+}
+
+function slackConnectionLabel(settings: SlackPublishSettings | null, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  if (!settings) return t('publish.notConnected')
+  if (settings.publishIdentity === 'bot') {
+    return settings.botToken.trim() ? t('publish.connectedByBot') : t('publish.botTokenMissing')
+  }
+  if (settings.userToken?.trim()) {
+    const workspace = settings.oauthTeamName ? ` / ${settings.oauthTeamName}` : ''
+    const user = settings.oauthUserId ? ` ${settings.oauthUserId}` : ''
+    return `${t('publish.connectedByOAuth')}${user}${workspace}`
+  }
+  return t('publish.oauthTokenMissing')
+}
+
+function friendlySlackRefreshMessage(message: string, t: (key: string) => string): string {
+  if (/token_expired/i.test(message)) return t('publish.slackOauthExpired')
+  if (/invalid_auth|not_authed|account_inactive/i.test(message)) return t('publish.slackAuthInvalid')
+  if (/missing_scope/i.test(message)) return t('publish.slackMissingScope')
+  return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
 }
 
 function isGitLabConnected(settings: GitLabPublishSettings | null): boolean {
@@ -328,6 +348,7 @@ interface ExportConfirmDialogProps {
   mergeOriginalAudio: boolean
   hasSessionMicTrack: boolean
   hasMarkerAudioNotes: boolean
+  slackSettings: SlackPublishSettings | null
   slackConnected: boolean
   gitlabConnected: boolean
   googleDriveConnected: boolean
@@ -398,6 +419,7 @@ function ExportConfirmDialog({
   mergeOriginalAudio,
   hasSessionMicTrack,
   hasMarkerAudioNotes,
+  slackSettings,
   slackConnected,
   gitlabConnected,
   googleDriveConnected,
@@ -593,6 +615,9 @@ function ExportConfirmDialog({
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Slack</span>
                 <span className="mt-1 block text-xs text-zinc-500">{t('publish.slackDescription')}</span>
+                <span className={`mt-1 block text-xs ${slackConnected ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {slackConnectionLabel(slackSettings, t)}
+                </span>
               </span>
               {slackConnected ? (
                 <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
@@ -605,19 +630,29 @@ function ExportConfirmDialog({
                   />
                 </label>
               ) : (
-                <button
-                  type="button"
-                  onClick={onConnectSlack}
-                  disabled={busy || slackConnecting}
-                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                >
-                  {slackConnecting ? t('publish.connecting') : t('publish.connectSlack')}
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <button
+                    type="button"
+                    onClick={onConnectSlack}
+                    disabled={busy || slackConnecting}
+                    className="rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                  >
+                    {slackConnecting ? t('publish.connecting') : t('publish.connectSlack')}
+                  </button>
+                  <span className="max-w-44 text-right text-[11px] leading-snug text-zinc-500">
+                    {slackSettings?.publishIdentity === 'bot' ? t('publish.configureBotTokenInPreferences') : t('publish.oauthRecommended')}
+                  </span>
+                </div>
               )}
             </div>
 
             {isSlack && (
               <div className="mt-3 space-y-3 border-t border-blue-900/60 pt-3">
+              {slackSettings?.publishIdentity === 'bot' && (
+                <div className="rounded border border-amber-900/60 bg-amber-950/20 px-2 py-1.5 text-xs text-amber-100/80">
+                  {t('publish.botTokenChannelHelp')}
+                </div>
+              )}
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <label className="min-w-0 flex-1 text-xs text-zinc-500">
@@ -1630,7 +1665,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       const message = err instanceof Error ? err.message : String(err)
       setSlackDirectoryError(/ratelimited|rate.?limited/i.test(message)
         ? 'Slack rate limit reached. Keep the selected channel ID or try Refresh again in a minute.'
-        : message)
+        : friendlySlackRefreshMessage(message, t))
       return null
     } finally {
       slackDirectoryRefreshPromiseRef.current = null
@@ -1689,8 +1724,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setExportError('')
     try {
       const settings = await api.settings.get()
-      setSlackSettings(settings.slack)
-      const nextSettings = await api.settings.startSlackUserOAuth(settings.slack)
+      const oauthSlack = { ...settings.slack, publishIdentity: 'user' as const }
+      setSlackSettings(oauthSlack)
+      const nextSettings = await api.settings.startSlackUserOAuth(oauthSlack)
       setSlackSettings(nextSettings.slack)
       applySlackDirectory(nextSettings)
       setSlackChannelId(channelIdFromSettings(nextSettings.slack))
@@ -1746,7 +1782,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
     if (publishSlack && !isSlackConnected(slackSettings)) {
-      setExportError(t('publish.connectSlackFirst'))
+      setExportError(slackConnectionLabel(slackSettings, t))
       return
     }
     if (publishSlack && !slackChannelId.trim()) {
@@ -1954,6 +1990,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           mergeOriginalAudio={exportMergeOriginalAudio}
           hasSessionMicTrack={hasSessionMicTrack}
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
+          slackSettings={slackSettings}
           slackConnected={isSlackConnected(slackSettings)}
           gitlabConnected={isGitLabConnected(gitlabSettings)}
           googleDriveConnected={isGoogleDriveConnected(googleSettings)}

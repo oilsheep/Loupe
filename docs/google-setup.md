@@ -2,7 +2,7 @@
 
 Loupe can publish exported QA evidence to Google Drive and optionally append marker rows to a Google Sheet.
 
-Google publishing uses OAuth. The OAuth client ID / secret are bundled at build time, so testers do not need to type them in Loupe.
+Google publishing uses OAuth. The OAuth client ID / secret can be bundled at build time so testers do not need to type them in Loupe. If a build was created without bundled Google credentials, Loupe will show OAuth Client ID / Secret fields in Preferences > Publish > Google Drive.
 
 ## 1. Create A Google Cloud Project
 
@@ -83,6 +83,8 @@ pnpm --dir apps/desktop build
 ```
 
 `electron.vite.config.ts` injects those values into the Electron main bundle at build time. The source repo stays secret-free, but the packaged app still contains the OAuth client secret. This is suitable for internal distribution, not public distribution of a confidential OAuth client.
+
+If these variables are not present when packaging Loupe, the Google Drive section will not be connected by default. Open **Preferences > Publish > Google Drive**, paste the Desktop OAuth Client ID, optionally paste the Client Secret, then click **Connect Google**.
 
 ## 5. Configure Loupe
 

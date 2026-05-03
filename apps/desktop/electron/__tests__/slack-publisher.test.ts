@@ -58,6 +58,31 @@ function bug(over: Partial<Bug> = {}): Bug {
 }
 
 describe('Slack publisher', () => {
+  it('requires the selected Slack token type', async () => {
+    const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', logcatPath: null }]
+    const manifest = buildExportManifest({
+      session: session(),
+      bugs: [bug()],
+      files,
+      outDir: '/exports',
+      publish: { target: 'slack', slackThreadMode: 'single-thread' },
+    })
+
+    await expect(publishManifestToSlack({
+      manifest,
+      manifestPaths: { jsonPath: '/exports/export-manifest.json', csvPath: '/exports/export-manifest.csv' },
+      settings: { publishIdentity: 'user', userToken: '', botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+      fetchImpl: vi.fn(),
+    })).rejects.toThrow('Slack user OAuth token is missing')
+
+    await expect(publishManifestToSlack({
+      manifest,
+      manifestPaths: { jsonPath: '/exports/export-manifest.json', csvPath: '/exports/export-manifest.csv' },
+      settings: { publishIdentity: 'bot', userToken: 'xoxp-test', botToken: '', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+      fetchImpl: vi.fn(),
+    })).rejects.toThrow('Slack bot token is missing')
+  })
+
   it('posts summary text, attaches the PDF, and uploads only marker videos in single-thread mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-slack-'))
     try {
