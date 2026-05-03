@@ -216,7 +216,7 @@ APPLE_API_ISSUER='<ISSUER_UUID>' \
 檢查 app 簽名：
 
 ```bash
-codesign --verify --deep --strict --verbose=2 "apps/desktop/dist/mac-arm64/Loupe QA Recorder.app"
+codesign --verify --verbose=4 "apps/desktop/dist/mac-arm64/Loupe QA Recorder.app"
 spctl --assess --type execute --verbose "apps/desktop/dist/mac-arm64/Loupe QA Recorder.app"
 ```
 
