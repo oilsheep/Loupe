@@ -148,7 +148,7 @@ jobs:
           codesign --verify --verbose=4 "${app_path}"
           xcrun stapler validate "${app_path}"
           spctl --assess --type execute --verbose=4 "${app_path}"
-          spctl --assess --type open --verbose=4 "${dmg_path}"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg_path}"
 
       - name: Package Windows binary
         if: matrix.platform == 'win'

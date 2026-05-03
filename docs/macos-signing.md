@@ -229,7 +229,7 @@ xcrun stapler validate "apps/desktop/dist/mac-arm64/Loupe QA Recorder.app"
 檢查 DMG：
 
 ```bash
-spctl --assess --type open --verbose "apps/desktop/dist/Loupe QA Recorder-0.1.0-arm64.dmg"
+spctl --assess --type open --context context:primary-signature --verbose "apps/desktop/dist/Loupe QA Recorder-0.1.0-arm64.dmg"
 ```
 
 ## 常見問題
