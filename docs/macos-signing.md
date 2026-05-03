@@ -179,6 +179,10 @@ APPLE_API_KEY_ID
 APPLE_API_ISSUER
 ```
 
+手動下載 GitHub Actions artifact 時，請使用 macOS artifact 裡的 `.dmg`。不要直接打開
+`mac-arm64/Loupe QA Recorder.app` 這類 unpacked app bundle；GitHub artifact 重新打包後可能破壞
+裸 `.app` 的簽章結構。
+
 ## 本機 Signed Build
 
 一般本機測試用未簽名 build 即可：

@@ -155,14 +155,24 @@ jobs:
         shell: powershell
         run: .\start-dev.bat build
 
-      - name: Upload packaged binary
+      - name: Upload macOS installer
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/desktop/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows installer
+        if: matrix.platform == 'win'
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: |
-            apps/desktop/dist/**
-            !apps/desktop/dist/**/*.blockmap
-            !apps/desktop/dist/latest*.yml
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.msi
+            apps/desktop/dist/*.zip
           if-no-files-found: error
           retention-days: 14
 
