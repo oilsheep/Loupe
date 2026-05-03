@@ -61,6 +61,57 @@ export function sortGoogleFolders(folders: GoogleDriveFolder[]): GoogleDriveFold
   return [...folders].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function maskSlackToken(value: string): string {
+  const token = value.trim()
+  if (!token) return ''
+  if (token.length <= 10) return '••••'
+  return `${token.slice(0, 6)}...${token.slice(-4)}`
+}
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string
+
+function SlackSetupGuide({ mode, t }: { mode: 'user' | 'bot'; t: Translate }) {
+  const prefix = mode === 'user' ? 'oauth' : 'bot'
+  const stepCount = mode === 'user' ? 5 : 6
+  return (
+    <details className="mt-3 rounded border border-zinc-800 bg-zinc-950/70 p-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-zinc-200">
+        <span>{t(`preferences.slackSetup.${prefix}.title`)}</span>
+        <span className="text-[11px] font-normal text-zinc-500">{t('preferences.slackSetup.expandHint')}</span>
+      </summary>
+      <div className="mt-3 space-y-2">
+        {Array.from({ length: stepCount }, (_, index) => index + 1).map(step => (
+          <div key={step} className="rounded border border-zinc-800 bg-zinc-900/70 p-2">
+            <div className="text-xs font-medium text-zinc-200">
+              {t('preferences.slackSetup.stepLabel', { step })} {t(`preferences.slackSetup.${prefix}.step${step}Title`)}
+            </div>
+            <div className="mt-2 text-[11px] leading-5 text-zinc-500">
+              {t(`preferences.slackSetup.${prefix}.step${step}Body`)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/70 p-2">
+        <div className="text-xs font-medium text-zinc-200">{t(`preferences.slackSetup.${prefix}.scopesTitle`)}</div>
+        <div className="mt-2 grid gap-1.5">
+          {(mode === 'user'
+            ? ['chatWrite', 'filesWrite', 'usersRead', 'channelsRead', 'groupsRead']
+            : ['chatWrite', 'filesWrite', 'channelsRead', 'groupsRead', 'usersRead', 'usersReadEmail', 'chatWritePublic']
+          ).map(scope => (
+            <div key={scope} className="grid gap-1 rounded bg-zinc-950/70 px-2 py-1.5 text-[11px] leading-5 text-zinc-500 sm:grid-cols-[150px_1fr]">
+              <code className="text-zinc-200">{t(`preferences.slackSetup.scope.${scope}.name`)}</code>
+              <span>{t(`preferences.slackSetup.scope.${scope}.body`)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 rounded border border-blue-900/50 bg-blue-950/20 px-2 py-1.5 text-[11px] leading-5 text-blue-100/80">
+        {t(`preferences.slackSetup.${prefix}.tip`)}
+      </div>
+    </details>
+  )
+}
+
 function MentionIdentityBadges({ identity }: { identity: MentionIdentity }) {
   const { t } = useI18n()
   const hasSlack = Boolean(identity.slackUserId)
@@ -155,6 +206,7 @@ interface PreferencesDialogProps {
   onSaveCommonSession(value: CommonSessionSettings): void
   onSlackChange(value: SlackPublishSettings): void
   onStartSlackOAuth(): void
+  onSaveSlack(): void
   onRefreshSlackUsers(): void
   onGitLabChange(value: GitLabPublishSettings): void
   onGitLabLabelsInputChange(value: string): void
@@ -245,6 +297,7 @@ export function PreferencesDialog({
   onSaveCommonSession,
   onSlackChange,
   onStartSlackOAuth,
+  onSaveSlack,
   onRefreshSlackUsers,
   onGitLabChange,
   onGitLabLabelsInputChange,
@@ -275,6 +328,7 @@ export function PreferencesDialog({
 }: PreferencesDialogProps) {
   const { t, resolvedLocale } = useI18n()
   const zh = resolvedLocale.startsWith('zh')
+  const googleHasOAuthCredentials = Boolean(google.oauthClientId?.trim())
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
 
   useEffect(() => {
@@ -549,53 +603,109 @@ export function PreferencesDialog({
             <div className="min-w-0 space-y-3">
               <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.slack')}</summary>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs text-zinc-500">
-                      {slack.oauthUserId
-                        ? t('preferences.slackConnectedAs', { user: slack.oauthUserId, workspace: slack.oauthTeamName ? t('preferences.slackWorkspaceSuffix', { workspace: slack.oauthTeamName }) : '' })
-                        : t('preferences.slackChooseAccount')}
-                    </div>
-                    {(slackSaved || slack.oauthConnectedAt) && (
-                      <div className="mt-1 text-[11px] text-emerald-300">
-                        {slackSaved ? t('preferences.slackConnected') : t('preferences.connectedAt', { date: new Date(slack.oauthConnectedAt ?? '').toLocaleString() })}
-                      </div>
-                    )}
-                    {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    {(slack.oauthUserId || slack.userToken?.trim()) && (
-                      <span className="text-xs text-emerald-300">{t('common.connected')}</span>
-                    )}
-                    <button type="button" onClick={onStartSlackOAuth} disabled={startingSlackOAuth} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-50">
-                      {startingSlackOAuth ? t('preferences.waiting') : slack.oauthUserId ? t('preferences.reconnectSlack') : t('preferences.connectSlack')}
-                    </button>
+                <div className="mt-3 rounded border border-amber-900/60 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100/80">
+                  <div className="font-medium text-amber-100">{t('preferences.slackMultiCompanyTitle')}</div>
+                  <div className="mt-1">{t('preferences.slackMultiCompanyHelp')}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a href="https://docs.slack.dev/distribution" className="text-amber-200 underline" target="_blank" rel="noreferrer">{t('preferences.slackDistributionDocs')}</a>
+                    <a href="https://docs.slack.dev/authentication/installing-with-oauth" className="text-amber-200 underline" target="_blank" rel="noreferrer">{t('preferences.slackOauthDocs')}</a>
                   </div>
                 </div>
+
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.oauthClientId')}
-                    <input
-                      value={slack.oauthClientId ?? ''}
-                      onChange={(e) => onSlackChange({ ...slack, oauthClientId: e.target.value })}
-                      placeholder={t('preferences.slackClientIdPlaceholder')}
-                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                    />
-                  </label>
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.oauthClientSecret')}
-                    <input
-                      value={slack.oauthClientSecret ?? ''}
-                      onChange={(e) => onSlackChange({ ...slack, oauthClientSecret: e.target.value })}
-                      type="password"
-                      placeholder={t('preferences.slackClientSecretPlaceholder')}
-                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                    />
-                  </label>
+                  {(['user', 'bot'] as const).map(mode => {
+                    const active = (slack.publishIdentity ?? 'user') === mode
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => onSlackChange({ ...slack, publishIdentity: mode })}
+                        className={`rounded border p-3 text-left ${active ? 'border-blue-600 bg-blue-950/30 text-blue-100' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-900'}`}
+                      >
+                        <span className="block text-sm font-medium">{mode === 'user' ? t('preferences.slackOauthMode') : t('preferences.slackBotMode')}</span>
+                        <span className="mt-1 block text-xs leading-5">{mode === 'user' ? t('preferences.slackOauthModeHelp') : t('preferences.slackBotModeHelp')}</span>
+                      </button>
+                    )
+                  })}
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">
-                  {t('preferences.redirectUriFixed')} <span className="font-mono text-zinc-400">loupe://slack-oauth</span>
-                </div>
+                <SlackSetupGuide mode={(slack.publishIdentity ?? 'user') === 'bot' ? 'bot' : 'user'} t={t} />
+
+                {(slack.publishIdentity ?? 'user') === 'user' ? (
+                  <>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs text-zinc-500">
+                          {slack.oauthUserId
+                            ? t('preferences.slackConnectedAs', { user: slack.oauthUserId, workspace: slack.oauthTeamName ? t('preferences.slackWorkspaceSuffix', { workspace: slack.oauthTeamName }) : '' })
+                            : t('preferences.slackChooseAccount')}
+                        </div>
+                        {slack.oauthUserScopes && slack.oauthUserScopes.length > 0 && (
+                          <div className="mt-1 truncate text-[11px] text-zinc-600">{t('preferences.slackScopes')}: {slack.oauthUserScopes.join(', ')}</div>
+                        )}
+                        {(slackSaved || slack.oauthConnectedAt) && (
+                          <div className="mt-1 text-[11px] text-emerald-300">
+                            {slackSaved ? t('preferences.slackConnected') : t('preferences.connectedAt', { date: new Date(slack.oauthConnectedAt ?? '').toLocaleString() })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        {(slack.oauthUserId || slack.userToken?.trim()) && (
+                          <span className="text-xs text-emerald-300">{t('common.connected')}</span>
+                        )}
+                        <button type="button" onClick={onStartSlackOAuth} disabled={startingSlackOAuth} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-50">
+                          {startingSlackOAuth ? t('preferences.waiting') : slack.oauthUserId ? t('preferences.reconnectSlack') : t('preferences.connectSlack')}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.oauthClientId')}
+                        <input
+                          value={slack.oauthClientId ?? ''}
+                          onChange={(e) => onSlackChange({ ...slack, oauthClientId: e.target.value })}
+                          placeholder={t('preferences.slackClientIdPlaceholder')}
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        />
+                      </label>
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.oauthClientSecret')}
+                        <input
+                          value={slack.oauthClientSecret ?? ''}
+                          onChange={(e) => onSlackChange({ ...slack, oauthClientSecret: e.target.value })}
+                          type="password"
+                          placeholder={t('preferences.slackClientSecretPlaceholder')}
+                          className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-500">
+                      {t('preferences.redirectUriFixed')} <span className="font-mono text-zinc-400">loupe://slack-oauth</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-950 p-3">
+                    <div className="text-xs leading-5 text-zinc-500">{t('preferences.slackBotTokenHelp')}</div>
+                    <label className="mt-3 block min-w-0 text-xs text-zinc-500">
+                      {t('preferences.slackBotToken')}
+                      <input
+                        value={slack.botToken}
+                        onChange={(e) => onSlackChange({ ...slack, publishIdentity: 'bot', botToken: e.target.value })}
+                        type="password"
+                        placeholder="xoxb-..."
+                        className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                    <div className="mt-2 text-[11px] text-zinc-600">
+                      {slack.botToken.trim() ? t('preferences.slackBotTokenSavedAs', { token: maskSlackToken(slack.botToken) }) : t('preferences.slackBotTokenMissing')}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button type="button" onClick={onSaveSlack} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600">
+                        {t('preferences.saveSlackSettings')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
                 <div className="mt-3 rounded border border-zinc-800 bg-zinc-950">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
                     <div className="min-w-0">
@@ -605,7 +715,7 @@ export function PreferencesDialog({
                     <button
                       type="button"
                       onClick={onRefreshSlackUsers}
-                      disabled={refreshingSlackUsers || !slack.userToken?.trim()}
+                      disabled={refreshingSlackUsers || ((slack.publishIdentity ?? 'user') === 'user' ? !slack.userToken?.trim() : !slack.botToken.trim())}
                       className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
                     >
                       {refreshingSlackUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
@@ -629,12 +739,42 @@ export function PreferencesDialog({
 
               <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.googleDrive')}</summary>
-                <div className="mt-3 break-words rounded border border-zinc-800 bg-zinc-950/60 px-2 py-2 text-xs text-zinc-500">
-                  {t('preferences.googleOauthBundled', { uri: google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback' })}
+                <div className={`mt-3 break-words rounded border px-2 py-2 text-xs ${googleHasOAuthCredentials ? 'border-zinc-800 bg-zinc-950/60 text-zinc-500' : 'border-amber-800 bg-amber-950/30 text-amber-100'}`}>
+                  {googleHasOAuthCredentials
+                    ? t('preferences.googleOauthReady', { uri: google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback' })
+                    : t('preferences.googleOauthMissingHelp', { uri: google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback' })}
+                </div>
+                <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                  <div className="text-xs font-medium text-zinc-300">{t('preferences.googleOauthCredentials')}</div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className="min-w-0 text-xs text-zinc-500">
+                      {t('preferences.oauthClientId')}
+                      <input
+                        value={google.oauthClientId ?? ''}
+                        onChange={(e) => onGoogleChange({ ...google, oauthClientId: e.target.value })}
+                        placeholder={t('preferences.googleClientIdPlaceholder')}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                    <label className="min-w-0 text-xs text-zinc-500">
+                      {t('preferences.oauthClientSecret')}
+                      <input
+                        value={google.oauthClientSecret ?? ''}
+                        onChange={(e) => onGoogleChange({ ...google, oauthClientSecret: e.target.value })}
+                        type="password"
+                        placeholder={t('preferences.googleClientSecretPlaceholder')}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-2 text-[11px] leading-5 text-zinc-500">{t('preferences.googleOauthCredentialHelp')}</div>
+                </div>
+                <div className="mt-2 break-all rounded bg-zinc-950 px-2 py-1.5 text-[11px] text-zinc-500">
+                  {t('preferences.redirectUri')}: {google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback'}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                   {google.token.trim() && <span className="text-xs text-emerald-300">{google.accountEmail ? t('preferences.googleConnectedAs', { email: google.accountEmail }) : t('common.connected')}</span>}
-                  <button type="button" onClick={onConnectGoogleOAuth} disabled={connectingGoogleOAuth} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                  <button type="button" onClick={onConnectGoogleOAuth} disabled={connectingGoogleOAuth || !googleHasOAuthCredentials} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
                     {connectingGoogleOAuth ? t('preferences.connecting') : t('preferences.connectGoogle')}
                   </button>
                   {connectingGoogleOAuth && (

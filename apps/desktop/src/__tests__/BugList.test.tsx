@@ -324,7 +324,7 @@ describe('BugList', () => {
   })
 
   it('passes Slack thread layout through publish options', async () => {
-    const api = fakeApi({ slack: { botToken: 'xoxb-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
@@ -335,6 +335,24 @@ describe('BugList', () => {
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       publish: expect.objectContaining({ target: 'slack', slackThreadMode: 'per-marker-thread' }),
     })))
+  })
+
+  it('does not treat a bot token as connected while OAuth mode is selected', async () => {
+    const api = fakeApi({ slack: { publishIdentity: 'user', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    expect(screen.getByText('Slack OAuth is selected, but no user token is connected.')).toBeTruthy()
+    expect(screen.getByText('Slack').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+  })
+
+  it('does not treat a user token as connected while bot token mode is selected', async () => {
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: '', userToken: 'xoxp-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    expect(screen.getByText('Slack bot token mode is selected, but no bot token is saved.')).toBeTruthy()
+    expect(screen.getByText('Slack').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
   })
 
   it('saves the selected GitLab project before publishing', async () => {
@@ -387,7 +405,7 @@ describe('BugList', () => {
   })
 
   it('keeps the publish dialog open when Slack publish fails', async () => {
-    const api = fakeApi({ slack: { botToken: 'xoxb-test', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
     api.bug.exportClip = vi.fn().mockRejectedValue(new Error('Slack channel ID is missing')) as any
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))

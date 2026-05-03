@@ -72,7 +72,13 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     if (label) mentionAliases[user.id] = label
   }
   const knownIds = new Set([...mentionUserIds, ...mentionUsers.map(user => user.id)])
-  const publishIdentity = raw?.publishIdentity === 'bot' ? 'bot' : 'user'
+  const publishIdentity = raw?.publishIdentity === 'bot'
+    ? 'bot'
+    : raw?.publishIdentity === 'user'
+      ? 'user'
+      : raw?.botToken && !raw?.userToken
+        ? 'bot'
+        : 'user'
   return {
     botToken: raw?.botToken || '',
     userToken: raw?.userToken || '',

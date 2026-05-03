@@ -58,7 +58,7 @@ describe('SettingsStore', () => {
       expect(settings.slack).toMatchObject({
         botToken: ' xoxb-test ',
         userToken: '',
-        publishIdentity: 'user',
+        publishIdentity: 'bot',
         channelId: ' C123 ',
         mentionUserIds: ['U123', 'U456'],
         mentionAliases: { U123: 'Miki', U456: 'QA Lead' },

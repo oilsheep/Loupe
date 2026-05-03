@@ -106,8 +106,22 @@ function parseListInput(value: string): string[] {
   return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
 }
 
+function friendlySlackRefreshMessage(message: string, t: (key: string) => string): string {
+  if (/token_expired/i.test(message)) return t('publish.slackOauthExpired')
+  if (/invalid_auth|not_authed|account_inactive/i.test(message)) return t('publish.slackAuthInvalid')
+  if (/missing_scope/i.test(message)) return t('publish.slackMissingScope')
+  return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
+}
+
+function friendlyGoogleMessage(message: string, t: (key: string) => string): string {
+  if (/Google OAuth client ID is missing/i.test(message)) return t('preferences.googleOauthClientIdMissing')
+  if (/Google refresh token is missing|Google OAuth token is missing/i.test(message)) return t('preferences.googleOauthTokenMissing')
+  if (/invalid_grant|token.*expired|revoked/i.test(message)) return t('preferences.googleOauthReconnectRequired')
+  return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
+}
+
 export function PreferencesController({ open, onClose }: PreferencesControllerProps) {
-  const { locale, localeOptions, setLocale } = useI18n()
+  const { locale, localeOptions, setLocale, t } = useI18n()
   const [exportRoot, setExportRoot] = useState('')
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
@@ -268,6 +282,27 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     }
   }
 
+  async function saveSlackSettings(next: SlackPublishSettings = slack) {
+    setSlackSaved(false)
+    setSlackError('')
+    try {
+      const settings = await api.settings.setSlack({
+        ...next,
+        botToken: next.botToken.trim(),
+        userToken: next.userToken?.trim() || '',
+        publishIdentity: next.publishIdentity === 'bot' ? 'bot' : 'user',
+        channelId: next.channelId.trim(),
+        oauthClientId: next.oauthClientId?.trim() || '',
+        oauthClientSecret: next.oauthClientSecret?.trim() || '',
+        oauthRedirectUri: 'loupe://slack-oauth',
+      })
+      applySettings(settings)
+      setSlackSaved(true)
+    } catch (err) {
+      setSlackError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function refreshSlackUsers() {
     setRefreshingSlackUsers(true)
     setSlackSaved(false)
@@ -277,7 +312,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       applySettings(settings)
       setSlackSaved(true)
     } catch (err) {
-      setSlackError(err instanceof Error ? err.message : String(err))
+      setSlackError(friendlySlackRefreshMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setRefreshingSlackUsers(false)
     }
@@ -415,10 +450,10 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     try {
       const settings = await api.settings.connectGoogleOAuth(googleSettingsInput())
       applySettings(settings)
-      setGoogleStatus('Connected. Refresh folders to load Drive destinations.')
+      setGoogleStatus(t('preferences.googleConnectedRefreshHint'))
       setGoogleSaved(true)
     } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : String(err))
+      setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setConnectingGoogleOAuth(false)
     }
@@ -449,7 +484,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
         ? browsingChildren ? 'No child folders found in the selected Drive folder.' : 'No Drive folders found. Create a folder or paste a folder URL.'
         : browsingChildren ? `Loaded ${folders.length} child folder${folders.length === 1 ? '' : 's'} in the selected Drive folder.` : `Loaded ${folders.length} Drive folder${folders.length === 1 ? '' : 's'}.`)
     } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : String(err))
+      setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setRefreshingGoogleFolders(false)
     }
@@ -469,7 +504,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       setNewGoogleFolderName('')
       setGoogleStatus(`Created folder: ${folder.name}`)
     } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : String(err))
+      setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setCreatingGoogleFolder(false)
     }
@@ -489,7 +524,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       })
       setGoogleStatus(sheets.length === 0 ? 'No Google spreadsheets found. Paste a spreadsheet URL if needed.' : `Loaded ${sheets.length} spreadsheet${sheets.length === 1 ? '' : 's'}.`)
     } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : String(err))
+      setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setRefreshingGoogleSpreadsheets(false)
     }
@@ -505,7 +540,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       setGoogle(prev => ({ ...prev, spreadsheetId: parseGoogleSpreadsheetInput(prev.spreadsheetId) }))
       setGoogleStatus(tabs.length === 0 ? 'No sheet tabs found.' : `Loaded ${tabs.length} sheet tab${tabs.length === 1 ? '' : 's'}.`)
     } catch (err) {
-      setGoogleError(err instanceof Error ? err.message : String(err))
+      setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
       setRefreshingGoogleSheetTabs(false)
     }
@@ -656,6 +691,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onSaveCommonSession={(next) => { void saveCommonSession(next) }}
       onSlackChange={(next) => { setSlack(next); setSlackSaved(false) }}
       onStartSlackOAuth={startSlackUserOAuth}
+      onSaveSlack={() => { void saveSlackSettings() }}
       onRefreshSlackUsers={() => { void refreshSlackUsers() }}
       onGitLabChange={(next) => { setGitLab(next); setGitLabSaved(false) }}
       onGitLabLabelsInputChange={(value) => { setGitLabLabelsInput(value); setGitLabSaved(false) }}
