@@ -226,10 +226,10 @@ spctl --assess --type execute --verbose "apps/desktop/dist/mac-arm64/Loupe QA Re
 xcrun stapler validate "apps/desktop/dist/mac-arm64/Loupe QA Recorder.app"
 ```
 
-檢查 DMG：
+檢查 DMG 映像檔完整性：
 
 ```bash
-spctl --assess --type open --context context:primary-signature --verbose "apps/desktop/dist/Loupe QA Recorder-0.1.0-arm64.dmg"
+hdiutil verify "apps/desktop/dist/Loupe QA Recorder-0.1.0-arm64.dmg"
 ```
 
 ## 常見問題
