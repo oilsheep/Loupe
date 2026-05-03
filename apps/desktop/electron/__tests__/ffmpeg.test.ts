@@ -203,6 +203,25 @@ describe('buildClipArgs', () => {
     expect(filter).not.toContain('0.100000')
   })
 
+  it('adds annotation box overlays only inside the exported clip window', () => {
+    const args = buildClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      startMs: 10_000,
+      endMs: 15_000,
+      severityColor: '#22c55e',
+      annotations: [
+        { id: 'outside', bugId: 'bug', x: 0.1, y: 0.1, width: 0.2, height: 0.2, startMs: 1000, endMs: 2000, createdAt: 1 },
+        { id: 'inside', bugId: 'bug', x: 0.25, y: 0.3, width: 0.4, height: 0.2, startMs: 12_000, endMs: 14_000, createdAt: 2 },
+      ],
+    })
+    const filter = args[args.indexOf('-filter:v') + 1]
+    expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.06:t=fill')
+    expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.55:t=3')
+    expect(filter).toContain("enable='between(t\\,2.000\\,4.000)'")
+    expect(filter).not.toContain('0.100000')
+  })
+
   it('throws when end<=start', () => {
     expect(() => buildClipArgs({ inputPath: 'in.mp4', outputPath: 'out.mp4', startMs: 5000, endMs: 5000 })).toThrow()
   })
@@ -310,6 +329,26 @@ describe('buildIntroClipArgs', () => {
     expect(args).toEqual(expect.arrayContaining(['-i', 'session-mic.webm', '-map', '[a]']))
     expect(filter).toContain('[2:a:0]atrim=start=5.000:duration=7.000')
     expect(filter).toContain('adelay=3000|3000[a]')
+  })
+
+  it('adds annotation boxes to the source clip segment but not the intro card', () => {
+    const args = buildIntroClipArgs({
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      severityColor: '#ff4d4f',
+      annotations: [
+        { id: 'a1', bugId: 'bug', x: 0.2, y: 0.3, width: 0.4, height: 0.2, startMs: 6000, endMs: 8000, createdAt: 1 },
+      ],
+    })
+    const filter = args[args.indexOf('-filter_complex') + 1]
+    expect(filter).toContain('[1:v:0]trim=start=5.000:duration=7.000,setpts=PTS-STARTPTS,drawbox=')
+    expect(filter).toContain("enable='between(t\\,1.000\\,3.000)'")
+    expect(filter).not.toContain('[introfit]drawbox')
   })
 })
 

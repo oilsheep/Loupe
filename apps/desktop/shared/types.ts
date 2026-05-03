@@ -226,6 +226,31 @@ export interface Bug {
   mentionUserIds?: string[]
   /** Origin of the marker. Missing in legacy sessions and treated as manual. */
   source?: MarkerSource
+  /** Video-space rectangular highlights attached to this marker. */
+  annotations?: BugAnnotation[]
+}
+
+export interface BugAnnotation {
+  id: string
+  bugId: string
+  kind?: 'rect' | 'ellipse' | 'freehand' | 'arrow' | 'text'
+  /** Normalized x coordinate relative to the visible video content. */
+  x: number
+  /** Normalized y coordinate relative to the visible video content. */
+  y: number
+  /** Normalized width relative to the visible video content. */
+  width: number
+  /** Normalized height relative to the visible video content. */
+  height: number
+  /** Freehand/arrow points in normalized video coordinates. */
+  points?: Array<{ x: number; y: number }>
+  /** Text annotation content. */
+  text?: string
+  /** Absolute session time where the annotation starts showing. */
+  startMs: number
+  /** Absolute session time where the annotation stops showing. */
+  endMs: number
+  createdAt: number
 }
 
 export type PublishTarget = 'local' | 'slack' | 'gitlab' | 'google-drive'
@@ -371,6 +396,9 @@ export interface DesktopApi {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string; preSec?: number; postSec?: number }): Promise<Bug>
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
     update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }): Promise<void>
+    addAnnotation(args: { bugId: string; kind?: BugAnnotation['kind']; x: number; y: number; width: number; height: number; points?: BugAnnotation['points']; text?: string; startMs: number; endMs: number }): Promise<BugAnnotation>
+    updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>): Promise<void>
+    deleteAnnotation(id: string): Promise<void>
     saveAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<void>
     transcribeAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<{ text: string }>
     delete(id: string):                                            Promise<void>

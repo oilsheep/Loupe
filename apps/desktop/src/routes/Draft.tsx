@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
+import type { AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
@@ -73,6 +73,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const goHome = useApp(s => s.goHome)
   const [data, setData] = useState<Loaded | null>(null)
   const [selectedBugId, setSelectedBugId] = useState<string | null>(null)
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [addingMarker, setAddingMarker] = useState(false)
   const [buildVersion, setBuildVersion] = useState('')
   const [platform, setPlatform] = useState('')
@@ -219,9 +220,38 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const updateBugClipWindow = useCallback(async (bug: Bug, preSec: number, postSec: number) => {
     const nextPre = Math.max(0, Math.round(preSec * 10) / 10)
     const nextPost = Math.max(0, Math.round(postSec * 10) / 10)
+    const durationMs = data?.session.durationMs ?? 0
+    const clipStartMs = Math.max(0, bug.offsetMs - nextPre * 1000)
+    const requestedClipEndMs = bug.offsetMs + nextPost * 1000
+    const clipEndMs = durationMs > 0 ? Math.min(durationMs, requestedClipEndMs) : requestedClipEndMs
+    const annotationUpdates: Array<{ id: string; startMs: number; endMs: number }> = []
+    const annotationDeletes: string[] = []
+    for (const annotation of bug.annotations ?? []) {
+      const startMs = Math.max(clipStartMs, annotation.startMs)
+      const endMs = Math.min(clipEndMs, annotation.endMs)
+      if (endMs - startMs < 100) {
+        annotationDeletes.push(annotation.id)
+      } else if (startMs !== annotation.startMs || endMs !== annotation.endMs) {
+        annotationUpdates.push({ id: annotation.id, startMs, endMs })
+      }
+    }
+    if (selectedAnnotationId && annotationDeletes.includes(selectedAnnotationId)) setSelectedAnnotationId(null)
     setData(prev => prev ? {
       ...prev,
-      bugs: prev.bugs.map(item => item.id === bug.id ? { ...item, preSec: nextPre, postSec: nextPost } : item),
+      bugs: prev.bugs.map(item => {
+        if (item.id !== bug.id) return item
+        return {
+          ...item,
+          preSec: nextPre,
+          postSec: nextPost,
+          annotations: (item.annotations ?? [])
+            .filter(annotation => !annotationDeletes.includes(annotation.id))
+            .map(annotation => {
+              const update = annotationUpdates.find(next => next.id === annotation.id)
+              return update ? { ...annotation, startMs: update.startMs, endMs: update.endMs } : annotation
+            }),
+        }
+      }),
     } : prev)
     await api.bug.update(bug.id, {
       note: bug.note,
@@ -230,7 +260,11 @@ export function Draft({ sessionId }: { sessionId: string }) {
       postSec: nextPost,
       mentionUserIds: bug.mentionUserIds ?? [],
     })
-  }, [])
+    await Promise.allSettled([
+      ...annotationDeletes.map(id => api.bug.deleteAnnotation(id)),
+      ...annotationUpdates.map(annotation => api.bug.updateAnnotation(annotation.id, { startMs: annotation.startMs, endMs: annotation.endMs })),
+    ])
+  }, [data?.session.durationMs, selectedAnnotationId])
 
   useEffect(() => api.onBugMarkRequested(addMarkerAtCurrentTime), [addMarkerAtCurrentTime])
 
@@ -300,10 +334,52 @@ export function Draft({ sessionId }: { sessionId: string }) {
 
   function selectBug(b: Bug) {
     setSelectedBugId(b.id)
+    setSelectedAnnotationId(null)
     const startMs = Math.max(0, b.offsetMs - b.preSec * 1000)
     const requestedEndMs = b.offsetMs + b.postSec * 1000
     const endMs = dur > 0 ? Math.min(dur, requestedEndMs) : requestedEndMs
     playerRef.current?.playWindow(startMs, endMs)
+  }
+
+  async function addAnnotation(bug: Bug, rect: Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height' | 'startMs' | 'endMs'> & Partial<Pick<BugAnnotation, 'kind' | 'points' | 'text'>>) {
+    const annotation = await api.bug.addAnnotation({ bugId: bug.id, ...rect })
+    setData(current => current
+      ? {
+          ...current,
+          bugs: current.bugs.map(item => item.id === bug.id
+            ? { ...item, annotations: [...(item.annotations ?? []), annotation] }
+            : item),
+        }
+      : current)
+    setSelectedAnnotationId(annotation.id)
+    playerRef.current?.seekToMs(annotation.startMs)
+    void refresh()
+  }
+
+  async function updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>) {
+    setData(current => current
+      ? {
+          ...current,
+          bugs: current.bugs.map(bug => ({
+            ...bug,
+            annotations: (bug.annotations ?? []).map(annotation => annotation.id === id ? { ...annotation, ...patch } : annotation),
+          })),
+        }
+      : current)
+    await api.bug.updateAnnotation(id, patch)
+    void refresh()
+  }
+
+  async function deleteAnnotation(id: string) {
+    await api.bug.deleteAnnotation(id)
+    if (selectedAnnotationId === id) setSelectedAnnotationId(null)
+    await refresh()
+  }
+
+  function selectAnnotation(bug: Bug, annotation: BugAnnotation) {
+    setSelectedBugId(bug.id)
+    setSelectedAnnotationId(annotation.id)
+    playerRef.current?.seekToMs(annotation.startMs)
   }
 
   function closeSession() {
@@ -386,8 +462,13 @@ export function Draft({ sessionId }: { sessionId: string }) {
           bugs={bugs}
           durationMs={dur}
           selectedBugId={selectedBugId}
+          selectedAnnotationId={selectedAnnotationId}
           onMarkerClick={selectBug}
           onClipWindowChange={updateBugClipWindow}
+          onAnnotationAdd={(bug, rect) => { void addAnnotation(bug, rect) }}
+          onAnnotationUpdate={(id, patch) => { void updateAnnotation(id, patch) }}
+          onAnnotationDelete={(id) => { void deleteAnnotation(id) }}
+          onAnnotationSelect={(annotationId) => setSelectedAnnotationId(annotationId)}
         />
       </main>
 
@@ -564,7 +645,11 @@ export function Draft({ sessionId }: { sessionId: string }) {
             sessionId={session.id}
             bugs={bugs}
             selectedBugId={selectedBugId}
+            selectedAnnotationId={selectedAnnotationId}
             onSelect={selectBug}
+            onAnnotationSelect={selectAnnotation}
+            onAnnotationUpdate={(id, patch) => { void updateAnnotation(id, patch) }}
+            onAnnotationDelete={(id) => { void deleteAnnotation(id) }}
             onMutated={refresh}
             buildVersion={buildVersion}
             platform={platform}

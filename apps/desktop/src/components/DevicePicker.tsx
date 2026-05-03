@@ -245,9 +245,9 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-zinc-300">{t('device.source')}</h2>
-        <button onClick={refresh} className="text-xs text-zinc-400 hover:text-zinc-200">{t('common.refresh')}</button>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <h2 className="min-w-0 text-sm font-medium text-zinc-300">{t('device.source')}</h2>
+        <button onClick={refresh} className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200">{t('common.refresh')}</button>
       </div>
 
       {error && <div className="rounded bg-red-950 px-3 py-2 text-xs text-red-200">{error}</div>}
@@ -257,7 +257,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-3 rounded border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+      <div className="grid min-w-0 grid-cols-3 rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
         {([
           ['pc', t('device.pcRecording')],
           ['android', t('device.androidDevices')],
@@ -267,7 +267,7 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
             key={tab}
             type="button"
             onClick={() => setSourceTab(tab)}
-            className={`min-w-0 rounded px-2 py-1.5 text-center leading-tight ${sourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+            className={`min-w-0 truncate rounded px-2 py-2 text-center leading-tight ${sourceTab === tab ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
             {label}
           </button>

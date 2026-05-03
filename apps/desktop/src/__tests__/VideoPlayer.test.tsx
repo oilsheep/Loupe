@@ -111,5 +111,58 @@ describe('VideoPlayer', () => {
     expect(onMarkerClick).toHaveBeenCalled()
     expect(video.currentTime).toBe(0)
   })
+
+  it('dragging the selected video creates an annotation box', () => {
+    const onAnnotationAdd = vi.fn()
+    render(
+      <VideoPlayer
+        api={fakeApi()}
+        src="file:///tmp/video.mp4"
+        bugs={[bug({ offsetMs: 1000, preSec: 1, postSec: 7 })]}
+        durationMs={20_000}
+        selectedBugId="b1"
+        onMarkerClick={vi.fn()}
+        onAnnotationAdd={onAnnotationAdd}
+      />
+    )
+
+    const video = screen.getByTestId('video-el') as HTMLVideoElement
+    Object.defineProperty(video, 'videoWidth', { value: 1000 })
+    Object.defineProperty(video, 'videoHeight', { value: 500 })
+    Object.defineProperty(video, 'getBoundingClientRect', {
+      value: () => ({ left: 0, width: 1000, top: 0, bottom: 500, right: 1000, height: 500, x: 0, y: 0, toJSON: () => {} }),
+    })
+    const overlay = screen.getByTestId('annotation-overlay').firstElementChild as HTMLDivElement
+    overlay.setPointerCapture = vi.fn()
+
+    fireEvent.pointerDown(overlay, { pointerId: 1, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 300, clientY: 250 })
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 300, clientY: 250 })
+
+    expect(onAnnotationAdd).toHaveBeenCalled()
+    const [, rect] = onAnnotationAdd.mock.calls[0]
+    expect(rect.x).toBeCloseTo(0.1)
+    expect(rect.y).toBeCloseTo(0.2)
+    expect(rect.width).toBeCloseTo(0.2)
+    expect(rect.height).toBeCloseTo(0.3)
+  })
+
+  it('renders selected marker annotation durations on the timeline', () => {
+    render(
+      <VideoPlayer
+        api={fakeApi()}
+        src="file:///tmp/video.mp4"
+        bugs={[bug({ annotations: [{ id: 'a1', bugId: 'b1', x: 0.1, y: 0.1, width: 0.2, height: 0.2, startMs: 9000, endMs: 12000, createdAt: 1 }] })]}
+        durationMs={20_000}
+        selectedBugId="b1"
+        selectedAnnotationId="a1"
+        onMarkerClick={vi.fn()}
+      />
+    )
+
+    const annotationWindow = screen.getByTestId('annotation-window-a1')
+    expect(annotationWindow.getAttribute('style')).toContain('left: 45%')
+    expect(annotationWindow.getAttribute('style')).toContain('width: 15%')
+  })
 })
 

@@ -123,6 +123,27 @@ describe('Db', () => {
     expect(b.postSec).toBe(7)
   })
 
+  it('stores, updates, lists, and deletes marker annotations', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.insertAnnotation({
+      id: 'ann-1',
+      bugId: 'bug-1',
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      startMs: 4200,
+      endMs: 6400,
+      createdAt: 1700000006000,
+    })
+    expect(db.listBugs('sess-1')[0].annotations).toEqual([expect.objectContaining({ id: 'ann-1', x: 0.1, startMs: 4200 })])
+    db.updateAnnotation('ann-1', { x: 0.25, endMs: 7000 })
+    expect(db.listBugs('sess-1')[0].annotations?.[0]).toEqual(expect.objectContaining({ x: 0.25, endMs: 7000 }))
+    db.deleteAnnotation('ann-1')
+    expect(db.listBugs('sess-1')[0].annotations).toEqual([])
+  })
+
   it('updates bug audio metadata', () => {
     db.insertSession(fixSession())
     db.insertBug(fixBug())

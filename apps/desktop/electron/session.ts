@@ -8,7 +8,7 @@ import { IosSyslogBuffer, type IosSyslogStartOptions } from './ios-syslog'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { Paths } from './paths'
-import type { Session, Bug, BugSeverity } from '@shared/types'
+import type { Session, Bug, BugAnnotation, BugSeverity } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
 import { assertVideoInputReadable, extractAudioTrack, extractThumbnail, probeMediaDurationMs, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
@@ -68,6 +68,47 @@ function sanitizeLogcatLineCount(value: number | undefined): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function clamp01(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
+}
+
+function sanitizeAnnotationRect(input: Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height'>): Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height'> {
+  const x = clamp01(input.x)
+  const y = clamp01(input.y)
+  const width = Math.max(0.001, Math.min(1 - x, Number.isFinite(input.width) ? input.width : 0.001))
+  const height = Math.max(0.001, Math.min(1 - y, Number.isFinite(input.height) ? input.height : 0.001))
+  return { x, y, width, height }
+}
+
+function sanitizeAnnotationKind(kind: BugAnnotation['kind'] | undefined): NonNullable<BugAnnotation['kind']> {
+  return kind === 'ellipse' || kind === 'freehand' || kind === 'arrow' || kind === 'text' ? kind : 'rect'
+}
+
+function sanitizeAnnotationPoints(points: BugAnnotation['points'] | undefined): NonNullable<BugAnnotation['points']> {
+  return Array.isArray(points)
+    ? points
+      .map(point => ({ x: clamp01(Number(point.x)), y: clamp01(Number(point.y)) }))
+      .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .slice(0, 500)
+    : []
+}
+
+interface AnnotationBugWindow {
+  session_id: string
+  offset_ms: number
+  pre_sec: number
+  post_sec: number
+}
+
+function clampAnnotationWindowForBug(row: AnnotationBugWindow, startMs: number, endMs: number): { startMs: number; endMs: number } | null {
+  const clipStartMs = Math.max(0, Number(row.offset_ms) - Number(row.pre_sec) * 1000)
+  const clipEndMs = Math.max(clipStartMs, Number(row.offset_ms) + Number(row.post_sec) * 1000)
+  const nextStartMs = Math.max(clipStartMs, Math.floor(startMs))
+  const nextEndMs = Math.min(clipEndMs, Math.ceil(endMs))
+  if (nextEndMs <= nextStartMs) return null
+  return { startMs: nextStartMs, endMs: nextEndMs }
 }
 
 function isIncompleteMp4Error(err: unknown): boolean {
@@ -563,6 +604,75 @@ export class SessionManager {
     this.deps.db.updateBug(id, patch)
     const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
     if (session?.session_id) this.persistProject(session.session_id)
+  }
+
+  addAnnotation(args: { bugId: string; kind?: BugAnnotation['kind']; x: number; y: number; width: number; height: number; points?: BugAnnotation['points']; text?: string; startMs: number; endMs: number }): BugAnnotation {
+    const row = this.deps.db.raw.prepare(`
+      SELECT session_id, offset_ms, pre_sec, post_sec
+      FROM bugs
+      WHERE id = ?
+    `).get(args.bugId) as AnnotationBugWindow | undefined
+    if (!row?.session_id) throw new Error('bug not found')
+    const window = clampAnnotationWindowForBug(row, args.startMs, args.endMs)
+    if (!window) throw new Error('annotation outside marker clip window')
+    const rect = sanitizeAnnotationRect(args)
+    const annotation: BugAnnotation = {
+      id: this.newId(),
+      bugId: args.bugId,
+      kind: sanitizeAnnotationKind(args.kind),
+      ...rect,
+      points: sanitizeAnnotationPoints(args.points),
+      text: args.text?.trim() ?? '',
+      startMs: window.startMs,
+      endMs: window.endMs,
+      createdAt: this.now(),
+    }
+    this.deps.db.insertAnnotation(annotation)
+    this.persistProject(row.session_id)
+    return annotation
+  }
+
+  updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>): void {
+    const row = this.deps.db.raw.prepare(`
+      SELECT a.*, b.session_id, b.offset_ms, b.pre_sec, b.post_sec
+      FROM bug_annotations a
+      JOIN bugs b ON b.id = a.bug_id
+      WHERE a.id = ?
+    `).get(id) as (Record<string, unknown> & AnnotationBugWindow) | undefined
+    if (!row?.session_id) throw new Error('annotation not found')
+    const rectPatch = ['x', 'y', 'width', 'height'].some(key => typeof patch[key as keyof typeof patch] === 'number')
+      ? sanitizeAnnotationRect({
+          x: typeof patch.x === 'number' ? patch.x : Number(row.x),
+          y: typeof patch.y === 'number' ? patch.y : Number(row.y),
+          width: typeof patch.width === 'number' ? patch.width : Number(row.width),
+          height: typeof patch.height === 'number' ? patch.height : Number(row.height),
+        })
+      : {}
+    const requestedStartMs = typeof patch.startMs === 'number' ? patch.startMs : Number(row.start_ms)
+    const requestedEndMs = typeof patch.endMs === 'number' ? patch.endMs : Number(row.end_ms)
+    const window = clampAnnotationWindowForBug(row, requestedStartMs, requestedEndMs)
+    if (!window) throw new Error('annotation outside marker clip window')
+    this.deps.db.updateAnnotation(id, {
+      ...patch,
+      ...rectPatch,
+      ...(patch.kind ? { kind: sanitizeAnnotationKind(patch.kind) } : {}),
+      ...(patch.points ? { points: sanitizeAnnotationPoints(patch.points) } : {}),
+      ...(typeof patch.text === 'string' ? { text: patch.text.trim() } : {}),
+      startMs: window.startMs,
+      endMs: window.endMs,
+    })
+    this.persistProject(row.session_id)
+  }
+
+  deleteAnnotation(id: string): void {
+    const row = this.deps.db.raw.prepare(`
+      SELECT b.session_id
+      FROM bug_annotations a
+      JOIN bugs b ON b.id = a.bug_id
+      WHERE a.id = ?
+    `).get(id) as { session_id?: string } | undefined
+    this.deps.db.deleteAnnotation(id)
+    if (row?.session_id) this.persistProject(row.session_id)
   }
   saveBugAudio(sessionId: string, bugId: string, bytes: Buffer, durationMs: number): void {
     const bug = this.deps.db.listBugs(sessionId).find(b => b.id === bugId)

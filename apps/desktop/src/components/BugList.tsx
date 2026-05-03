@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { Bug, BugSeverity, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -9,8 +9,12 @@ interface Props {
   sessionId: string
   bugs: Bug[]
   selectedBugId: string | null
+  selectedAnnotationId?: string | null
   onSelect(bug: Bug): void
   onMutated(): void
+  onAnnotationSelect?(bug: Bug, annotation: BugAnnotation): void
+  onAnnotationUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'startMs' | 'endMs'>>): void
+  onAnnotationDelete?(id: string): void
   allowExport?: boolean
   autoFocusLatest?: boolean
   buildVersion?: string
@@ -51,6 +55,14 @@ const DEFAULT_SEVERITIES: SeveritySettings = {
   custom3: { label: '', color: '#14b8a6' },
   custom4: { label: '', color: '#eab308' },
 }
+const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
+  platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
+  projects: [],
+  testers: [],
+  lastPlatform: '',
+  lastProject: '',
+  lastTester: '',
+}
 
 const AUDIO_TRIGGER_WORDS = [
   '記錄一下', '记录一下', '紀錄一下', '註記一下', '注记一下',
@@ -60,9 +72,10 @@ const AUDIO_TRIGGER_WORDS = [
   'mark', 'record', 'note',
 ].sort((a, b) => b.length - a.length)
 
-function visibleSeverities(severities: SeveritySettings): BugSeverity[] {
-  const customSeverities = Object.keys(severities)
-    .filter(severity => !BASE_SEVERITIES.includes(severity) && severities[severity]?.label?.trim())
+function visibleSeverities(severities: SeveritySettings, bugs: Bug[] = []): BugSeverity[] {
+  const usedSeverities = new Set(bugs.map(bug => bug.severity).filter(severity => !BASE_SEVERITIES.includes(severity)))
+  const customSeverities = Array.from(new Set([...Object.keys(severities), ...usedSeverities]))
+    .filter(severity => !BASE_SEVERITIES.includes(severity) && (usedSeverities.has(severity) || severities[severity]?.label?.trim()))
     .sort((a, b) => {
       const aNum = Number(a.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
       const bNum = Number(b.match(/^custom(\d+)$/)?.[1] ?? Number.MAX_SAFE_INTEGER)
@@ -288,6 +301,12 @@ function exportRootFromOutputPath(filePath: string): string {
   return parts.slice(0, -1).join(filePath.includes('\\') ? '\\' : '/') || filePath
 }
 
+function appendCommonValue(values: string[], value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed) return values
+  return Array.from(new Set([...values, trimmed]))
+}
+
 interface ExportRequest {
   bugs: Bug[]
   bugIds: string[]
@@ -302,6 +321,7 @@ interface ExportConfirmDialogProps {
   project: string
   tester: string
   testNote: string
+  commonSession: CommonSessionSettings
   includeLogcat: boolean
   includeMicTrack: boolean
   includeOriginalFiles: boolean
@@ -371,6 +391,7 @@ function ExportConfirmDialog({
   project,
   tester,
   testNote,
+  commonSession,
   includeLogcat,
   includeMicTrack,
   includeOriginalFiles,
@@ -467,7 +488,7 @@ function ExportConfirmDialog({
         </label>
 
         <label className="mt-3 block text-xs font-semibold text-zinc-300">
-          Report title
+          {t('export.reportTitle')}
           <input
             value={reportTitle}
             onChange={(e) => onReportTitleChange(e.target.value)}
@@ -488,23 +509,27 @@ function ExportConfirmDialog({
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <label className="text-xs text-zinc-500">
-            Platform
+            {t('export.platform')}
             <input
               value={platform}
               onChange={(e) => onPlatformChange(e.target.value)}
+              list="export-common-platforms"
               placeholder="android"
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
           <label className="text-xs text-zinc-500">
-            Project
+            {t('export.project')}
             <input
               value={project}
               onChange={(e) => onProjectChange(e.target.value)}
-              placeholder="Project"
+              list="export-common-projects"
+              placeholder={t('export.project')}
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
+          <datalist id="export-common-platforms">{commonSession.platforms.map(item => <option key={item} value={item} />)}</datalist>
+          <datalist id="export-common-projects">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -513,6 +538,7 @@ function ExportConfirmDialog({
             <input
               value={tester}
               onChange={(e) => onTesterChange(e.target.value)}
+              list="export-common-testers"
               placeholder={t('export.qaName')}
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
@@ -526,6 +552,7 @@ function ExportConfirmDialog({
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
+          <datalist id="export-common-testers">{commonSession.testers.map(item => <option key={item} value={item} />)}</datalist>
         </div>
 
         <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
@@ -535,7 +562,7 @@ function ExportConfirmDialog({
             onChange={(e) => onIncludeLogcatChange(e.target.checked)}
             className="h-4 w-4 accent-blue-600"
           />
-          Export marker logcat as sidecar text files
+          {t('export.includeLogcat')}
         </label>
 
         {hasSessionMicTrack && (
@@ -547,9 +574,9 @@ function ExportConfirmDialog({
               className="mt-0.5 h-4 w-4 accent-blue-600"
             />
             <span>
-              <span className="block text-zinc-300">Use session MIC track in exported clips</span>
+              <span className="block text-zinc-300">{t('export.useMicTrack')}</span>
               {hasMarkerAudioNotes && (
-                <span className="mt-1 block text-amber-300">This replaces marker audio notes for these exports.</span>
+                <span className="mt-1 block text-amber-300">{t('export.useMicTrackWarning')}</span>
               )}
             </span>
           </label>
@@ -557,19 +584,19 @@ function ExportConfirmDialog({
 
         <div className="mt-4 space-y-3">
           <div>
-            <div className="text-xs font-medium text-zinc-300">Publish</div>
-            <div className="mt-1 text-xs text-zinc-500">Local files are always exported.</div>
+            <div className="text-xs font-medium text-zinc-300">{t('publish.title')}</div>
+            <div className="mt-1 text-xs text-zinc-500">{t('publish.localAlways')}</div>
           </div>
 
           <section className={`rounded border p-3 ${isSlack ? 'border-blue-700 bg-blue-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
             <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Slack</span>
-                <span className="mt-1 block text-xs text-zinc-500">Post the summary, detailed PDF, and marker videos to Slack.</span>
+                <span className="mt-1 block text-xs text-zinc-500">{t('publish.slackDescription')}</span>
               </span>
               {slackConnected ? (
                 <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <span>Publish</span>
+                  <span>{t('publish.toggle')}</span>
                   <input
                     type="checkbox"
                     checked={isSlack}
@@ -584,7 +611,7 @@ function ExportConfirmDialog({
                   disabled={busy || slackConnecting}
                   className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
                 >
-                  {slackConnecting ? 'Connecting...' : 'Connect Slack'}
+                  {slackConnecting ? t('publish.connecting') : t('publish.connectSlack')}
                 </button>
               )}
             </div>
@@ -594,7 +621,7 @@ function ExportConfirmDialog({
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <label className="min-w-0 flex-1 text-xs text-zinc-500">
-                    Channel
+                    {t('publish.channel')}
                     <SlackChannelPicker
                       channels={slackChannels}
                       value={slackChannelId}
@@ -612,17 +639,17 @@ function ExportConfirmDialog({
                     disabled={busy || slackDirectoryRefreshing}
                     className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
                   >
-                    {slackDirectoryRefreshing ? 'Refreshing...' : 'Refresh'}
+                    {slackDirectoryRefreshing ? t('publish.refreshing') : t('publish.refresh')}
                   </button>
                 </div>
                 {slackDirectoryError && <div className="mt-1 text-xs text-red-300">{slackDirectoryError}</div>}
                 {slackChannels.length === 0 && !slackDirectoryError && (
-                  <div className="mt-1 text-xs text-zinc-500">Reconnect Slack after scope changes, then refresh channels.</div>
+                  <div className="mt-1 text-xs text-zinc-500">{t('publish.reconnectSlackHelp')}</div>
                 )}
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500">Mentions</div>
+                <div className="text-xs text-zinc-500">{t('publish.mentions')}</div>
                 <div className="mt-1">
                   <MentionPicker
                     options={mentionOptions}
@@ -638,25 +665,25 @@ function ExportConfirmDialog({
               </div>
 
               <div>
-                <div className="text-xs text-zinc-500">Slack thread layout</div>
-                <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="Slack publish mode">
+                <div className="text-xs text-zinc-500">{t('publish.slackThreadLayout')}</div>
+                <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label={t('publish.slackPublishMode')}>
                   <button
                     type="button"
                     onClick={() => onSlackThreadModeChange('single-thread')}
                     className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'single-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
                   >
-                    All markers in one thread
+                    {t('publish.singleThread')}
                   </button>
                   <button
                     type="button"
                     onClick={() => onSlackThreadModeChange('per-marker-thread')}
                     className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'per-marker-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
                   >
-                    Every marker per thread
+                    {t('publish.perMarkerThread')}
                   </button>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">
-                  Marker-level mentions override this default mention list; otherwise these mentions are added to marker replies.
+                  {t('publish.markerMentionHelp')}
                 </div>
               </div>
             </div>
@@ -667,11 +694,11 @@ function ExportConfirmDialog({
             <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">GitLab</span>
-                <span className="mt-1 block text-xs text-zinc-500">Create GitLab issue output for the selected markers.</span>
+                <span className="mt-1 block text-xs text-zinc-500">{t('publish.gitlabDescription')}</span>
               </span>
               {gitlabConnected ? (
                 <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <span>Publish</span>
+                  <span>{t('publish.toggle')}</span>
                   <input
                     type="checkbox"
                     checked={isGitLab}
@@ -680,7 +707,7 @@ function ExportConfirmDialog({
                   />
                 </label>
               ) : (
-                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">????</span>
+                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">{t('publish.notConnected')}</span>
               )}
             </div>
 
@@ -689,7 +716,7 @@ function ExportConfirmDialog({
                 <div>
                   <div className="flex items-center justify-between gap-2">
                     <label className="min-w-0 flex-1 text-xs text-zinc-500">
-                      Project
+                      {t('export.project')}
                       <GitLabProjectPicker
                         projects={gitlabProjects}
                         value={gitlabProjectId}
@@ -706,31 +733,31 @@ function ExportConfirmDialog({
                       disabled={busy || gitlabProjectsRefreshing}
                       className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
                     >
-                      {gitlabProjectsRefreshing ? 'Refreshing...' : 'Refresh'}
+                      {gitlabProjectsRefreshing ? t('publish.refreshing') : t('publish.refresh')}
                     </button>
                   </div>
                   {gitlabProjectsError && <div className="mt-1 text-xs text-red-300">{gitlabProjectsError}</div>}
                   {gitlabProjects.length === 0 && !gitlabProjectsError && (
-                    <div className="mt-1 text-xs text-zinc-500">Refresh projects after setting a GitLab token in Publish settings, or enter group/project manually.</div>
+                    <div className="mt-1 text-xs text-zinc-500">{t('publish.gitlabProjectHelp')}</div>
                   )}
                 </div>
 
                 <div>
-                  <div className="text-xs text-zinc-500">GitLab publish mode</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="GitLab publish mode">
+                  <div className="text-xs text-zinc-500">{t('publish.gitlabMode')}</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label={t('publish.gitlabMode')}>
                     <button
                       type="button"
                       onClick={() => onGitLabModeChange('single-issue')}
                       className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
                     >
-                      Single issue
+                      {t('publish.singleIssue')}
                     </button>
                     <button
                       type="button"
                       onClick={() => onGitLabModeChange('per-marker-issue')}
                       className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
                     >
-                      Issue per marker
+                      {t('publish.issuePerMarker')}
                     </button>
                   </div>
                 </div>
@@ -742,11 +769,11 @@ function ExportConfirmDialog({
             <div className="flex items-center justify-between gap-3">
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Google Drive</span>
-                <span className="mt-1 block text-xs text-zinc-500">Upload the full local export folder to the configured Drive folder and update Google Sheet rows when enabled.</span>
+                <span className="mt-1 block text-xs text-zinc-500">{t('publish.googleDriveDescription')}</span>
               </span>
               {googleDriveConnected ? (
                 <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <span>Publish</span>
+                  <span>{t('publish.toggle')}</span>
                   <input
                     type="checkbox"
                     checked={isGoogleDrive}
@@ -755,7 +782,7 @@ function ExportConfirmDialog({
                   />
                 </label>
               ) : (
-                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">????</span>
+                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">{t('publish.notConnected')}</span>
               )}
             </div>
           </section>
@@ -811,7 +838,7 @@ function ExportConfirmDialog({
         <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
           <input
             type="checkbox"
-            aria-label="輸出全時長錄影"
+            aria-label={t('export.includeOriginalFiles')}
             data-testid="include-original-files"
             checked={includeOriginalFiles}
             onChange={(e) => {
@@ -821,8 +848,8 @@ function ExportConfirmDialog({
             className="mt-0.5 h-4 w-4 accent-blue-600"
           />
           <span>
-            <span className="block text-zinc-300">輸出全時長錄影</span>
-            <span className="mt-1 block text-zinc-500">Copies the full-length recording into the local export folder only. This file is not uploaded to Slack or GitLab.</span>
+            <span className="block text-zinc-300">{t('export.includeOriginalFiles')}</span>
+            <span className="mt-1 block text-zinc-500">{t('export.includeOriginalFilesHelp')}</span>
           </span>
         </label>
 
@@ -830,20 +857,19 @@ function ExportConfirmDialog({
           <label className="ml-6 mt-2 flex items-start gap-2 text-xs text-zinc-400">
             <input
               type="checkbox"
-              aria-label="合併音軌"
+              aria-label={t('export.mergeOriginalAudio')}
               data-testid="merge-original-audio"
               checked={mergeOriginalAudio}
               onChange={(e) => onMergeOriginalAudioChange(e.target.checked)}
               className="mt-0.5 h-4 w-4 accent-blue-600"
             />
             <span>
-              <span className="block text-zinc-300">合併音軌</span>
-              <span className="mt-1 block text-zinc-500">MIC audio is mixed over the original video audio; it does not replace the original track.</span>
+              <span className="block text-zinc-300">{t('export.mergeOriginalAudio')}</span>
+              <span className="mt-1 block text-zinc-500">{t('export.mergeOriginalAudioHelp')}</span>
             </span>
           </label>
         )}
         </div>
-
         <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
           <div className="flex justify-end gap-2">
           <button
@@ -949,7 +975,7 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
   return (
-    <div ref={rootRef} className="relative flex items-center gap-2" data-row-click-ignore="true">
+    <div ref={rootRef} className="relative flex items-center gap-2">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as BugSeverity)}
@@ -1218,6 +1244,7 @@ function GitLabProjectPicker({ projects, value, disabled = false, loading = fals
 }
 
 function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute', onChange }: MentionPickerProps) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [fixedMenuStyle, setFixedMenuStyle] = useState<CSSProperties | undefined>(undefined)
@@ -1315,9 +1342,9 @@ function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute
             />
           )}
           {options.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">Refresh Slack or GitLab users in Publish settings.</div>
+            <div className="px-2 py-2 text-xs text-zinc-500">{t('publish.refreshUsersHelp')}</div>
           ) : filteredOptions.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">No matching people.</div>
+            <div className="px-2 py-2 text-xs text-zinc-500">{t('publish.noMatchingPeople')}</div>
           ) : filteredOptions.map(option => (
             <label key={option.id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
               <input
@@ -1349,12 +1376,13 @@ interface OriginalFilesWarningDialogProps {
 }
 
 function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onConfirm }: OriginalFilesWarningDialogProps) {
+  const { t } = useI18n()
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" data-testid="original-files-warning">
       <div className="w-full max-w-md rounded-lg border border-amber-700 bg-zinc-900 p-4 shadow-2xl">
-        <div className="text-sm font-semibold text-amber-200">輸出全時長錄影可能會很大</div>
+        <div className="text-sm font-semibold text-amber-200">{t('export.originalFilesWarningTitle')}</div>
         <div className="mt-2 text-xs leading-5 text-zinc-400">
-          Loupe 會把全時長錄影輸出到本機輸出資料夾。這個檔案只會本地輸出，不會上傳到 Slack 或 GitLab；檔案可能很大，輸出時間和磁碟空間用量都會增加。
+          {t('export.originalFilesWarningBody')}
         </div>
         <label className="mt-4 flex items-center gap-2 text-xs text-zinc-300">
           <input
@@ -1363,7 +1391,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
             onChange={(e) => onRememberChange(e.target.checked)}
             className="h-4 w-4 accent-blue-600"
           />
-          以後不再詢問
+          {t('export.originalFilesWarningRemember')}
         </label>
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -1371,14 +1399,14 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
             onClick={onCancel}
             className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="rounded bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-500"
           >
-            繼續輸出
+            {t('export.originalFilesWarningConfirm')}
           </button>
         </div>
       </div>
@@ -1386,7 +1414,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, onSelect, onMutated, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar }: Props, ref) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
@@ -1432,10 +1460,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [exportId, setExportId] = useState<string | null>(null)
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [commonSession, setCommonSession] = useState<CommonSessionSettings>(DEFAULT_COMMON_SESSION)
   const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
   const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
   const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
-  const visibleSeverityList = useMemo(() => visibleSeverities(severities), [severities])
+  const visibleSeverityList = useMemo(() => visibleSeverities(severities, bugs), [severities, bugs])
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options = mentionIdentities.map(identity => {
       const details = [
@@ -1488,6 +1517,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setGitLabMode(settings.gitlab.mode)
       setGoogleSettings(settings.google)
       setMentionIdentities(settings.mentionIdentities ?? [])
+      setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
     }).catch(() => {})
   }, [api])
 
@@ -1716,7 +1746,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     const trimmedRoot = exportRoot.trim()
     if (!trimmedRoot) return
     if (publishSlack && !isSlackConnected(slackSettings)) {
-      setExportError('Connect Slack before exporting to Slack.')
+      setExportError(t('publish.connectSlackFirst'))
       return
     }
     if (publishSlack && !slackChannelId.trim()) {
@@ -1767,13 +1797,16 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       })
       let currentSettings = await api.settings.get()
       await api.settings.setCommonSession({
-        platforms: currentSettings.commonSession?.platforms ?? ['ios', 'android', 'windows', 'macOS', 'linux'],
-        projects: currentSettings.commonSession?.projects ?? [],
-        testers: currentSettings.commonSession?.testers ?? [],
+        platforms: appendCommonValue(currentSettings.commonSession?.platforms ?? DEFAULT_COMMON_SESSION.platforms, exportPlatform),
+        projects: appendCommonValue(currentSettings.commonSession?.projects ?? DEFAULT_COMMON_SESSION.projects, exportProject),
+        testers: appendCommonValue(currentSettings.commonSession?.testers ?? DEFAULT_COMMON_SESSION.testers, exportTester),
         lastPlatform: exportPlatform.trim(),
         lastProject: exportProject.trim(),
         lastTester: exportTester.trim(),
-      }).then(settings => { currentSettings = settings }).catch(() => {})
+      }).then(settings => {
+        currentSettings = settings
+        setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
+      }).catch(() => {})
       if (publishSlack && slackChannelId.trim()) {
         const manualMentions = normalizeManualSlackMentions(slackManualMentionInput)
         const nextMentionIds = Array.from(new Set([
@@ -1888,8 +1921,12 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
             tester={tester}
             severities={severities}
             visibleSeverities={visibleSeverityList}
+            selectedAnnotationId={selectedAnnotationId}
             mentionOptions={mentionOptions}
             slackAliases={slackAliases}
+            onAnnotationSelect={onAnnotationSelect}
+            onAnnotationUpdate={onAnnotationUpdate}
+            onAnnotationDelete={onAnnotationDelete}
             onToggleLogcat={() => setExpandedLogcatIds(prev => {
               const next = new Set(prev)
               if (next.has(b.id)) next.delete(b.id)
@@ -1910,6 +1947,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           project={exportProject}
           tester={exportTester}
           testNote={exportTestNote}
+          commonSession={commonSession}
           includeLogcat={exportIncludeLogcat}
           includeMicTrack={exportIncludeMicTrack}
           includeOriginalFiles={exportIncludeOriginalFiles}
@@ -1989,6 +2027,103 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   )
 })
 
+function formatRelativeSeconds(ms: number): string {
+  const value = Math.round((ms / 1000) * 10) / 10
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}s`
+}
+
+function annotationRelativeValue(bug: Bug, annotationMs: number): string {
+  return String(Math.round(((annotationMs - bug.offsetMs) / 1000) * 10) / 10)
+}
+
+function AnnotationBoxList({
+  bug,
+  selectedAnnotationId,
+  onSelect,
+  onUpdate,
+  onDelete,
+}: {
+  bug: Bug
+  selectedAnnotationId?: string | null
+  onSelect?(bug: Bug, annotation: BugAnnotation): void
+  onUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'startMs' | 'endMs'>>): void
+  onDelete?(id: string): void
+}) {
+  const annotations = bug.annotations ?? []
+  const clipStartMs = Math.max(0, bug.offsetMs - bug.preSec * 1000)
+  const clipEndMs = bug.offsetMs + bug.postSec * 1000
+  const updateStart = (annotation: BugAnnotation, value: string) => {
+    const startMs = Math.max(clipStartMs, Math.min(clipEndMs - 100, bug.offsetMs + (Number(value) || 0) * 1000))
+    const endMs = Math.min(clipEndMs, Math.max(startMs + 100, annotation.endMs))
+    onUpdate?.(annotation.id, { startMs, endMs })
+  }
+  const updateEnd = (annotation: BugAnnotation, value: string) => {
+    const endMs = Math.max(annotation.startMs + 100, Math.min(clipEndMs, bug.offsetMs + (Number(value) || 0) * 1000))
+    const startMs = Math.max(clipStartMs, Math.min(annotation.startMs, endMs - 100))
+    onUpdate?.(annotation.id, { startMs, endMs })
+  }
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/30 p-2 text-[11px] text-zinc-400">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="font-medium text-zinc-300">{annotations.length} {annotations.length === 1 ? 'box' : 'boxes'}</span>
+        <span className="text-zinc-600">annotation</span>
+      </div>
+      {annotations.length === 0 ? (
+        <div className="rounded bg-zinc-900/70 px-2 py-1 text-zinc-500">Drag on the video to add a box.</div>
+      ) : (
+        <div className="space-y-1">
+          {annotations.map(annotation => {
+            const active = annotation.id === selectedAnnotationId
+            return (
+              <div
+                key={annotation.id}
+                className={`grid grid-cols-[auto_1fr_1fr_auto] items-center gap-1 rounded px-1 py-1 ${active ? 'bg-blue-500/20 ring-1 ring-blue-500' : 'bg-zinc-900/80'}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelect?.(bug, annotation)}
+                  className="rounded px-1 text-left font-mono text-zinc-200 hover:bg-zinc-800"
+                  title="Seek to annotation"
+                >
+                  {formatRelativeSeconds(annotation.startMs - bug.offsetMs)} → {formatRelativeSeconds(annotation.endMs - bug.offsetMs)}
+                </button>
+                <label className="flex items-center gap-1">
+                  <span className="text-zinc-600">in</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    defaultValue={annotationRelativeValue(bug, annotation.startMs)}
+                    onBlur={(e) => updateStart(annotation, e.currentTarget.value)}
+                    className="w-full rounded bg-zinc-900 px-1 py-0.5 font-mono text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </label>
+                <label className="flex items-center gap-1">
+                  <span className="text-zinc-600">out</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    defaultValue={annotationRelativeValue(bug, annotation.endMs)}
+                    onBlur={(e) => updateEnd(annotation, e.currentTarget.value)}
+                    className="w-full rounded bg-zinc-900 px-1 py-0.5 font-mono text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onDelete?.(annotation.id)}
+                  className="rounded px-1 text-zinc-500 hover:bg-red-900/60 hover:text-red-100"
+                  title="Delete annotation"
+                >
+                  x
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface RowProps {
   bug: Bug
   api: DesktopApi
@@ -2005,13 +2140,17 @@ interface RowProps {
   tester: string
   severities: SeveritySettings
   visibleSeverities: BugSeverity[]
+  selectedAnnotationId?: string | null
   mentionOptions: MentionOption[]
   slackAliases: Record<string, string>
+  onAnnotationSelect?(bug: Bug, annotation: BugAnnotation): void
+  onAnnotationUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'startMs' | 'endMs'>>): void
+  onAnnotationDelete?(id: string): void
   onToggleLogcat(): void
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, mentionOptions, slackAliases, onToggleLogcat, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, selectedAnnotationId, mentionOptions, slackAliases, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -2248,6 +2387,16 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
             dropdownMode="fixed"
             onChange={changeMentions}
           />
+
+          {(isSelected || (bug.annotations?.length ?? 0) > 0) && (
+            <AnnotationBoxList
+              bug={bug}
+              selectedAnnotationId={selectedAnnotationId}
+              onSelect={onAnnotationSelect}
+              onUpdate={onAnnotationUpdate}
+              onDelete={onAnnotationDelete}
+            />
+          )}
 
           {logcatPreview && (
             <div className="rounded bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-400" data-testid={`logcat-preview-${bug.id}`} data-row-click-ignore="true">

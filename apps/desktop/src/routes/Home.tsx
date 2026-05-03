@@ -38,11 +38,11 @@ export function Home() {
     : 'Choose a PC, Android, or iOS source, then fill session details on the right and start recording.'
 
   return (
-    <div className="grid h-screen grid-cols-[340px_1fr] bg-zinc-950 text-zinc-100">
-      <aside className="min-h-0 overflow-y-auto border-r border-zinc-800 p-4">
+    <div className="grid h-screen grid-cols-[minmax(360px,390px)_1fr] bg-zinc-950 text-zinc-100">
+      <aside className="min-h-0 min-w-0 overflow-y-auto border-r border-zinc-800 p-4">
         <h1 className="mb-4 text-lg font-semibold">Loupe</h1>
 
-        <section className="mb-4 rounded-lg border border-blue-800/70 bg-blue-950/20 p-3">
+        <section className="mb-4 rounded-lg border border-blue-800/70 bg-blue-950/20 p-3.5 shadow-sm shadow-black/10">
           <div className="mb-3">
             <div className="text-sm font-semibold text-blue-100">{importTitle}</div>
             <div className="mt-1 text-xs leading-5 text-blue-100/60">{importBody}</div>
@@ -57,7 +57,7 @@ export function Home() {
           </button>
         </section>
 
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3.5 shadow-sm shadow-black/10">
           <div className="mb-3">
             <div className="text-sm font-semibold text-zinc-100">{recordingTitle}</div>
             <div className="mt-1 text-xs leading-5 text-zinc-500">{recordingBody}</div>

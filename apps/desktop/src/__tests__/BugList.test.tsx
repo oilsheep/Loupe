@@ -147,6 +147,33 @@ describe('BugList', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  it('shows annotation boxes and allows selecting/updating/deleting them', () => {
+    const onSelectAnnotation = vi.fn()
+    const onUpdateAnnotation = vi.fn()
+    const onDeleteAnnotation = vi.fn()
+    render(
+      <BugList
+        api={fakeApi()}
+        sessionId="s1"
+        bugs={[bug({ annotations: [{ id: 'a1', bugId: 'b1', x: 0.1, y: 0.2, width: 0.3, height: 0.4, startMs: 4000, endMs: 6500, createdAt: 1 }] })]}
+        selectedBugId="b1"
+        selectedAnnotationId="a1"
+        onSelect={vi.fn()}
+        onMutated={vi.fn()}
+        onAnnotationSelect={onSelectAnnotation}
+        onAnnotationUpdate={onUpdateAnnotation}
+        onAnnotationDelete={onDeleteAnnotation}
+      />
+    )
+    fireEvent.click(screen.getByText('-1.0s → +1.5s'))
+    expect(onSelectAnnotation).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), expect.objectContaining({ id: 'a1' }))
+    const inputs = screen.getAllByRole('spinbutton')
+    fireEvent.blur(inputs[0], { target: { value: '-2' } })
+    expect(onUpdateAnnotation).toHaveBeenCalledWith('a1', expect.objectContaining({ startMs: 3000 }))
+    fireEvent.click(screen.getByTitle('Delete annotation'))
+    expect(onDeleteAnnotation).toHaveBeenCalledWith('a1')
+  })
+
   it('typing in note + blur saves via api.bug.update', async () => {
     const api = fakeApi(); const onMutated = vi.fn()
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={onMutated} />)
@@ -222,6 +249,16 @@ describe('BugList', () => {
     expect(select.textContent).not.toContain('custom2')
   })
 
+  it('keeps deleted custom severities visible when existing markers still use them', async () => {
+    const api = fakeApi()
+    render(<BugList api={api} sessionId="s1" bugs={[bug({ severity: 'custom2' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
+    const select = await screen.findByTestId('severity-select-b1')
+    expect(select.textContent).toContain('custom2')
+    expect(screen.getByTestId('severity-button-b1').textContent).toContain('custom2')
+    fireEvent.change(select, { target: { value: 'normal' } })
+    await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ severity: 'normal' })))
+  })
+
   it('export-clip calls api.bug.exportClip', async () => {
     const api = fakeApi()
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -277,7 +314,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    expect(screen.getAllByText('????')).toHaveLength(2)
+    expect(screen.getAllByText('Not connected')).toHaveLength(2)
     expect(screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
     expect(screen.getByText('Google Drive').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
     fireEvent.click(screen.getByTestId('confirm-export'))
@@ -340,7 +377,7 @@ describe('BugList', () => {
 
     await screen.findByTestId('original-files-warning')
     expect(api.bug.exportClip).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByText('繼續輸出'))
+    fireEvent.click(screen.getByText('Continue export'))
 
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       includeOriginalFiles: true,

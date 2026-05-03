@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import type { Session, Bug, BugSeverity, SessionStatus } from '@shared/types'
+import type { Session, Bug, BugAnnotation, BugSeverity, SessionStatus } from '@shared/types'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -45,7 +45,23 @@ CREATE TABLE IF NOT EXISTS bugs (
   source TEXT NOT NULL DEFAULT 'manual'
 );
 
+CREATE TABLE IF NOT EXISTS bug_annotations (
+  id TEXT PRIMARY KEY,
+  bug_id TEXT NOT NULL REFERENCES bugs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'rect',
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  width REAL NOT NULL,
+  height REAL NOT NULL,
+  points_json TEXT NOT NULL DEFAULT '[]',
+  text TEXT NOT NULL DEFAULT '',
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
+CREATE INDEX IF NOT EXISTS idx_bug_annotations_bug ON bug_annotations(bug_id, start_ms);
 CREATE INDEX IF NOT EXISTS idx_sessions_started   ON sessions(started_at DESC);
 `
 
@@ -85,6 +101,37 @@ function rowToBug(r: any): Bug {
     preSec: r.pre_sec, postSec: r.post_sec,
     mentionUserIds: parseJsonStringArray(r.mention_user_ids),
     source,
+    annotations: [],
+  }
+}
+
+function rowToAnnotation(r: any): BugAnnotation {
+  return {
+    id: r.id,
+    bugId: r.bug_id,
+    kind: r.kind ?? 'rect',
+    x: Number(r.x),
+    y: Number(r.y),
+    width: Number(r.width),
+    height: Number(r.height),
+    points: parseAnnotationPoints(r.points_json),
+    text: r.text ?? '',
+    startMs: r.start_ms,
+    endMs: r.end_ms,
+    createdAt: r.created_at,
+  }
+}
+
+function parseAnnotationPoints(value: unknown): Array<{ x: number; y: number }> {
+  if (typeof value !== 'string' || !value.trim()) return []
+  try {
+    const parsed = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map(point => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+  } catch {
+    return []
   }
 }
 
@@ -95,6 +142,15 @@ function parseJsonStringArray(value: unknown): string[] {
     return Array.isArray(parsed) ? parsed.map(item => String(item).trim()).filter(Boolean) : []
   } catch {
     return []
+  }
+}
+
+function serializeAnnotation(annotation: BugAnnotation) {
+  return {
+    ...annotation,
+    kind: annotation.kind ?? 'rect',
+    pointsJson: JSON.stringify(annotation.points ?? []),
+    text: annotation.text ?? '',
   }
 }
 
@@ -166,6 +222,27 @@ function migrate(db: Database.Database): void {
   if (!cols.includes('audio_duration_ms')) db.exec(`ALTER TABLE bugs ADD COLUMN audio_duration_ms INTEGER`)
   if (!cols.includes('mention_user_ids')) db.exec(`ALTER TABLE bugs ADD COLUMN mention_user_ids TEXT NOT NULL DEFAULT '[]'`)
   if (!cols.includes('source')) db.exec(`ALTER TABLE bugs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bug_annotations (
+      id TEXT PRIMARY KEY,
+      bug_id TEXT NOT NULL REFERENCES bugs(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'rect',
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      points_json TEXT NOT NULL DEFAULT '[]',
+      text TEXT NOT NULL DEFAULT '',
+      start_ms INTEGER NOT NULL,
+      end_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bug_annotations_bug ON bug_annotations(bug_id, start_ms);
+  `)
+  const annotationCols = (db.pragma(`table_info('bug_annotations')`) as { name: string }[]).map(c => c.name)
+  if (!annotationCols.includes('kind')) db.exec(`ALTER TABLE bug_annotations ADD COLUMN kind TEXT NOT NULL DEFAULT 'rect'`)
+  if (!annotationCols.includes('points_json')) db.exec(`ALTER TABLE bug_annotations ADD COLUMN points_json TEXT NOT NULL DEFAULT '[]'`)
+  if (!annotationCols.includes('text')) db.exec(`ALTER TABLE bug_annotations ADD COLUMN text TEXT NOT NULL DEFAULT ''`)
 
   const bugTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='bugs'`).get() as { sql?: string } | undefined
   if (!bugTable?.sql?.includes(`'note'`) || bugTable?.sql?.includes(`CHECK(severity IN`)) {
@@ -278,6 +355,31 @@ export function openDb(file: string) {
   const deleteBugsBySourceForSessionStmt = db.prepare(`DELETE FROM bugs WHERE session_id = ? AND (source = ? OR (? = 'audio-auto' AND LTRIM(note) LIKE '[Audio]%'))`)
   const getBugStmt = db.prepare(`SELECT * FROM bugs WHERE id = ?`)
   const listBugsStmt  = db.prepare(`SELECT * FROM bugs WHERE session_id = ? ORDER BY offset_ms ASC`)
+  const insertAnnotationStmt = db.prepare(`
+    INSERT INTO bug_annotations (id, bug_id, kind, x, y, width, height, points_json, text, start_ms, end_ms, created_at)
+    VALUES (@id, @bugId, @kind, @x, @y, @width, @height, @pointsJson, @text, @startMs, @endMs, @createdAt)
+    ON CONFLICT(id) DO UPDATE SET
+      bug_id=excluded.bug_id,
+      kind=excluded.kind,
+      x=excluded.x,
+      y=excluded.y,
+      width=excluded.width,
+      height=excluded.height,
+      points_json=excluded.points_json,
+      text=excluded.text,
+      start_ms=excluded.start_ms,
+      end_ms=excluded.end_ms,
+      created_at=excluded.created_at
+  `)
+  const updateAnnotationStmt = db.prepare(`
+    UPDATE bug_annotations
+    SET kind=@kind, x=@x, y=@y, width=@width, height=@height, points_json=@pointsJson, text=@text, start_ms=@startMs, end_ms=@endMs
+    WHERE id=@id
+  `)
+  const getAnnotationStmt = db.prepare(`SELECT * FROM bug_annotations WHERE id = ?`)
+  const listAnnotationsForBugsSql = `SELECT * FROM bug_annotations WHERE bug_id IN __BUG_IDS__ ORDER BY start_ms ASC, created_at ASC`
+  const deleteAnnotationsForBugStmt = db.prepare(`DELETE FROM bug_annotations WHERE bug_id = ?`)
+  const deleteAnnotationStmt = db.prepare(`DELETE FROM bug_annotations WHERE id = ?`)
 
   return {
     raw: db,
@@ -324,7 +426,13 @@ export function openDb(file: string) {
       return (listSessionsStmt.all() as any[]).map(rowToSession)
     },
     deleteSession(id: string) { deleteSessionStmt.run(id) },
-    insertBug(b: Bug) { insertBugStmt.run({ ...b, source: b.source ?? 'manual', mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []) }) },
+    insertBug(b: Bug) {
+      insertBugStmt.run({ ...b, source: b.source ?? 'manual', mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []) })
+      if (b.annotations) {
+        deleteAnnotationsForBugStmt.run(b.id)
+        for (const annotation of b.annotations) insertAnnotationStmt.run(serializeAnnotation(annotation))
+      }
+    },
     updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
       const currentRow = getBugStmt.get(id) as any
       if (!currentRow) return
@@ -337,13 +445,32 @@ export function openDb(file: string) {
     updateBugAudio(id: string, args: { audioRel: string | null; audioDurationMs: number | null }) {
       updateBugAudioStmt.run({ id, ...args })
     },
+    insertAnnotation(annotation: BugAnnotation) {
+      insertAnnotationStmt.run(serializeAnnotation(annotation))
+    },
+    updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>) {
+      const currentRow = getAnnotationStmt.get(id) as any
+      if (!currentRow) return
+      const current = rowToAnnotation(currentRow)
+      updateAnnotationStmt.run(serializeAnnotation({ ...current, ...patch, id }))
+    },
+    deleteAnnotation(id: string) { deleteAnnotationStmt.run(id) },
     deleteBug(id: string) { deleteBugStmt.run(id) },
     deleteBugsForSession(sessionId: string) { deleteBugsForSessionStmt.run(sessionId) },
     deleteBugsBySourceForSession(sessionId: string, source: NonNullable<Bug['source']>): number {
       return Number(deleteBugsBySourceForSessionStmt.run(sessionId, source, source).changes ?? 0)
     },
     listBugs(sessionId: string): Bug[] {
-      return (listBugsStmt.all(sessionId) as any[]).map(rowToBug)
+      const bugs = (listBugsStmt.all(sessionId) as any[]).map(rowToBug)
+      if (bugs.length === 0) return bugs
+      const placeholders = bugs.map(() => '?').join(',')
+      const rows = db.prepare(listAnnotationsForBugsSql.replace('__BUG_IDS__', `(${placeholders})`)).all(...bugs.map(b => b.id)) as any[]
+      const annotationsByBug = new Map<string, BugAnnotation[]>()
+      for (const row of rows) {
+        const annotation = rowToAnnotation(row)
+        annotationsByBug.set(annotation.bugId, [...(annotationsByBug.get(annotation.bugId) ?? []), annotation])
+      }
+      return bugs.map(bug => ({ ...bug, annotations: annotationsByBug.get(bug.id) ?? [] }))
     },
     close() { db.close() },
   }

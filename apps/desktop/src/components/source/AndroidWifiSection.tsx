@@ -42,39 +42,49 @@ export function AndroidWifiSection({
   onManualPairCodeChange: (value: string) => void
   onSubmitManualPair: () => void
 }) {
-  const { t } = useI18n()
+  const { t, resolvedLocale } = useI18n()
+  const zh = resolvedLocale.startsWith('zh')
+  const scanLabel = zh ? '\u6383\u63cf' : t('device.scanWifi')
+  const pairTitle = zh ? '\u914d\u5c0d\u65b0 Android \u88dd\u7f6e' : 'Pair new Android device'
+  const pairHelp = zh
+    ? '\u4f7f\u7528 Android \u7121\u7dda\u9664\u932f\u4e2d\u7684\u300c\u4f7f\u7528\u914d\u5c0d\u78bc\u914d\u5c0d\u88dd\u7f6e\u300d\u5730\u5740\u3002\u914d\u5c0d\u5f8c\uff0c\u518d\u7528 Ready / Connect \u5730\u5740\u9023\u7dda\u3002'
+    : 'Use the pairing address shown in Android Wireless debugging. After pairing, connect with the ready/connect address.'
+  const connectTitle = zh ? '\u52a0\u5165 Wi-Fi \u88dd\u7f6e' : 'Add Wi-Fi device'
+  const connectHelp = zh
+    ? '\u8acb\u4f7f\u7528 Ready / Connect \u9023\u7dda\u57e0\uff0c\u4e0d\u662f pairing port\u3002'
+    : t('device.wifiManualHelp')
 
   return (
     <>
-      <div className="space-y-2 border-t border-zinc-800 pt-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <span className="min-w-0 text-xs leading-5 text-zinc-400">{t('device.wifiAuto')}</span>
+      <div className="space-y-3 border-t border-zinc-800 pt-4">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="min-w-0 text-xs font-medium leading-5 text-zinc-300">{t('device.wifiAuto')}</span>
           <button
             onClick={onRunMdnsScan}
             disabled={mdnsScanning}
             data-testid="mdns-scan-button"
-            className="w-full whitespace-nowrap rounded bg-teal-700 px-3 py-1.5 text-xs text-white hover:bg-teal-600 disabled:opacity-50 sm:w-auto"
+            className="shrink-0 whitespace-nowrap rounded bg-teal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-600 disabled:opacity-50"
           >
-            {mdnsScanning ? t('device.scanning') : t('device.scanWifi')}
+            {mdnsScanning ? t('device.scanning') : scanLabel}
           </button>
         </div>
 
         {mdnsEntries !== null && mdnsEntries.length === 0 && (
-          <div className="text-xs text-zinc-500">{t('device.noWifiDevices')}</div>
+          <div className="text-xs leading-5 text-zinc-500">{t('device.noWifiDevices')}</div>
         )}
 
         {mdnsEntries !== null && mdnsEntries.length > 0 && (
-          <div className="space-y-1">
+          <div className="space-y-2">
             {mdnsEntries.map(entry => (
               <div
                 key={`${entry.type}-${entry.ipPort}`}
                 data-testid={`mdns-entry-${entry.ipPort}`}
-                className="space-y-1 rounded bg-zinc-900 px-3 py-2"
+                className="space-y-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2"
               >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <span className="font-mono text-xs text-zinc-100">{entry.ipPort}</span>
-                    <span className={`ml-2 text-xs ${entry.type === 'pair' ? 'text-amber-400' : 'text-teal-400'}`}>
+                    <span className="block truncate font-mono text-xs text-zinc-100">{entry.ipPort}</span>
+                    <span className={`text-xs ${entry.type === 'pair' ? 'text-amber-400' : 'text-teal-400'}`}>
                       {entry.type === 'pair' ? t('device.needsPairing') : t('device.ready')}
                     </span>
                   </div>
@@ -82,7 +92,7 @@ export function AndroidWifiSection({
                     <button
                       onClick={() => onConnectMdnsEntry(entry)}
                       data-testid={`mdns-connect-button-${entry.ipPort}`}
-                      className="w-full whitespace-nowrap rounded bg-teal-700 px-3 py-1 text-xs text-white hover:bg-teal-600 sm:w-auto"
+                      className="shrink-0 whitespace-nowrap rounded bg-teal-700 px-3 py-1 text-xs text-white hover:bg-teal-600"
                     >
                       {t('device.connectButton')}
                     </button>
@@ -90,14 +100,14 @@ export function AndroidWifiSection({
                     <button
                       onClick={() => onTogglePairForm(entry.ipPort)}
                       data-testid={`mdns-pair-button-${entry.ipPort}`}
-                      className="w-full whitespace-nowrap rounded bg-amber-700 px-3 py-1 text-xs text-white hover:bg-amber-600 sm:w-auto"
+                      className="shrink-0 whitespace-nowrap rounded bg-amber-700 px-3 py-1 text-xs text-white hover:bg-amber-600"
                     >
                       {t('device.pair')}
                     </button>
                   )}
                 </div>
                 {entry.type === 'pair' && entry.ipPort in pairCodes && (
-                  <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                     <input
                       value={pairCodes[entry.ipPort] ?? ''}
                       onChange={e => onPairCodeChange(entry.ipPort, e.target.value)}
@@ -110,7 +120,7 @@ export function AndroidWifiSection({
                       onClick={() => onSubmitPair(entry)}
                       disabled={pairingInFlight.has(entry.ipPort)}
                       data-testid={`mdns-pair-submit-${entry.ipPort}`}
-                      className="w-full whitespace-nowrap rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50 sm:w-auto"
+                      className="shrink-0 whitespace-nowrap rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-50"
                     >
                       {pairingInFlight.has(entry.ipPort) ? t('device.pairing') : t('device.submit')}
                     </button>
@@ -122,59 +132,61 @@ export function AndroidWifiSection({
         )}
       </div>
 
-      <div className="border-t border-zinc-800 pt-3">
-        <label className="text-xs text-zinc-400">Pair Android manually (use the pairing address and six-digit code)</label>
-        <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(7rem,1fr)_minmax(7rem,0.8fr)_auto]">
+      <div className="border-t border-zinc-800 pt-4">
+        <label className="text-xs font-medium text-zinc-300">{pairTitle}</label>
+        <div className="mt-2 space-y-2">
           <input
             value={manualPairIpPort}
             onChange={e => onManualPairIpPortChange(e.target.value)}
             placeholder="ip:pairing-port"
             data-testid="manual-pair-ip-port"
-            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+            className="w-full min-w-0 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
           />
-          <input
-            value={manualPairCode}
-            onChange={e => onManualPairCodeChange(e.target.value)}
-            placeholder="6-digit code"
-            maxLength={6}
-            data-testid="manual-pair-code"
-            className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
-          />
-          <button
-            onClick={onSubmitManualPair}
-            disabled={manualPairBusy}
-            data-testid="manual-pair-submit"
-            className="w-full whitespace-nowrap rounded bg-amber-700 px-3 py-1 text-sm text-white hover:bg-amber-600 disabled:opacity-50 sm:w-auto"
-          >
-            {manualPairBusy ? 'pairing...' : 'pair'}
-          </button>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <input
+              value={manualPairCode}
+              onChange={e => onManualPairCodeChange(e.target.value)}
+              placeholder={t('device.codePlaceholder')}
+              maxLength={6}
+              data-testid="manual-pair-code"
+              className="min-w-0 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-amber-600"
+            />
+            <button
+              onClick={onSubmitManualPair}
+              disabled={manualPairBusy}
+              data-testid="manual-pair-submit"
+              className="shrink-0 whitespace-nowrap rounded bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+            >
+              {manualPairBusy ? t('device.pairing') : t('device.pair')}
+            </button>
+          </div>
         </div>
-        <div className="mt-1 text-[11px] text-zinc-500">
-          Use the address shown under Android Wireless debugging → Pair device with pairing code. After pairing, connect with the ready/connect address.
+        <div className="mt-2 text-[11px] leading-5 text-zinc-500">
+          {pairHelp}
         </div>
       </div>
 
-      <div className="border-t border-zinc-800 pt-3">
-        <label className="text-xs text-zinc-400">Add Wi-Fi device manually (use the connect port, not the pairing port)</label>
-        <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+      <div className="border-t border-zinc-800 pt-4">
+        <label className="text-xs font-medium text-zinc-300">{connectTitle}</label>
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <input
             value={wifiIp}
             onChange={e => onWifiIpChange(e.target.value)}
             placeholder={t('device.wifiConnectPlaceholder')}
             data-testid="wifi-ip"
-            className="min-w-0 flex-1 rounded bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+            className="min-w-0 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
           />
           <button
             onClick={onAddWifi}
             disabled={wifiBusy}
             data-testid="wifi-connect"
-            className="w-full whitespace-nowrap rounded bg-blue-700 px-3 py-1 text-sm text-white hover:bg-blue-600 disabled:opacity-50 sm:w-auto"
+            className="shrink-0 whitespace-nowrap rounded bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
           >
             {wifiBusy ? t('device.connecting') : t('common.connect')}
           </button>
         </div>
-        <div className="mt-1 text-[11px] text-zinc-500">
-          {t('device.wifiManualHelp')}
+        <div className="mt-2 text-[11px] leading-5 text-zinc-500">
+          {connectHelp}
         </div>
       </div>
     </>

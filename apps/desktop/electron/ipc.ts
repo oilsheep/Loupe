@@ -68,6 +68,9 @@ export const CHANNEL = {
   sessionSaveMicRecording: 'session:saveMicRecording',
   sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
+  bugAddAnnotation:        'bug:addAnnotation',
+  bugUpdateAnnotation:     'bug:updateAnnotation',
+  bugDeleteAnnotation:     'bug:deleteAnnotation',
   bugAddMarker:            'bug:addMarker',
   bugGetLogcatPreview:     'bug:getLogcatPreview',
   bugDelete:               'bug:delete',
@@ -683,6 +686,7 @@ async function exportBugEvidence(args: {
     tester: args.session.tester,
     testedAtMs: args.bug.createdAt,
     clicks,
+    annotations: args.bug.annotations ?? [],
   }
   await extractClip(args.deps.runner, ffmpegPath, clipOptions)
   await extractContactSheet(args.deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
@@ -897,7 +901,8 @@ function buildSlackSummaryText(session: Session, entries: ReportEntry[], pdfPath
     focusItems.length > 0 ? `*${majorItems.length > 0 ? 'Major issues' : 'Highlights'}*` : '',
     ...focusItems.map(entry => {
       const note = entry.bug.note.trim() || 'marker'
-      return `#${String(entry.index).padStart(2, '0')} [${entry.severityLabel}] ${note} (${formatReportTime(entry.clipStartMs)}-${formatReportTime(entry.clipEndMs)})`
+      const boxText = (entry.bug.annotations?.length ?? 0) > 0 ? `, ${entry.bug.annotations!.length} boxes` : ''
+      return `#${String(entry.index).padStart(2, '0')} [${entry.severityLabel}] ${note} (${formatReportTime(entry.clipStartMs)}-${formatReportTime(entry.clipEndMs)}${boxText})`
     }),
     '',
     pdfPath ? 'PDF: attached' : '',
@@ -946,6 +951,7 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
                 <div class="bug-meta">
                   ${escapeHtml(formatReportDate(entry.bug.createdAt))}
                   <span>Clip ${escapeHtml(formatReportTime(entry.clipStartMs))} - ${escapeHtml(formatReportTime(entry.clipEndMs))}</span>
+                  ${(entry.bug.annotations?.length ?? 0) > 0 ? `<span>${entry.bug.annotations!.length} boxes</span>` : ''}
                 </div>
                 <div class="bug-note">${escapeHtml(note)}</div>
                 ${entry.telemetryLine ? `<div class="bug-telemetry">${escapeHtml(entry.telemetryLine)}</div>` : ''}
@@ -2051,6 +2057,9 @@ export function registerIpc(deps: IpcDeps): void {
   })
 
   ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; preSec: number; postSec: number; mentionUserIds?: string[] }) => deps.manager.updateBug(id, patch))
+  ipcMain.handle(CHANNEL.bugAddAnnotation, async (_e, args: { bugId: string; x: number; y: number; width: number; height: number; startMs: number; endMs: number }) => deps.manager.addAnnotation(args))
+  ipcMain.handle(CHANNEL.bugUpdateAnnotation, async (_e, id: string, patch: any) => deps.manager.updateAnnotation(id, patch))
+  ipcMain.handle(CHANNEL.bugDeleteAnnotation, async (_e, id: string) => deps.manager.deleteAnnotation(id))
   ipcMain.handle(CHANNEL.bugGetLogcatPreview, async (_e, args: { sessionId: string; relPath: string; maxLines?: number }) => {
     const filePath = join(deps.paths.sessionDir(args.sessionId), args.relPath)
     if (!existsSync(filePath)) return null
@@ -2391,6 +2400,7 @@ export function registerIpc(deps: IpcDeps): void {
         testedAtMs: bug.createdAt,
         telemetryLine,
         clicks,
+        annotations: bug.annotations ?? [],
       }
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Writing ${imagePath}`, 2, total, 1, 1))
       await extractContactSheet(deps.runner, ffmpegPath, {
@@ -2551,6 +2561,7 @@ export function registerIpc(deps: IpcDeps): void {
           testedAtMs: bug.createdAt,
           telemetryLine,
           clicks,
+          annotations: bug.annotations ?? [],
         }
         emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Marker ${clipIndex} of ${bugs.length}: ${imagePath}`, baseProgress + 1, total, clipIndex, bugs.length))
         await extractContactSheet(deps.runner, ffmpegPath, {

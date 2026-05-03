@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import type { SpawnOptions } from 'node:child_process'
 import type { IProcessRunner } from './process-runner'
+import type { BugAnnotation } from '@shared/types'
 
 export interface ClipOptions {
   inputPath: string
@@ -22,6 +23,7 @@ export interface ClipOptions {
   tester?: string | null
   testedAtMs?: number | null
   clicks?: ClickPoint[]
+  annotations?: BugAnnotation[]
   severityLabel?: string | null
   severityColor?: string | null
   clipStartMs?: number | null
@@ -377,6 +379,73 @@ function clickOverlayFilters(clicks: ClickPoint[] | undefined, startMs: number, 
   return out
 }
 
+function annotationOverlayFilters(annotations: BugAnnotation[] | undefined, startMs: number, endMs: number, color: string): string[] {
+  if (!annotations?.length) return []
+  const out: string[] = []
+  const ffColor = ffmpegColor(color || '#f59e0b')
+  const dot = (x: number, y: number, enable: string, size = 5) => {
+    const half = size / 2
+    return `drawbox=x=iw*${Math.max(0, Math.min(1, x)).toFixed(6)}-${half}:y=ih*${Math.max(0, Math.min(1, y)).toFixed(6)}-${half}:w=${size}:h=${size}:color=${ffColor}@0.55:t=fill:${enable}`
+  }
+  const dottedLine = (a: { x: number; y: number }, b: { x: number; y: number }, enable: string, size = 5): string[] => {
+    const steps = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 80))
+    const filters: string[] = []
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps
+      filters.push(dot(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, enable, size))
+    }
+    return filters
+  }
+  for (const annotation of annotations) {
+    const fromMs = Math.max(startMs, annotation.startMs)
+    const toMs = Math.min(endMs, annotation.endMs)
+    if (toMs <= fromMs) continue
+    const x = Math.max(0, Math.min(1, annotation.x)).toFixed(6)
+    const y = Math.max(0, Math.min(1, annotation.y)).toFixed(6)
+    const w = Math.max(0.001, Math.min(1 - Number(x), annotation.width)).toFixed(6)
+    const h = Math.max(0.001, Math.min(1 - Number(y), annotation.height)).toFixed(6)
+    const from = ((fromMs - startMs) / 1000).toFixed(3)
+    const to = ((toMs - startMs) / 1000).toFixed(3)
+    const enable = `enable='between(t\\,${from}\\,${to})'`
+    const rect = `x=iw*${x}:y=ih*${y}:w=iw*${w}:h=ih*${h}`
+    const kind = annotation.kind ?? 'rect'
+    if (kind === 'ellipse') {
+      const cx = Number(x) + Number(w) / 2
+      const cy = Number(y) + Number(h) / 2
+      const rx = Number(w) / 2
+      const ry = Number(h) / 2
+      for (let i = 0; i < 48; i++) {
+        const angle = (Math.PI * 2 * i) / 48
+        out.push(dot(cx + Math.cos(angle) * rx, cy + Math.sin(angle) * ry, enable, 5))
+      }
+    } else if (kind === 'freehand') {
+      const points = annotation.points ?? []
+      for (let i = 1; i < points.length; i++) out.push(...dottedLine(points[i - 1], points[i], enable, 4))
+    } else if (kind === 'arrow') {
+      const annotationPoints = annotation.points ?? []
+      const points = annotationPoints.length >= 2
+        ? annotationPoints
+        : [
+            { x: Number(x), y: Number(y) + Number(h) / 2 },
+            { x: Number(x) + Number(w), y: Number(y) + Number(h) / 2 },
+          ]
+      const a = points[0]
+      const b = points[points.length - 1]
+      out.push(...dottedLine(a, b, enable, 5))
+      const angle = Math.atan2(b.y - a.y, b.x - a.x)
+      const head = 0.035
+      out.push(...dottedLine(b, { x: b.x - Math.cos(angle - 0.55) * head, y: b.y - Math.sin(angle - 0.55) * head }, enable, 5))
+      out.push(...dottedLine(b, { x: b.x - Math.cos(angle + 0.55) * head, y: b.y - Math.sin(angle + 0.55) * head }, enable, 5))
+    } else if (kind === 'text') {
+      const { bold: boldFont } = resolveCaptionFonts()
+      out.push(`drawtext=fontfile='${boldFont}':text='${escapeDrawtextValue(annotation.text || 'Text')}':fontcolor=${ffColor}@0.85:fontsize=28:x=iw*${x}:y=ih*${y}:${enable}`)
+    } else {
+      out.push(`drawbox=${rect}:color=${ffColor}@0.55:t=3:${enable}`)
+    }
+  }
+  return out
+}
+
 function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = [], layout?: CaptionLayout & { x?: number }): string[] {
   const captionLines = buildCaptionLines(opts, layout)
   const filters = [...prefixFilters]
@@ -436,7 +505,10 @@ export function buildClipArgs(opts: ClipOptions): string[] {
   const narrationDurationMs = Math.max(0, opts.narrationDurationMs ?? 0)
   const outputDurationMs = opts.sessionMicPath ? durationMs : opts.narrationPath ? Math.max(durationMs, narrationDurationMs) : durationMs
   const freezeDurationMs = Math.max(0, outputDurationMs - durationMs)
-  const filters: string[] = [...clickOverlayFilters(opts.clicks, startMs, endMs)]
+  const filters: string[] = [
+    ...clickOverlayFilters(opts.clicks, startMs, endMs),
+    ...annotationOverlayFilters(opts.annotations, startMs, endMs, opts.severityColor ?? '#f59e0b'),
+  ]
   if (freezeDurationMs > 0) filters.push(`tpad=stop_mode=clone:stop_duration=${ms(freezeDurationMs)}`)
   const captionedFilters = videoCaptionFilters(opts, filters)
   if (opts.sessionMicPath || opts.narrationPath) {
@@ -509,7 +581,10 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
   const fadeDurationSec = ms(introFadeMs)
   const canvasWidth = Math.max(2, Math.floor(opts.canvasWidth / 2) * 2)
   const canvasHeight = Math.max(2, Math.floor(opts.canvasHeight / 2) * 2)
-  const clipFilters = clickOverlayFilters(opts.clicks, startMs, endMs)
+  const clipFilters = [
+    ...clickOverlayFilters(opts.clicks, startMs, endMs),
+    ...annotationOverlayFilters(opts.annotations, startMs, endMs, opts.severityColor ?? '#f59e0b'),
+  ]
   const sourceHasAudio = opts.sourceHasAudio ?? true
   const hasSessionMic = Boolean(opts.sessionMicPath)
   const clipFilter = [
