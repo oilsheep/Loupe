@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 - 2026-05-04
+
+### Highlights
+
+- Added review-stage video annotations, including rectangle, ellipse, arrow, freehand, and text overlays that are saved with markers and rendered into exported clips.
+- Added an editor-style review timeline with zoom, viewport dragging, scrubbing, marker selection, and clip-range handles.
+- Added imported-video analysis so existing recordings can be reviewed, annotated, transcribed, and exported without starting a live recording session.
+- Added optional external tester audio for imported videos, with review-time audio offset adjustment.
+- Added local STT-assisted review: audio auto-markers, marker note transcription, language defaults, and Traditional/Simplified Chinese output options.
+- Added iOS recording support path through UxPlay/AirPlay mirroring and iOS tool-status checks.
+- Added remote publishing flows for Slack, GitLab, and Google Drive/Sheets, including mention identity support.
+- Added common session metadata for platform, project, tester, report title, build version, and test notes across session start, review, and export.
+- Removed the eight-label limit and expanded marker labels to unlimited custom colored labels.
+- Improved preferences for language, labels, STT, common metadata, publish settings, and license information.
+- Improved evidence exports with annotated clips, six-frame sheets, HTML/PDF reports, `summery.txt`, progress feedback, cancellation, and no-marker export handling.
+- Improved resilience for long sessions, missing linked videos, Android disconnects, and packaged tool discovery.
+
 ## 0.1.0 - 2026-04-30
 
 ### Highlights
