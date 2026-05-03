@@ -156,6 +156,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+tag build 會把 `apps/desktop/package.json` 的 `version` 暫時設成 tag 值去掉開頭 `v` 後的版本。
+例如 `v1.2.3` 會打包成 `1.2.3`，不會把這個版本改動 commit 回 repo。
+
 macOS release 必備 secrets：
 
 ```text
