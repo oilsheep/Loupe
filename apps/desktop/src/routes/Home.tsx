@@ -18,7 +18,7 @@ export function Home() {
   const goDraft = useApp(s => s.goDraft)
   const lastRecordingSource = useApp(s => s.lastRecordingSource)
   const setLastRecordingSource = useApp(s => s.setLastRecordingSource)
-  const [selected, setSelected] = useState<RecordingSourceSelection | null>(lastRecordingSource)
+  const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)

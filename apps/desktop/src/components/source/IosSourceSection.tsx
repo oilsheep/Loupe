@@ -9,7 +9,7 @@ function isIphoneMirroringSource(source: PcCaptureSource): boolean {
 
 function isUxPlaySource(source: PcCaptureSource, uxPlayRunning: boolean): boolean {
   if (/loupe ios|uxplay/i.test(source.name)) return true
-  return uxPlayRunning && /(?:direct3d(?:11|12)?|opengl|gstreamer)\s+renderer/i.test(source.name)
+  return uxPlayRunning && /(?:direct3d(?:11|12)?|opengl|osxvideo|gstreamer)\s*(?:renderer|sink)?/i.test(source.name)
 }
 
 export function IosSourceSection({
@@ -46,31 +46,6 @@ export function IosSourceSection({
   }, [isMac, platform])
 
   useEffect(() => {
-    if (!isMac || iosMode !== 'mirror' || mirrorSources.length !== 1) return
-    const source = mirrorSources[0]
-    if (selectedId === source.id) return
-    onSelect(source.id, 'ios', source.name)
-  }, [iosMode, isMac, mirrorSources, onSelect, selectedId])
-
-  useEffect(() => {
-    if (iosMode !== 'uxplay' || uxPlaySources.length !== 1) return
-    const source = uxPlaySources[0]
-    if (selectedId === source.id) return
-    onSelect(source.id, 'ios', source.name)
-  }, [iosMode, onSelect, selectedId, uxPlaySources])
-
-  useEffect(() => {
-    if (iosMode !== 'uxplay' || !uxPlayRunning || uxPlaySources.length > 0) return
-    let attempts = 0
-    const timer = window.setInterval(() => {
-      attempts += 1
-      onRefresh()
-      if (attempts >= 12) window.clearInterval(timer)
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [iosMode, onRefresh, uxPlayRunning, uxPlaySources.length])
-
-  useEffect(() => {
     api.app.getUxPlayReceiver()
       .then(status => {
         setUxPlayRunning(status.running)
@@ -92,6 +67,7 @@ export function IosSourceSection({
     setUxPlayMessageKey(status.messageKey ?? null)
     window.setTimeout(onRefresh, 1000)
     window.setTimeout(onRefresh, 3000)
+    window.setTimeout(onRefresh, 6000)
   }
 
   async function stopUxPlay() {
@@ -105,7 +81,7 @@ export function IosSourceSection({
 
   function selectSource(source: PcCaptureSource) {
     onSelect(source.id, 'ios', source.name)
-    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId).catch(() => false)
+    void api.app.hidePcCaptureFrame().catch(() => {})
   }
 
   return (

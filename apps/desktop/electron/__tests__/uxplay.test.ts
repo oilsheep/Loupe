@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
-import { UxPlayReceiver } from '../uxplay'
+import { buildUxPlayArgs, UxPlayReceiver } from '../uxplay'
 import type { IProcessRunner, SpawnedProcess } from '../process-runner'
 
 const UXPLAY_LOOKUP_CMD = process.platform === 'win32' ? 'where' : '/usr/bin/which'
@@ -37,7 +37,29 @@ describe('UxPlayReceiver', () => {
     const status = await receiver.start()
     expect(status).toMatchObject({ running: true, receiverName: 'Loupe iOS' })
     expect(runner.run).toHaveBeenCalledWith(UXPLAY_LOOKUP_CMD, ['uxplay'], expect.objectContaining({ env: expect.any(Object) }))
-    expect(runner.spawn).toHaveBeenCalledWith('uxplay', ['-n', 'Loupe iOS', '-nh', '-p', '7100', '-vsync', 'no'], expect.objectContaining({ env: expect.any(Object) }))
+    expect(runner.spawn).toHaveBeenCalledWith('uxplay', buildUxPlayArgs('Loupe iOS'), expect.objectContaining({ env: expect.any(Object) }))
+  })
+
+  it('uses the default UxPlay renderer unless explicitly overridden', () => {
+    expect(buildUxPlayArgs('Loupe iOS', 'darwin')).toEqual([
+      '-n', 'Loupe iOS',
+      '-nh',
+      '-p', '7100',
+      '-vsync', 'no',
+    ])
+  })
+
+  it('allows overriding the UxPlay video sink for macOS troubleshooting', () => {
+    vi.stubEnv('LOUPE_UXPLAY_VIDEO_SINK', 'osxvideosink')
+    vi.stubEnv('LOUPE_UXPLAY_AVDEC', '1')
+    expect(buildUxPlayArgs('Loupe iOS', 'darwin')).toEqual([
+      '-n', 'Loupe iOS',
+      '-nh',
+      '-p', '7100',
+      '-vsync', 'no',
+      '-vs', 'osxvideosink',
+      '-avdec',
+    ])
   })
 
   it('returns an install hint when uxplay is unavailable', async () => {

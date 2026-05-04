@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Device, DesktopApi, MdnsEntry, PcCaptureSource } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { SelectRecordingSource } from '@/lib/recordingSource'
@@ -51,6 +51,7 @@ export function DevicePicker({ api, selectedId, lastSource, onSelect }: Props) {
   const [pcSourceTab, setPcSourceTab] = useState<'screen' | 'window'>('screen')
   const [sourceTab, setSourceTab] = useState<SourceTab>('pc')
   const [platform, setPlatform] = useState<string | null>(null)
+  const restoredLastSourceKey = useRef<string | null>(null)
 
   async function refresh() {
     try {
@@ -78,6 +79,21 @@ export function DevicePicker({ api, selectedId, lastSource, onSelect }: Props) {
       setPcSourceTab(lastSource.id.startsWith('window:') ? 'window' : 'screen')
     }
   }, [api, lastSource])
+
+  useEffect(() => {
+    if (!lastSource || selectedId) return
+    if (lastSource.mode !== 'pc' && lastSource.mode !== 'ios') return
+    const restoreKey = `${lastSource.mode}:${lastSource.id}`
+    if (restoredLastSourceKey.current === restoreKey) return
+    const source = pcSources.find(source => source.id === lastSource.id)
+    if (!source) return
+    if (lastSource.mode === 'pc' && source.type === 'window') {
+      if (platform === null) return
+      if (platform === 'darwin') return
+    }
+    restoredLastSourceKey.current = restoreKey
+    onSelect(source.id, lastSource.mode, source.name)
+  }, [lastSource, onSelect, pcSources, platform, selectedId])
 
   async function refreshPcSources() {
     setPcSourcesLoading(true)

@@ -129,6 +129,20 @@ describe('DevicePicker', () => {
     expect(await screen.findByTestId('source-pc-window:2:0')).toBeTruthy()
   })
 
+  it('restores a previous PC screen only after the source list confirms it exists', async () => {
+    const onSelect = vi.fn()
+    render(
+      <DevicePicker
+        api={fakeApi([])}
+        selectedId={null}
+        lastSource={{ id: 'screen:1:0', mode: 'pc', label: 'Entire screen' }}
+        onSelect={onSelect}
+      />,
+    )
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('screen:1:0', 'pc', 'Entire screen'))
+  })
+
   it('does not auto-select a previous macOS window source', async () => {
     const onSelect = vi.fn()
     const api = fakeApi([])
@@ -167,19 +181,23 @@ describe('DevicePicker', () => {
 
   it('selects iPhone Mirroring as an iOS recording source', async () => {
     const onSelect = vi.fn()
-    render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
+    const api = fakeApi([])
+    render(<DevicePicker api={api} selectedId={null} onSelect={onSelect} />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'iOS' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'iOS' }))
     await waitFor(() => expect(screen.getByTestId('source-ios-window:3:0')).toBeTruthy())
     fireEvent.click(screen.getByTestId('source-ios-window:3:0'))
     expect(onSelect).toHaveBeenCalledWith('window:3:0', 'ios', 'iPhone Mirroring')
+    expect(api.app.showPcCaptureFrame).not.toHaveBeenCalled()
+    expect(api.app.hidePcCaptureFrame).toHaveBeenCalled()
   })
 
-  it('auto-selects the iPhone Mirroring window on the iOS tab', async () => {
+  it('does not auto-select the iPhone Mirroring window on the iOS tab', async () => {
     const onSelect = vi.fn()
     render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={onSelect} />)
     fireEvent.click(await screen.findByRole('button', { name: 'iOS' }))
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:3:0', 'ios', 'iPhone Mirroring'))
+    await waitFor(() => expect(screen.getByTestId('source-ios-window:3:0')).toBeTruthy())
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('opens iPhone Mirroring only after clicking the open button', async () => {
@@ -222,7 +240,10 @@ describe('DevicePicker', () => {
 
     await waitFor(() => expect(startUxPlayReceiver).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByTestId('source-ios-window:4:0')).toBeTruthy())
+    expect(onSelect).not.toHaveBeenCalledWith('window:4:0', 'ios', 'Loupe iOS')
+    fireEvent.click(screen.getByTestId('source-ios-window:4:0'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:4:0', 'ios', 'Loupe iOS'))
+    expect(api.app.showPcCaptureFrame).not.toHaveBeenCalled()
   })
 
   it('recognizes the macOS UxPlay OpenGL renderer window after the receiver starts', async () => {
@@ -239,6 +260,8 @@ describe('DevicePicker', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Start UxPlay receiver' }))
 
     await waitFor(() => expect(screen.getByTestId('source-ios-window:5:0')).toBeTruthy())
+    expect(onSelect).not.toHaveBeenCalledWith('window:5:0', 'ios', 'OpenGL renderer')
+    fireEvent.click(screen.getByTestId('source-ios-window:5:0'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:5:0', 'ios', 'OpenGL renderer'))
   })
 
@@ -256,6 +279,8 @@ describe('DevicePicker', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Start UxPlay receiver' }))
 
     await waitFor(() => expect(screen.getByTestId('source-ios-window:6:0')).toBeTruthy())
+    expect(onSelect).not.toHaveBeenCalledWith('window:6:0', 'ios', 'Direct3D12 Renderer')
+    fireEvent.click(screen.getByTestId('source-ios-window:6:0'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:6:0', 'ios', 'Direct3D12 Renderer'))
   })
 

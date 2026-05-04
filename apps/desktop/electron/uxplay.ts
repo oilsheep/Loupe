@@ -21,9 +21,10 @@ export class UxPlayReceiver {
     const availability = await this.checkAvailability()
     if (!availability.ok) return this.status(formatUxPlayUnavailable(availability.reason))
 
-    const args = ['-n', this.receiverName, '-nh', '-p', '7100', '-vsync', 'no']
+    const args = buildUxPlayArgs(this.receiverName)
     let proc: SpawnedProcess
     try {
+      console.log(`Loupe: starting UxPlay receiver command=${availability.command} args=${JSON.stringify(args)}`)
       proc = this.runner.spawn(availability.command, args, {
         env: uxPlayEnv(availability.command),
       })
@@ -80,6 +81,16 @@ export class UxPlayReceiver {
       ...(messageKey ? { messageKey } : {}),
     }
   }
+}
+
+export function buildUxPlayArgs(receiverName: string, platform = process.platform): string[] {
+  const args = ['-n', receiverName, '-nh', '-p', '7100', '-vsync', 'no']
+  const videoSink = process.env.LOUPE_UXPLAY_VIDEO_SINK?.trim()
+  if (videoSink) args.push('-vs', videoSink)
+  if (platform === 'darwin' && process.env.LOUPE_UXPLAY_AVDEC === '1') {
+    args.push('-avdec')
+  }
+  return args
 }
 
 function waitForEarlyExit(proc: SpawnedProcess, ms: number): Promise<number | null> {
