@@ -154,7 +154,7 @@ function HotkeySummary({
 export function Recording({ session }: { session: Session }) {
   const { t } = useI18n()
   const goDraft = useApp(s => s.goDraft)
-  const usesRendererPcRecording = session.connectionMode === 'pc' && session.androidVersion === 'macOS'
+  const usesRendererPcRecording = session.connectionMode === 'pc' && /^(macOS|Windows)$/i.test(session.androidVersion)
   const [bugs, setBugs] = useState<Bug[]>([])
   const [elapsedMs, setElapsedMs] = useState(0)
   const [stopping, setStopping] = useState(false)

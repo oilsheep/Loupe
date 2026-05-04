@@ -1306,6 +1306,10 @@ function displayPhysicalBounds(display: Electron.Display): Electron.Rectangle {
   return screen.dipToScreenRect(null, display.bounds)
 }
 
+function dipRectToPhysical(rect: Electron.Rectangle): Electron.Rectangle {
+  return process.platform === 'win32' ? screen.dipToScreenRect(null, rect) : rect
+}
+
 function virtualPhysicalBounds(): Electron.Rectangle {
   const rects = screen.getAllDisplays().map(displayPhysicalBounds)
   const left = Math.min(...rects.map(r => r.x))
@@ -1606,6 +1610,10 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
         : screen.getPrimaryDisplay())
     : null
   if (source.type === 'screen' && !display) throw new Error('Selected display is no longer available.')
+  const windowHwnd = process.platform === 'win32' && source.type === 'window' ? parseWindowsWindowHandle(source.id) : null
+  if (process.platform === 'win32' && source.type === 'window' && windowHwnd) {
+    await focusPcCaptureSource(source.id, source.name).catch(() => false)
+  }
 
   function buildArgs(boundsOverride?: Electron.Rectangle, includeMouse = true): string[] {
     if (process.platform === 'darwin') {
@@ -1635,9 +1643,9 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
 
     const args = ['-y', '-hide_banner', '-loglevel', 'warning', '-f', 'gdigrab', '-framerate', '30']
     if (includeMouse) args.push('-draw_mouse', '1')
-    if (source!.type === 'screen') {
-      const rawBounds = displayPhysicalBounds(display!)
-      const physicalBounds = boundsOverride
+    if (source!.type === 'screen' || boundsOverride) {
+      const rawBounds = source!.type === 'screen' ? displayPhysicalBounds(display!) : boundsOverride!
+      const physicalBounds = source!.type === 'screen' && boundsOverride
         ? clampRectToBounds(rawBounds, boundsOverride)
         : clampToVirtualDesktop(rawBounds)
       args.push(
@@ -1691,7 +1699,9 @@ async function startPcFfmpegRecording(sourceId: string, outputPath: string): Pro
   }
 
   let includeMouse = true
-  let boundsOverride: Electron.Rectangle | undefined
+  let boundsOverride: Electron.Rectangle | undefined = windowHwnd
+    ? clampToVirtualDesktop(dipRectToPhysical(await getWindowsWindowBounds(windowHwnd)))
+    : undefined
   let lastErr: unknown
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -1943,7 +1953,7 @@ export function registerIpc(deps: IpcDeps): void {
           PC_CAPTURE_FRAME_START_TIMEOUT_MS,
           'Timed out while preparing the PC capture frame.',
         ).catch(() => false)
-        if (process.platform !== 'darwin') {
+        if (process.platform !== 'darwin' && process.platform !== 'win32') {
           await startPcFfmpegRecording(args.deviceId, outputPath)
           deps.db.updateSessionPcRecording(session.id, { pcRecordingEnabled: true, pcVideoPath: outputPath })
           deps.manager.persistProject(session.id)
