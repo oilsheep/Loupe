@@ -593,6 +593,49 @@ export class SessionManager {
     this.persistProject(sessionId)
     return out
   }
+  async saveSystemAudioRecording(sessionId: string, inputPath: string, startOffsetMs = 0): Promise<string | null> {
+    const session = this.deps.db.getSession(sessionId)
+    if (!session) throw new Error('session not found')
+    if (!inputPath || !existsSync(inputPath) || statSync(inputPath).size <= 0) return null
+    this.deps.paths.ensureSessionDirs(sessionId)
+    const ffmpegPath = resolveBundledFfmpegPath()
+    const out = this.deps.paths.micAudioFile(sessionId)
+    const existingMicPath = session.micAudioPath && existsSync(session.micAudioPath) ? session.micAudioPath : null
+    if (!existingMicPath) {
+      await extractAudioTrack(this.deps.runner, ffmpegPath, { inputPath, outputPath: out })
+    } else {
+      const mixed = `${out}.mixed.webm`
+      const micDelay = Math.max(0, Math.round(session.micAudioStartOffsetMs ?? 0))
+      const systemDelay = Math.max(0, Math.round(startOffsetMs))
+      const filter = [
+        `[0:a:0]adelay=${micDelay}|${micDelay},asetpts=PTS-STARTPTS[mic]`,
+        `[1:a:0]adelay=${systemDelay}|${systemDelay},asetpts=PTS-STARTPTS[system]`,
+        '[mic][system]amix=inputs=2:duration=longest:dropout_transition=0,aresample=48000[a]',
+      ].join(';')
+      const r = await this.deps.runner.run(ffmpegPath, [
+        '-y',
+        '-i', existingMicPath,
+        '-i', inputPath,
+        '-filter_complex', filter,
+        '-map', '[a]',
+        '-c:a', 'libopus',
+        '-b:a', '96k',
+        mixed,
+      ])
+      if (r.code !== 0) throw new Error(`ffmpeg system audio mix failed (code ${r.code}): ${r.stderr.trim() || r.stdout.trim()}`)
+      rmSync(out, { force: true })
+      renameSync(mixed, out)
+    }
+    const durationMs = await probeMediaDurationMs(this.deps.runner, ffmpegPath, { inputPath: out }).catch(() => session.micAudioDurationMs ?? 0)
+    this.deps.db.updateSessionMicRecording(sessionId, {
+      micAudioPath: out,
+      micAudioDurationMs: Math.max(0, Math.round(durationMs)),
+      micAudioStartOffsetMs: Math.min(Math.max(0, Math.round(startOffsetMs)), Math.max(0, Math.round(session.micAudioStartOffsetMs ?? startOffsetMs))),
+      micAudioSource: 'recording',
+    })
+    this.persistProject(sessionId)
+    return out
+  }
   updateSessionMicAudioOffset(sessionId: string, startOffsetMs: number): Session {
     const session = this.deps.db.getSession(sessionId)
     if (!session) throw new Error('session not found')

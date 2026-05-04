@@ -15,7 +15,7 @@ export interface SpawnedProcess {
   readonly stdout: Readable
   readonly stderr: Readable
   kill(signal?: NodeJS.Signals | number): boolean
-  onExit(handler: (code: number | null) => void): void
+  onExit(handler: (code: number | null, signal?: NodeJS.Signals | null) => void): void
 }
 
 export interface IProcessRunner {

@@ -66,10 +66,16 @@ function isPresetTriggerWords(value: string): boolean {
   return Object.values(TRIGGER_PRESETS).some(preset => normalizeTriggerWords(preset.words) === normalized)
 }
 
+function supportsSystemAudioCapture(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /^(Mac|Win)/i.test(navigator.platform) || /\b(Macintosh|Mac OS X|Windows)\b/i.test(navigator.userAgent)
+}
+
 export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Props) {
   const { t } = useI18n()
   const backendConnectionMode = connectionMode === 'ios' ? 'pc' : connectionMode
   const isPcLikeSource = connectionMode === 'pc' || connectionMode === 'ios'
+  const canRecordSystemAudio = isPcLikeSource && supportsSystemAudioCapture()
   const recent = useApp(s => s.recentBuilds)
   const pushRecent = useApp(s => s.pushRecentBuild)
   const goRecording = useApp(s => s.goRecording)
@@ -135,7 +141,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         setRecordingPreferences(settings.recordingPreferences)
         setRecordMic(settings.recordingPreferences.recordMic)
         setIosLaunchApp(settings.recordingPreferences.iosLaunchApp)
-        setRecordSystemAudio(settings.recordingPreferences.recordSystemAudio ?? false)
+        setRecordSystemAudio(canRecordSystemAudio ? settings.recordingPreferences.recordSystemAudio ?? false : false)
       }
       if (settings.commonSession) {
         setCommonSession(settings.commonSession)
@@ -150,7 +156,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       setTriggerWordsCustomized(false)
     })
     return () => { cancelled = true }
-  }, [api])
+  }, [api, canRecordSystemAudio])
 
   useEffect(() => {
     let cancelled = false
@@ -225,7 +231,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         tester: tester.trim(),
         recordPcScreen,
         recordMic,
-        recordSystemAudio: isPcLikeSource ? recordSystemAudio : false,
+        recordSystemAudio: canRecordSystemAudio ? recordSystemAudio : false,
         pcCaptureSourceName: sourceName,
         iosLogCapture: connectionMode === 'ios',
         iosLogBundleId: connectionMode === 'ios' ? iosBundleId.trim() : undefined,
@@ -265,7 +271,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       ...recordingPreferences,
       recordMic,
       iosLaunchApp,
-      recordSystemAudio,
+      recordSystemAudio: canRecordSystemAudio ? recordSystemAudio : recordingPreferences.recordSystemAudio,
       ...overrides,
     }
     const saved = await api.settings.setRecordingPreferences(next)
@@ -355,7 +361,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         </span>
       </label>
 
-      {isPcLikeSource && (
+      {canRecordSystemAudio && (
         <label className="flex items-start gap-3 rounded border border-emerald-900/50 bg-emerald-950/15 p-3 text-sm text-zinc-200">
           <input
             type="checkbox"

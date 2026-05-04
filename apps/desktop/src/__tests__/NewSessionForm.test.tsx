@@ -181,6 +181,7 @@ describe('NewSessionForm audio trigger settings', () => {
   })
 
   it('loads and persists the computer audio recording preference', async () => {
+    Object.defineProperty(window.navigator, 'platform', { configurable: true, value: 'Win32' })
     fakeApi.settings.get = vi.fn().mockResolvedValue({
       ...settings,
       recordingPreferences: { recordMic: true, iosLaunchApp: true, recordSystemAudio: true },

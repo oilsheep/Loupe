@@ -21,6 +21,16 @@ function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
+function supportsRendererSystemAudioCapture(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /^Win/i.test(navigator.platform) || /\bWindows\b/i.test(navigator.userAgent)
+}
+
+function usesNativeMacSystemAudioCapture(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /^Mac/i.test(navigator.platform) || /\b(Macintosh|Mac OS X)\b/i.test(navigator.userAgent)
+}
+
 const DEFAULT_HOTKEYS: HotkeySettings = { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }
 const DEFAULT_SEVERITIES: SeveritySettings = {
   note: { label: 'default', color: '#a1a1aa' },
@@ -301,7 +311,8 @@ export function Recording({ session }: { session: Session }) {
     let cancelled = false
 
     async function startRendererPcRecording() {
-      const requestedSystemAudio = Boolean(session.systemAudioRecordingRequested)
+      const requestedNativeSystemAudio = Boolean(session.systemAudioRecordingRequested) && usesNativeMacSystemAudioCapture()
+      const requestedSystemAudio = Boolean(session.systemAudioRecordingRequested) && supportsRendererSystemAudioCapture()
       const videoConstraints = {
         mandatory: {
           chromeMediaSource: 'desktop',
@@ -319,7 +330,7 @@ export function Recording({ session }: { session: Session }) {
           }
         : false
 
-      setPcSystemAudioStatus(requestedSystemAudio ? 'standby' : 'off')
+      setPcSystemAudioStatus(requestedNativeSystemAudio ? 'recording' : requestedSystemAudio ? 'standby' : 'off')
       setPcSystemAudioError(null)
       try {
         const mediaDevices = navigator.mediaDevices

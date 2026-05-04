@@ -28,6 +28,7 @@ import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
 import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 import { resolveBundledTool, withToolPath } from './tool-paths'
+import { MacSystemAudioCapture } from './macos-system-audio'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -1985,6 +1986,7 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
 }
 
 export function registerIpc(deps: IpcDeps): void {
+  const macSystemAudio = new MacSystemAudioCapture(deps.runner)
   slackOAuthCallbackHandler = async (callbackUrl: string) => {
     const win = deps.getWindow()
     try {
@@ -2095,6 +2097,18 @@ export function registerIpc(deps: IpcDeps): void {
     if (session.connectionMode === 'pc') {
       const outputPath = deps.paths.pcVideoFile(session.id)
       try {
+        if (process.platform === 'darwin' && args.recordSystemAudio) {
+          try {
+            const audioPath = await macSystemAudio.start(session.id, args.deviceId)
+            if (!audioPath) {
+              console.warn('Loupe: macOS system audio capture did not start.')
+              session.systemAudioRecordingRequested = false
+            }
+          } catch (err) {
+            console.warn('Loupe: macOS system audio capture failed to start', err)
+            session.systemAudioRecordingRequested = false
+          }
+        }
         if (!(process.platform === 'darwin' && String(args.deviceId).startsWith('window:'))) {
           await withTimeout(
             showPcCaptureFrame(args.deviceId, 'red').catch(() => false),
@@ -2110,6 +2124,7 @@ export function registerIpc(deps: IpcDeps): void {
       } catch (err) {
         await hidePcCaptureFrame()
         await stopPcFfmpegRecording().catch(() => {})
+        await macSystemAudio.stop().catch(() => null)
         await deps.manager.discard(session.id).catch(() => {})
         throw err
       }
@@ -2156,7 +2171,28 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
   ipcMain.handle(CHANNEL.sessionStop, async () => {
+    const activeSessionId = deps.manager.activeSessionId()
     await stopPcFfmpegRecording()
+    const macAudio = await macSystemAudio.stop().catch(err => {
+      console.warn('Loupe: failed to stop macOS system audio capture', err)
+      return null
+    })
+    if (!macAudio) {
+      console.log('Loupe: macOS system audio capture returned no stop result.')
+    }
+    if (activeSessionId && macAudio) {
+      if (macAudio.stdout || macAudio.stderr) {
+        console.log(`Loupe: macOS system audio capture output exitedEarly=${macAudio.exitedEarly ? '1' : '0'}${macAudio.stdout ? `\n${macAudio.stdout}` : ''}${macAudio.stderr ? `\n${macAudio.stderr}` : ''}`)
+      }
+      if (macAudio.path) {
+        await deps.manager.saveSystemAudioRecording(activeSessionId, macAudio.path).catch(err => {
+          console.warn('Loupe: failed to save macOS system audio capture', err)
+          return null
+        })
+      } else {
+        console.warn('Loupe: macOS system audio capture produced no audio file.')
+      }
+    }
     await hidePcCaptureFrame()
     const session = await deps.manager.stop()
     restoreReviewWindow(deps.getWindow())
@@ -2164,6 +2200,7 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.sessionDiscard, async (_e, id: string) => {
     await stopPcFfmpegRecording()
+    await macSystemAudio.stop().catch(() => null)
     await hidePcCaptureFrame()
     return deps.manager.discard(id)
   })
