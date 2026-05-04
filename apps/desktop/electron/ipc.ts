@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, shell } from 'electron'
+import { app, ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, shell } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -35,6 +35,7 @@ export const CHANNEL = {
   showItemInFolder:        'app:showItemInFolder',
   openPath:                'app:openPath',
   appGetPlatform:          'app:getPlatform',
+  appGetVersion:           'app:getVersion',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
   appStartUxPlayReceiver: 'app:startUxPlayReceiver',
   appStopUxPlayReceiver:  'app:stopUxPlayReceiver',
@@ -2034,6 +2035,7 @@ export function registerIpc(deps: IpcDeps): void {
     if (error) throw new Error(error)
   })
   ipcMain.handle(CHANNEL.appGetPlatform, async () => process.platform)
+  ipcMain.handle(CHANNEL.appGetVersion, async () => app.getVersion())
   ipcMain.handle(CHANNEL.appOpenIphoneMirroring, async () => {
     if (process.platform !== 'darwin') return false
     await new Promise<void>((resolve, reject) => {

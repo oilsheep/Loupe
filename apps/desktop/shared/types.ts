@@ -367,6 +367,7 @@ export interface DesktopApi {
     showItemInFolder(path: string):                                Promise<void>
     openPath(path: string):                                        Promise<void>
     getPlatform():                                                 Promise<string>
+    getVersion():                                                  Promise<string>
     openIphoneMirroring():                                         Promise<boolean>
     startUxPlayReceiver():                                         Promise<UxPlayReceiverStatus>
     stopUxPlayReceiver():                                          Promise<UxPlayReceiverStatus>

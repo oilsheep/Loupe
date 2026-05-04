@@ -23,9 +23,11 @@ export function Home() {
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [importVideoOpen, setImportVideoOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
     void api.app.hidePcCaptureFrame().catch(() => {})
+    void api.app.getVersion().then(setAppVersion).catch(() => setAppVersion(''))
     api.doctor().then(setChecks)
   }, [])
 
@@ -45,7 +47,10 @@ export function Home() {
   return (
     <div className="grid h-screen grid-cols-[minmax(360px,390px)_1fr] bg-zinc-950 text-zinc-100">
       <aside className="min-h-0 min-w-0 overflow-y-auto border-r border-zinc-800 p-4">
-        <h1 className="mb-4 text-lg font-semibold">Loupe</h1>
+        <div className="mb-4 flex items-baseline gap-2">
+          <h1 className="text-lg font-semibold">Loupe</h1>
+          {appVersion && <span className="font-mono text-[11px] text-zinc-600">v{appVersion}</span>}
+        </div>
 
         <section className="mb-4 rounded-lg border border-blue-800/70 bg-blue-950/20 p-3.5 shadow-sm shadow-black/10">
           <div className="mb-3">

@@ -17,6 +17,7 @@ function fakeApi(): DesktopApi {
       showItemInFolder: vi.fn() as any,
       openPath: vi.fn() as any,
       getPlatform: vi.fn().mockResolvedValue('darwin') as any,
+      getVersion: vi.fn().mockResolvedValue('0.5.0') as any,
       openIphoneMirroring: vi.fn().mockResolvedValue(true) as any,
       startUxPlayReceiver: vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS' }) as any,
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,

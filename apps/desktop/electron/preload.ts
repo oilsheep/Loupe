@@ -8,6 +8,7 @@ const api: DesktopApi = {
     showItemInFolder: (path) => ipcRenderer.invoke(CHANNEL.showItemInFolder, path),
     openPath:         (path) => ipcRenderer.invoke(CHANNEL.openPath, path),
     getPlatform:      () => ipcRenderer.invoke(CHANNEL.appGetPlatform),
+    getVersion:       () => ipcRenderer.invoke(CHANNEL.appGetVersion),
     openIphoneMirroring: () => ipcRenderer.invoke(CHANNEL.appOpenIphoneMirroring),
     startUxPlayReceiver: () => ipcRenderer.invoke(CHANNEL.appStartUxPlayReceiver),
     stopUxPlayReceiver:  () => ipcRenderer.invoke(CHANNEL.appStopUxPlayReceiver),

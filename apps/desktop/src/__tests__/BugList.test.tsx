@@ -51,6 +51,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       showItemInFolder: vi.fn().mockResolvedValue(undefined),
       openPath: vi.fn().mockResolvedValue(undefined),
       getPlatform: vi.fn().mockResolvedValue('darwin'),
+      getVersion: vi.fn().mockResolvedValue('0.5.0'),
       openIphoneMirroring: vi.fn().mockResolvedValue(true),
       startUxPlayReceiver: vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS' }),
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
