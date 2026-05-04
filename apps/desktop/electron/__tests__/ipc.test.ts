@@ -19,7 +19,7 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { buildMacAvfoundationInputName, extractIosApps, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
+import { buildMacAvfoundationInputName, extractIosApps, gdigrabWindowInput, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
 import type { PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
@@ -79,6 +79,16 @@ describe('parseWindowsWindowHandle', () => {
     expect(parseWindowsWindowHandle('screen:1:0')).toBeNull()
     expect(parseWindowsWindowHandle('window:not-a-number:0')).toBeNull()
     expect(parseWindowsWindowHandle('window:0:0')).toBeNull()
+  })
+})
+
+describe('gdigrabWindowInput', () => {
+  it('uses window titles because some Windows ffmpeg builds reject hwnd inputs', () => {
+    expect(gdigrabWindowInput({
+      id: 'window:4395548:0',
+      name: 'Direct3D12 Renderer',
+      type: 'window',
+    })).toBe('title=Direct3D12 Renderer')
   })
 })
 

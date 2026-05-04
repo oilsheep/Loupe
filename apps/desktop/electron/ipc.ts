@@ -1349,11 +1349,13 @@ export function isUnsupportedGdigrabDrawMouseError(stderr: string): boolean {
   return /Unrecognized option 'draw_mouse'|Option not found/i.test(stderr)
 }
 
-function gdigrabWindowInput(source: PcCaptureSource): string {
+export function gdigrabWindowInput(source: PcCaptureSource): string {
+  const title = source.name.trim()
+  if (title) return `title=${title}`
   const match = source.id.match(/^window:(\d+):/)
   const hwnd = match ? Number(match[1]) : NaN
   if (Number.isFinite(hwnd) && hwnd > 0) return `hwnd=0x${hwnd.toString(16)}`
-  return `title=${source.name}`
+  return 'title='
 }
 
 export function parseWindowsWindowHandle(sourceId: string): number | null {
