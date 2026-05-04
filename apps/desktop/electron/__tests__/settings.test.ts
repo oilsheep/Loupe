@@ -49,9 +49,9 @@ describe('SettingsStore', () => {
         mentionIdentities: [],
       })
 
-      expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true })
-      expect(store.setRecordingPreferences({ recordMic: true, iosLaunchApp: false }).recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false })
-      expect(store.get().recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false })
+      expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true, recordSystemAudio: false })
+      expect(store.setRecordingPreferences({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true }).recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true })
+      expect(store.get().recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

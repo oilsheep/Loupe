@@ -165,6 +165,8 @@ export function Recording({ session }: { session: Session }) {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null)
   const mediaChunksRef = useRef<Blob[]>([])
   const [pcRecorderError, setPcRecorderError] = useState<string | null>(null)
+  const [pcSystemAudioStatus, setPcSystemAudioStatus] = useState<'off' | 'recording' | 'unavailable' | 'standby'>('off')
+  const [pcSystemAudioError, setPcSystemAudioError] = useState<string | null>(null)
   const [iosControlStatus, setIosControlStatus] = useState<string | null>(null)
   const [iosControlScreen, setIosControlScreen] = useState<{ width: number; height: number } | null>(null)
   const [wdaBundleId, setWdaBundleId] = useState('')
@@ -299,23 +301,52 @@ export function Recording({ session }: { session: Session }) {
     let cancelled = false
 
     async function startRendererPcRecording() {
-      try {
-        const mediaDevices = navigator.mediaDevices
-        if (!mediaDevices?.getUserMedia) return
-        const stream = await mediaDevices.getUserMedia({
-          audio: false,
-          video: {
+      const requestedSystemAudio = Boolean(session.systemAudioRecordingRequested)
+      const videoConstraints = {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: session.deviceId,
+          minFrameRate: 30,
+          maxFrameRate: 30,
+        },
+      }
+      const audioConstraints = requestedSystemAudio
+        ? {
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: session.deviceId,
-              minFrameRate: 30,
-              maxFrameRate: 30,
             },
-          },
-        } as MediaStreamConstraints)
+          }
+        : false
+
+      setPcSystemAudioStatus(requestedSystemAudio ? 'standby' : 'off')
+      setPcSystemAudioError(null)
+      try {
+        const mediaDevices = navigator.mediaDevices
+        if (!mediaDevices?.getUserMedia) return
+        let stream: MediaStream
+        try {
+          stream = await mediaDevices.getUserMedia({
+            audio: audioConstraints,
+            video: videoConstraints,
+          } as MediaStreamConstraints)
+        } catch (err) {
+          if (!requestedSystemAudio) throw err
+          setPcSystemAudioStatus('unavailable')
+          setPcSystemAudioError(err instanceof Error ? err.message : String(err))
+          stream = await mediaDevices.getUserMedia({
+            audio: false,
+            video: videoConstraints,
+          } as MediaStreamConstraints)
+        }
         if (cancelled) {
           stream.getTracks().forEach(track => track.stop())
           return
+        }
+        if (requestedSystemAudio && stream.getAudioTracks().length > 0) {
+          setPcSystemAudioStatus('recording')
+        } else if (requestedSystemAudio) {
+          setPcSystemAudioStatus('unavailable')
         }
         const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
           ? 'video/webm;codecs=vp9'
@@ -337,6 +368,7 @@ export function Recording({ session }: { session: Session }) {
         setPcRecorderError(null)
       } catch (e) {
         setPcRecorderError(e instanceof Error ? e.message : String(e))
+        if (requestedSystemAudio) setPcSystemAudioStatus('unavailable')
       }
     }
 
@@ -345,7 +377,7 @@ export function Recording({ session }: { session: Session }) {
       cancelled = true
       mediaStreamRef.current?.getTracks().forEach(track => track.stop())
     }
-  }, [session.connectionMode, session.deviceId, usesRendererPcRecording])
+  }, [session.connectionMode, session.deviceId, session.systemAudioRecordingRequested, usesRendererPcRecording])
 
   useEffect(() => {
     if (!usesRendererPcRecording || !previewVideoRef.current || !mediaStreamRef.current) return
@@ -574,6 +606,16 @@ export function Recording({ session }: { session: Session }) {
             {session.pcRecordingEnabled && (
               <div className="mt-1 text-xs text-sky-300">
                 {t('record.pcStatus', { status: stopping ? t('record.saving') : t('record.recording') })}
+              </div>
+            )}
+            {usesRendererPcRecording && (
+              <div className={`mt-1 text-xs ${pcSystemAudioStatus === 'recording' ? 'text-emerald-300' : pcSystemAudioStatus === 'unavailable' ? 'text-amber-300' : 'text-zinc-600'}`}>
+                {t('record.systemAudioStatus', { status: t(`record.systemAudio.${pcSystemAudioStatus}`) })}
+              </div>
+            )}
+            {pcSystemAudioError && (
+              <div className="mt-1 text-xs text-amber-300">
+                {t('record.systemAudioError', { error: pcSystemAudioError })}
               </div>
             )}
             {pcRecorderError && (

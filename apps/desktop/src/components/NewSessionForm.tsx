@@ -95,9 +95,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatLineCount, setLogcatLineCount] = useState(50)
   const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [recordMic, setRecordMic] = useState(true)
+  const [recordSystemAudio, setRecordSystemAudio] = useState(false)
   const [recordingPreferences, setRecordingPreferences] = useState<RecordingPreferences>({
     recordMic: true,
     iosLaunchApp: true,
+    recordSystemAudio: false,
   })
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
@@ -133,6 +135,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         setRecordingPreferences(settings.recordingPreferences)
         setRecordMic(settings.recordingPreferences.recordMic)
         setIosLaunchApp(settings.recordingPreferences.iosLaunchApp)
+        setRecordSystemAudio(settings.recordingPreferences.recordSystemAudio ?? false)
       }
       if (settings.commonSession) {
         setCommonSession(settings.commonSession)
@@ -222,6 +225,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         tester: tester.trim(),
         recordPcScreen,
         recordMic,
+        recordSystemAudio: isPcLikeSource ? recordSystemAudio : false,
         pcCaptureSourceName: sourceName,
         iosLogCapture: connectionMode === 'ios',
         iosLogBundleId: connectionMode === 'ios' ? iosBundleId.trim() : undefined,
@@ -261,6 +265,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       ...recordingPreferences,
       recordMic,
       iosLaunchApp,
+      recordSystemAudio,
       ...overrides,
     }
     const saved = await api.settings.setRecordingPreferences(next)
@@ -275,6 +280,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   function changeIosLaunchApp(next: boolean) {
     setIosLaunchApp(next)
     void saveRecordingPreferencesLast({ iosLaunchApp: next })
+  }
+
+  function changeRecordSystemAudio(next: boolean) {
+    setRecordSystemAudio(next)
+    void saveRecordingPreferencesLast({ recordSystemAudio: next })
   }
 
   async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
@@ -344,6 +354,22 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
           <span className="mt-1 block text-xs leading-5 text-zinc-500">{t('new.voiceCommandHelp')}</span>
         </span>
       </label>
+
+      {isPcLikeSource && (
+        <label className="flex items-start gap-3 rounded border border-emerald-900/50 bg-emerald-950/15 p-3 text-sm text-zinc-200">
+          <input
+            type="checkbox"
+            aria-label={t('new.systemAudioTitle')}
+            checked={recordSystemAudio}
+            onChange={e => changeRecordSystemAudio(e.target.checked)}
+            className="mt-1 h-4 w-4 shrink-0 accent-emerald-600"
+          />
+          <span className="min-w-0">
+            <span className="block font-medium">{t('new.systemAudioTitle')}</span>
+            <span className="mt-1 block text-xs leading-5 text-zinc-400">{t('new.systemAudioHelp')}</span>
+          </span>
+        </label>
+      )}
 
       {recordMic && (
         <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3">

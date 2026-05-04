@@ -164,6 +164,7 @@ export interface StartArgs {
   testNote: string
   tester?: string
   recordMic?: boolean
+  recordSystemAudio?: boolean
   recordPcScreen?: boolean
   pcCaptureSourceName?: string
   logcatPackageName?: string
@@ -262,6 +263,7 @@ export class SessionManager {
       micAudioDurationMs: null,
       micAudioStartOffsetMs: null,
       micRecordingRequested: Boolean(args.recordMic),
+      systemAudioRecordingRequested: Boolean(args.recordSystemAudio),
     }
     db.insertSession(sess)
     this.persistProject(sess.id)

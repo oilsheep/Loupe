@@ -30,6 +30,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
     recordingPreferences: {
       recordMic: true,
       iosLaunchApp: true,
+      recordSystemAudio: false,
     },
     slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
@@ -67,6 +68,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
     pcRecordingEnabled: true,
     pcVideoPath: null,
     micRecordingRequested: true,
+    systemAudioRecordingRequested: false,
     micAudioPath: null,
     micAudioDurationMs: null,
     micAudioStartOffsetMs: null,
@@ -155,13 +157,13 @@ describe('NewSessionForm audio trigger settings', () => {
         triggerKeywords: 'record, capture',
       })
     })
-    expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ recordMic: true }))
+    expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ recordMic: true, recordSystemAudio: false }))
   })
 
   it('loads and persists the microphone recording preference', async () => {
     fakeApi.settings.get = vi.fn().mockResolvedValue({
       ...settings,
-      recordingPreferences: { recordMic: false, iosLaunchApp: true },
+      recordingPreferences: { recordMic: false, iosLaunchApp: true, recordSystemAudio: false },
     })
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
@@ -173,6 +175,27 @@ describe('NewSessionForm audio trigger settings', () => {
       expect(fakeApi.settings.setRecordingPreferences).toHaveBeenCalledWith({
         recordMic: true,
         iosLaunchApp: true,
+        recordSystemAudio: false,
+      })
+    })
+  })
+
+  it('loads and persists the computer audio recording preference', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue({
+      ...settings,
+      recordingPreferences: { recordMic: true, iosLaunchApp: true, recordSystemAudio: true },
+    })
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const systemAudio = await screen.findByLabelText('Record computer/game audio') as HTMLInputElement
+    expect(systemAudio.checked).toBe(true)
+
+    fireEvent.click(systemAudio)
+    await waitFor(() => {
+      expect(fakeApi.settings.setRecordingPreferences).toHaveBeenCalledWith({
+        recordMic: true,
+        iosLaunchApp: true,
+        recordSystemAudio: false,
       })
     })
   })

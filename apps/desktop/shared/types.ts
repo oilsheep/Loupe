@@ -151,6 +151,7 @@ export interface CommonSessionSettings {
 export interface RecordingPreferences {
   recordMic: boolean
   iosLaunchApp: boolean
+  recordSystemAudio: boolean
 }
 
 export interface GoogleDriveFolder {
@@ -211,6 +212,8 @@ export interface Session {
   micAudioSource?: 'recording' | 'video' | 'external' | null
   /** Transient recording preference for the active renderer session. Older/saved sessions may omit it. */
   micRecordingRequested?: boolean
+  /** Transient recording preference for PC/window sessions. System audio is muxed into the PC recording when available. */
+  systemAudioRecordingRequested?: boolean
 }
 
 export interface Bug {
@@ -392,7 +395,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; recordSystemAudio?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     chooseVideoFile():                                             Promise<string | null>
     chooseAudioFile():                                             Promise<string | null>

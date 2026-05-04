@@ -46,6 +46,7 @@ export const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
 export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
   recordMic: true,
   iosLaunchApp: true,
+  recordSystemAudio: false,
 }
 
 const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
@@ -341,6 +342,7 @@ function normalizeRecordingPreferences(raw?: Partial<RecordingPreferences>): Rec
   return {
     recordMic: typeof raw?.recordMic === 'boolean' ? raw.recordMic : DEFAULT_RECORDING_PREFERENCES.recordMic,
     iosLaunchApp: typeof raw?.iosLaunchApp === 'boolean' ? raw.iosLaunchApp : DEFAULT_RECORDING_PREFERENCES.iosLaunchApp,
+    recordSystemAudio: typeof raw?.recordSystemAudio === 'boolean' ? raw.recordSystemAudio : DEFAULT_RECORDING_PREFERENCES.recordSystemAudio,
   }
 }
 
