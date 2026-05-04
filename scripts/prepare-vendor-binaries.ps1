@@ -544,11 +544,21 @@ function Prepare-UxPlayFromSource([string]$Platform) {
 
     $destCommand = "dest='$(Convert-WindowsPathToMsys $DestDir)'"
     $awkCommand = 'ldd uxplay.exe | awk ''/=> \/ucrt64/ { print $3 } /^\/ucrt64/ { print $1 }'' | sort -u | while read dll; do cp -n "$dll" "$dest/"; done'
+    $pluginCommand = @(
+      'mkdir -p "$dest/gstreamer-1.0";',
+      'for plugin in libgstapp.dll libgstlibav.dll libgstplayback.dll libgstautodetect.dll libgstvideoparsersbad.dll; do',
+      '  src="/ucrt64/lib/gstreamer-1.0/$plugin";',
+      '  test -f "$src" || { echo "Missing GStreamer plugin: $src" >&2; exit 1; };',
+      '  cp -n "$src" "$dest/gstreamer-1.0/";',
+      '  ldd "$src" | awk ''/=> \/ucrt64/ { print $3 } /^\/ucrt64/ { print $1 }'';',
+      'done | sort -u | while read dll; do cp -n "$dll" "$dest/"; done'
+    ) -join ' '
     $copyDlls = @(
       'set -e',
       "cd '$WorkDirUnix/build'",
       $destCommand,
-      $awkCommand
+      $awkCommand,
+      $pluginCommand
     ) -join '; '
     Invoke-Msys $copyDlls | Out-Null
 

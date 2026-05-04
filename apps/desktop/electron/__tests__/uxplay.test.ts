@@ -52,6 +52,25 @@ describe('UxPlayReceiver', () => {
     expect(runner.spawn).not.toHaveBeenCalled()
   })
 
+  it('returns startup output when uxplay exits immediately', async () => {
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', '/tmp/loupe-test-missing-tools')
+    const proc = mockSpawnedProcess()
+    proc.onExit = vi.fn((handler) => {
+      proc.stderr.emit('data', Buffer.from('Required gstreamer plugin app not found'))
+      handler(1)
+    }) as any
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '/tmp/uxplay\n', stderr: '', code: 0 }) as any,
+      spawn: vi.fn().mockReturnValue(proc) as any,
+    }
+    const receiver = new UxPlayReceiver(runner)
+
+    await expect(receiver.start()).resolves.toMatchObject({
+      running: false,
+      message: expect.stringContaining('Required gstreamer plugin app not found'),
+    })
+  })
+
   it('stops a running receiver', async () => {
     vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', '/tmp/loupe-test-missing-tools')
     const proc = mockSpawnedProcess()

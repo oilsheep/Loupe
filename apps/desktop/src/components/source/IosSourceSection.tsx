@@ -9,7 +9,7 @@ function isIphoneMirroringSource(source: PcCaptureSource): boolean {
 
 function isUxPlaySource(source: PcCaptureSource, uxPlayRunning: boolean): boolean {
   if (/loupe ios|uxplay/i.test(source.name)) return true
-  return uxPlayRunning && /opengl renderer/i.test(source.name)
+  return uxPlayRunning && /(?:direct3d(?:11|12)?|opengl|gstreamer)\s+renderer/i.test(source.name)
 }
 
 export function IosSourceSection({

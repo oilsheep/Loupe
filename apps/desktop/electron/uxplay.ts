@@ -1,5 +1,6 @@
 import type { IProcessRunner, SpawnedProcess } from './process-runner'
 import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { resolveBundledTool, toolSearchPath } from './tool-paths'
 
 export interface UxPlayReceiverStatus {
@@ -24,7 +25,7 @@ export class UxPlayReceiver {
     let proc: SpawnedProcess
     try {
       proc = this.runner.spawn(availability.command, args, {
-        env: { ...process.env, PATH: toolSearchPath() },
+        env: uxPlayEnv(availability.command),
       })
     } catch (err) {
       return this.status(formatUxPlayUnavailable(err instanceof Error ? err.message : String(err)))
@@ -40,6 +41,11 @@ export class UxPlayReceiver {
     proc.onExit(() => {
       if (this.process === proc) this.process = undefined
     })
+    const earlyExit = await waitForEarlyExit(proc, uxPlayStartupGraceMs())
+    if (earlyExit !== null) {
+      if (this.process === proc) this.process = undefined
+      return this.status(formatUxPlayUnavailable(this.lastMessage.trim() || `uxplay exited with code ${earlyExit}`))
+    }
     return this.status(`UxPlay receiver "${this.receiverName}" is running. If it does not appear on iPhone, make sure both devices are on the same network and macOS Firewall allows incoming connections for uxplay.`, 'device.uxPlayRunningHint')
   }
 
@@ -48,7 +54,7 @@ export class UxPlayReceiver {
     if (resolved !== 'uxplay' && existsSync(resolved)) return { ok: true, command: resolved }
     const cmd = process.platform === 'win32' ? 'where' : '/usr/bin/which'
     const check = await this.runner.run(cmd, ['uxplay'], {
-      env: { ...process.env, PATH: toolSearchPath() },
+      env: uxPlayEnv(resolved !== 'uxplay' ? resolved : undefined),
     }).catch(err => ({
       code: -1,
       stdout: '',
@@ -73,6 +79,41 @@ export class UxPlayReceiver {
       ...(message ? { message } : {}),
       ...(messageKey ? { messageKey } : {}),
     }
+  }
+}
+
+function waitForEarlyExit(proc: SpawnedProcess, ms: number): Promise<number | null> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), ms)
+    proc.onExit((code) => {
+      clearTimeout(timer)
+      resolve(code ?? -1)
+    })
+  })
+}
+
+function uxPlayStartupGraceMs(): number {
+  if (process.env.LOUPE_UXPLAY_STARTUP_GRACE_MS) return Number(process.env.LOUPE_UXPLAY_STARTUP_GRACE_MS)
+  return process.env.NODE_ENV === 'test' ? 0 : 1200
+}
+
+function uxPlayEnv(command?: string): NodeJS.ProcessEnv {
+  const pathCandidates = [toolSearchPath()]
+  if (process.platform === 'win32' && existsSync('C:\\msys64\\ucrt64\\bin')) {
+    pathCandidates.push('C:\\msys64\\ucrt64\\bin')
+  }
+
+  const pluginCandidates = [
+    process.env.GST_PLUGIN_PATH,
+    command && command !== 'uxplay' ? join(dirname(command), 'gstreamer-1.0') : undefined,
+    command && command !== 'uxplay' ? join(dirname(command), '..', 'lib', 'gstreamer-1.0') : undefined,
+    process.platform === 'win32' ? 'C:\\msys64\\ucrt64\\lib\\gstreamer-1.0' : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate && existsSync(candidate)))
+
+  return {
+    ...process.env,
+    PATH: pathCandidates.join(process.platform === 'win32' ? ';' : ':'),
+    ...(pluginCandidates.length > 0 ? { GST_PLUGIN_PATH: pluginCandidates.join(process.platform === 'win32' ? ';' : ':') } : {}),
   }
 }
 

@@ -187,6 +187,23 @@ describe('DevicePicker', () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:5:0', 'ios', 'OpenGL renderer'))
   })
 
+  it('recognizes the Windows UxPlay Direct3D renderer window after the receiver starts', async () => {
+    const onSelect = vi.fn()
+    const api = fakeApi([])
+    api.app.listPcCaptureSources = vi.fn().mockResolvedValue([
+      { id: 'window:6:0', name: 'Direct3D12 Renderer', type: 'window', thumbnailDataUrl: 'data:image/png;base64,uxplay' },
+    ]) as any
+    api.app.getPlatform = vi.fn().mockResolvedValue('win32') as any
+    api.app.startUxPlayReceiver = vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS', message: 'running' }) as any
+    render(<DevicePicker api={api} selectedId={null} onSelect={onSelect} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'iOS' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Start UxPlay receiver' }))
+
+    await waitFor(() => expect(screen.getByTestId('source-ios-window:6:0')).toBeTruthy())
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('window:6:0', 'ios', 'Direct3D12 Renderer'))
+  })
+
   it('Scan Wi-Fi calls api.device.mdnsScan and renders results', async () => {
     const entries: MdnsEntry[] = [
       { name: 'adb-ABC-xyz', type: 'connect', ipPort: '192.168.1.42:43615' },
