@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
 
 describe('SettingsStore', () => {
   it('normalizes missing Slack settings', () => {
@@ -26,6 +26,32 @@ describe('SettingsStore', () => {
       expect(store.get().slack.channels).toEqual([])
       expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('normalizes and saves recording preferences', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      writeFileSync(file, JSON.stringify({ recordingPreferences: { recordMic: false } }))
+      const store = new SettingsStore(file, {
+        exportRoot: '/default',
+        hotkeys: DEFAULT_HOTKEYS,
+        locale: 'system',
+        severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
+        recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
+        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+        mentionIdentities: [],
+      })
+
+      expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true })
+      expect(store.setRecordingPreferences({ recordMic: true, iosLaunchApp: false }).recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false })
+      expect(store.get().recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

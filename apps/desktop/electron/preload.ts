@@ -92,6 +92,7 @@ const api: DesktopApi = {
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
     setAudioAnalysis:  (settings) => ipcRenderer.invoke(CHANNEL.settingsSetAudioAnalysis, settings),
     setCommonSession: (settings) => ipcRenderer.invoke(CHANNEL.settingsSetCommonSession, settings),
+    setRecordingPreferences: (settings) => ipcRenderer.invoke(CHANNEL.settingsSetRecordingPreferences, settings),
     chooseWhisperModel: ()       => ipcRenderer.invoke(CHANNEL.settingsChooseWhisperModel),
     chooseExportRoot: ()        => ipcRenderer.invoke(CHANNEL.settingsChooseExportRoot),
   },

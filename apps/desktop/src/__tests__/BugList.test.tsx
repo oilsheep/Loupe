@@ -80,6 +80,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       setHotkeys: vi.fn() as any,
       setAudioAnalysis: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setCommonSession: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setRecordingPreferences: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseWhisperModel: vi.fn().mockResolvedValue('') as any,
       setSlack: vi.fn().mockImplementation((nextSlack) => Promise.resolve({ ...settingsWithOptions, slack: nextSlack })) as any,
       setGitLab: vi.fn().mockImplementation((nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,

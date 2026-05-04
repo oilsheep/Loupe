@@ -13,7 +13,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
@@ -113,6 +113,7 @@ export const CHANNEL = {
   settingsSetSeverities:   'settings:setSeverities',
   settingsSetAudioAnalysis:'settings:setAudioAnalysis',
   settingsSetCommonSession:'settings:setCommonSession',
+  settingsSetRecordingPreferences:'settings:setRecordingPreferences',
   settingsChooseWhisperModel:'settings:chooseWhisperModel',
   settingsChooseExportRoot:'settings:chooseExportRoot',
   audioAnalysisAnalyzeSession:'audioAnalysis:analyzeSession',
@@ -1883,6 +1884,8 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
   await hidePcCaptureFrame()
   pcCaptureFrameToken = token
 
+  if (process.platform === 'darwin' && sourceId.startsWith('window:')) return false
+
   let bounds: Electron.Rectangle | null = null
   let windowHwnd: number | null = null
   let macWindowId: number | null = null
@@ -2061,7 +2064,14 @@ export function registerIpc(deps: IpcDeps): void {
     return source ? { id: source.id, name: source.name } : null
   })
   ipcMain.handle(CHANNEL.listPcCaptureSources, async () => listPcCaptureSources())
-  ipcMain.handle(CHANNEL.showPcCaptureFrame, async (_e, sourceId: string, color?: 'green' | 'red', displayId?: string) => showPcCaptureFrame(sourceId, color, displayId))
+  ipcMain.handle(CHANNEL.showPcCaptureFrame, async (_e, sourceId: string, color?: 'green' | 'red', displayId?: string) => {
+    try {
+      return await showPcCaptureFrame(sourceId, color, displayId)
+    } catch (err) {
+      console.warn('Loupe: failed to show PC capture frame', err)
+      return false
+    }
+  })
   ipcMain.handle(CHANNEL.hidePcCaptureFrame, async () => hidePcCaptureFrame())
   ipcMain.handle(CHANNEL.readClipboardText, async () => clipboard.readText())
 
@@ -2085,11 +2095,13 @@ export function registerIpc(deps: IpcDeps): void {
     if (session.connectionMode === 'pc') {
       const outputPath = deps.paths.pcVideoFile(session.id)
       try {
-        await withTimeout(
-          showPcCaptureFrame(args.deviceId, 'red').catch(() => false),
-          PC_CAPTURE_FRAME_START_TIMEOUT_MS,
-          'Timed out while preparing the PC capture frame.',
-        ).catch(() => false)
+        if (!(process.platform === 'darwin' && String(args.deviceId).startsWith('window:'))) {
+          await withTimeout(
+            showPcCaptureFrame(args.deviceId, 'red').catch(() => false),
+            PC_CAPTURE_FRAME_START_TIMEOUT_MS,
+            'Timed out while preparing the PC capture frame.',
+          ).catch(() => false)
+        }
         if (process.platform !== 'darwin' && process.platform !== 'win32') {
           await startPcFfmpegRecording(args.deviceId, outputPath)
           deps.db.updateSessionPcRecording(session.id, { pcRecordingEnabled: true, pcVideoPath: outputPath })
@@ -2440,6 +2452,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetSeverities, async (_e, severities: SeveritySettings) => deps.settings.setSeverities(severities))
   ipcMain.handle(CHANNEL.settingsSetAudioAnalysis, async (_e, audioAnalysis: AudioAnalysisSettings) => deps.settings.setAudioAnalysis(audioAnalysis))
   ipcMain.handle(CHANNEL.settingsSetCommonSession, async (_e, commonSession) => deps.settings.setCommonSession(commonSession))
+  ipcMain.handle(CHANNEL.settingsSetRecordingPreferences, async (_e, recordingPreferences: RecordingPreferences) => deps.settings.setRecordingPreferences(recordingPreferences))
   ipcMain.handle(CHANNEL.settingsChooseWhisperModel, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
     const win = deps.getWindow()
     const pick = await (win

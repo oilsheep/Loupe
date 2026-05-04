@@ -26,7 +26,7 @@ export function PcCaptureSourceSection({
 
   function selectSource(source: PcCaptureSource) {
     onSelect(source.id, 'pc', source.name)
-    if (source.type === 'screen') void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
+    if (source.type === 'screen') void api.app.showPcCaptureFrame(source.id, 'green', source.displayId).catch(() => false)
     else void api.app.hidePcCaptureFrame()
   }
 

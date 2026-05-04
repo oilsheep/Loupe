@@ -16,13 +16,18 @@ import type { RecordingSourceSelection } from '@/lib/recordingSource'
 export function Home() {
   const { t, resolvedLocale } = useI18n()
   const goDraft = useApp(s => s.goDraft)
-  const [selected, setSelected] = useState<RecordingSourceSelection | null>(null)
+  const lastRecordingSource = useApp(s => s.lastRecordingSource)
+  const setLastRecordingSource = useApp(s => s.setLastRecordingSource)
+  const [selected, setSelected] = useState<RecordingSourceSelection | null>(lastRecordingSource)
   const [checks, setChecks] = useState<ToolCheck[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [importVideoOpen, setImportVideoOpen] = useState(false)
 
-  useEffect(() => { api.doctor().then(setChecks) }, [])
+  useEffect(() => {
+    void api.app.hidePcCaptureFrame().catch(() => {})
+    api.doctor().then(setChecks)
+  }, [])
 
   const missing = checks.filter(c => !c.ok)
   const zh = resolvedLocale.startsWith('zh')
@@ -65,7 +70,12 @@ export function Home() {
           <DevicePicker
             api={api}
             selectedId={selected?.id ?? null}
-            onSelect={(id, mode, label) => setSelected({ id, mode, label })}
+            lastSource={lastRecordingSource}
+            onSelect={(id, mode, label) => {
+              const source = { id, mode, label }
+              setSelected(source)
+              setLastRecordingSource(source)
+            }}
           />
         </section>
       </aside>

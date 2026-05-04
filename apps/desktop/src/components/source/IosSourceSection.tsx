@@ -50,16 +50,14 @@ export function IosSourceSection({
     const source = mirrorSources[0]
     if (selectedId === source.id) return
     onSelect(source.id, 'ios', source.name)
-    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
-  }, [api, iosMode, isMac, mirrorSources, onSelect, selectedId])
+  }, [iosMode, isMac, mirrorSources, onSelect, selectedId])
 
   useEffect(() => {
     if (iosMode !== 'uxplay' || uxPlaySources.length !== 1) return
     const source = uxPlaySources[0]
     if (selectedId === source.id) return
     onSelect(source.id, 'ios', source.name)
-    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
-  }, [api, iosMode, onSelect, selectedId, uxPlaySources])
+  }, [iosMode, onSelect, selectedId, uxPlaySources])
 
   useEffect(() => {
     if (iosMode !== 'uxplay' || !uxPlayRunning || uxPlaySources.length > 0) return
@@ -107,7 +105,7 @@ export function IosSourceSection({
 
   function selectSource(source: PcCaptureSource) {
     onSelect(source.id, 'ios', source.name)
-    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId)
+    void api.app.showPcCaptureFrame(source.id, 'green', source.displayId).catch(() => false)
   }
 
   return (

@@ -38,7 +38,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
     session: { updateMetadata: vi.fn() as any } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     audioAnalysis: { analyzeSession: vi.fn() as any, cancel: vi.fn() as any },
-    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setGitLab: vi.fn() as any, connectGitLabOAuth: vi.fn() as any, cancelGitLabOAuth: vi.fn() as any, listGitLabProjects: vi.fn() as any, setGoogle: vi.fn() as any, connectGoogleOAuth: vi.fn() as any, cancelGoogleOAuth: vi.fn() as any, listGoogleDriveFolders: vi.fn() as any, createGoogleDriveFolder: vi.fn() as any, listGoogleSpreadsheets: vi.fn() as any, listGoogleSheetTabs: vi.fn() as any, setMentionIdentities: vi.fn() as any, importMentionIdentities: vi.fn() as any, exportMentionIdentities: vi.fn() as any, refreshSlackUsers: vi.fn() as any, refreshSlackChannels: vi.fn() as any, startSlackUserOAuth: vi.fn() as any, refreshGitLabUsers: vi.fn() as any, setLocale: vi.fn() as any, setSeverities: vi.fn() as any, setAudioAnalysis: vi.fn() as any, setCommonSession: vi.fn() as any, chooseWhisperModel: vi.fn() as any, chooseExportRoot: vi.fn() as any },
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setGitLab: vi.fn() as any, connectGitLabOAuth: vi.fn() as any, cancelGitLabOAuth: vi.fn() as any, listGitLabProjects: vi.fn() as any, setGoogle: vi.fn() as any, connectGoogleOAuth: vi.fn() as any, cancelGoogleOAuth: vi.fn() as any, listGoogleDriveFolders: vi.fn() as any, createGoogleDriveFolder: vi.fn() as any, listGoogleSpreadsheets: vi.fn() as any, listGoogleSheetTabs: vi.fn() as any, setMentionIdentities: vi.fn() as any, importMentionIdentities: vi.fn() as any, exportMentionIdentities: vi.fn() as any, refreshSlackUsers: vi.fn() as any, refreshSlackChannels: vi.fn() as any, startSlackUserOAuth: vi.fn() as any, refreshGitLabUsers: vi.fn() as any, setLocale: vi.fn() as any, setSeverities: vi.fn() as any, setAudioAnalysis: vi.fn() as any, setCommonSession: vi.fn() as any, setRecordingPreferences: vi.fn() as any, chooseWhisperModel: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},
@@ -76,7 +76,7 @@ describe('DevicePicker', () => {
   it('manual Wi-Fi section warns to use the connect port', async () => {
     render(<DevicePicker api={fakeApi([])} selectedId={null} onSelect={vi.fn()} />)
     openAndroidTab()
-    expect(screen.getByText(/use the connect port, not the pairing port/i)).toBeTruthy()
+    expect(screen.getByText(/connect with the ready\/connect address/i)).toBeTruthy()
     expect(screen.getByPlaceholderText('ip[:connect-port]')).toBeTruthy()
   })
 
@@ -108,6 +108,60 @@ describe('DevicePicker', () => {
     await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
     fireEvent.click(screen.getByTestId('source-pc-window:2:0'))
     expect(onSelect).toHaveBeenCalledWith('window:2:0', 'pc', 'Chrome')
+  })
+
+  it('shows the previous PC source as selected during the current app session', async () => {
+    const onSelect = vi.fn()
+    const api = fakeApi([])
+    api.app.getPlatform = vi.fn().mockResolvedValue('win32') as any
+    render(
+      <DevicePicker
+        api={api}
+        selectedId="window:2:0"
+        lastSource={{ id: 'window:2:0', mode: 'pc', label: 'Chrome' }}
+        onSelect={onSelect}
+      />,
+    )
+
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(api.app.showPcCaptureFrame).not.toHaveBeenCalled()
+    expect(await screen.findByTestId('source-pc-window:2:0')).toBeTruthy()
+  })
+
+  it('does not auto-select a previous macOS window source', async () => {
+    const onSelect = vi.fn()
+    const api = fakeApi([])
+    api.app.getPlatform = vi.fn().mockResolvedValue('darwin') as any
+
+    render(
+      <DevicePicker
+        api={api}
+        selectedId={null}
+        lastSource={{ id: 'window:2:0', mode: 'pc', label: 'Chrome' }}
+        onSelect={onSelect}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('source-pc-window:2:0')).toBeTruthy())
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('opens the window tab when the previous PC source was a window', async () => {
+    const api = fakeApi([])
+    api.app.listPcCaptureSources = vi.fn().mockResolvedValue([
+      { id: 'screen:1:0', name: 'Entire screen', type: 'screen', thumbnailDataUrl: 'data:image/png;base64,screen' },
+    ]) as any
+
+    render(
+      <DevicePicker
+        api={api}
+        selectedId={null}
+        lastSource={{ id: 'window:999:0', mode: 'pc', label: 'Closed Game' }}
+        onSelect={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('No windows found.')).toBeTruthy())
   })
 
   it('selects iPhone Mirroring as an iOS recording source', async () => {
@@ -278,4 +332,3 @@ describe('DevicePicker', () => {
     expect(screen.getByText(/Paired: 192.168.1.10:37099/i)).toBeTruthy()
   })
 })
-

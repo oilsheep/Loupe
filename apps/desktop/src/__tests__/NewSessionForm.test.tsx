@@ -24,8 +24,12 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       engine: 'faster-whisper',
       modelPath: 'small',
       language: 'zh',
-      triggerKeywords: '記錄, 紀錄, 记录, 標記',
+      triggerKeywords: '記錄, 紀錄, 標記, 记录, 标记, 記一下, 记一下',
       showTriggerWords: false,
+    },
+    recordingPreferences: {
+      recordMic: true,
+      iosLaunchApp: true,
     },
     slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
@@ -79,6 +83,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
     settings: {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async audioAnalysis => ({ ...settings, audioAnalysis })),
+      setRecordingPreferences: vi.fn().mockImplementation(async recordingPreferences => ({ ...settings, recordingPreferences })),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
     onBugMarkRequested: () => () => {},
@@ -151,5 +156,24 @@ describe('NewSessionForm audio trigger settings', () => {
       })
     })
     expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ recordMic: true }))
+  })
+
+  it('loads and persists the microphone recording preference', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue({
+      ...settings,
+      recordingPreferences: { recordMic: false, iosLaunchApp: true },
+    })
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const mic = await screen.findByLabelText('Record QA microphone for audio auto-markers') as HTMLInputElement
+    expect(mic.checked).toBe(false)
+
+    fireEvent.click(mic)
+    await waitFor(() => {
+      expect(fakeApi.settings.setRecordingPreferences).toHaveBeenCalledWith({
+        recordMic: true,
+        iosLaunchApp: true,
+      })
+    })
   })
 })

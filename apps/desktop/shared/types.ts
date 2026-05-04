@@ -148,6 +148,11 @@ export interface CommonSessionSettings {
   lastTester: string
 }
 
+export interface RecordingPreferences {
+  recordMic: boolean
+  iosLaunchApp: boolean
+}
+
 export interface GoogleDriveFolder {
   id: string
   name: string
@@ -172,6 +177,7 @@ export interface AppSettings {
   severities: SeveritySettings
   audioAnalysis: AudioAnalysisSettings
   commonSession?: CommonSessionSettings
+  recordingPreferences?: RecordingPreferences
   slack: SlackPublishSettings
   gitlab: GitLabPublishSettings
   google: GooglePublishSettings
@@ -448,6 +454,7 @@ export interface DesktopApi {
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>
     setCommonSession(settings: CommonSessionSettings):             Promise<AppSettings>
+    setRecordingPreferences(settings: RecordingPreferences):       Promise<AppSettings>
     chooseWhisperModel():                                          Promise<AppSettings | null>
     chooseExportRoot():                                            Promise<AppSettings | null>
   }

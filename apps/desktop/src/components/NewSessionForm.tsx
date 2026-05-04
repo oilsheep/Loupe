@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo } from '@shared/types'
+import type { AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo, RecordingPreferences } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 import {
@@ -95,6 +95,10 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [logcatLineCount, setLogcatLineCount] = useState(50)
   const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [recordMic, setRecordMic] = useState(true)
+  const [recordingPreferences, setRecordingPreferences] = useState<RecordingPreferences>({
+    recordMic: true,
+    iosLaunchApp: true,
+  })
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
   const [triggerKeywords, setTriggerKeywords] = useState(sharedTriggerPreset('auto').words)
@@ -125,6 +129,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       setAudioLanguage(language)
       setTriggerKeywords(keywords)
       setTriggerWordsCustomized(!sharedIsPresetTriggerWords(keywords))
+      if (settings.recordingPreferences) {
+        setRecordingPreferences(settings.recordingPreferences)
+        setRecordMic(settings.recordingPreferences.recordMic)
+        setIosLaunchApp(settings.recordingPreferences.iosLaunchApp)
+      }
       if (settings.commonSession) {
         setCommonSession(settings.commonSession)
         setPlatform(settings.commonSession.lastPlatform)
@@ -202,6 +211,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         })
         setAudioSettings(saved.audioAnalysis)
       }
+      await saveRecordingPreferencesLast().catch(() => {})
       const session = await api.session.start({
         deviceId,
         connectionMode: backendConnectionMode,
@@ -244,6 +254,27 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     }
     const saved = await api.settings.setCommonSession(next)
     setCommonSession(saved.commonSession ?? next)
+  }
+
+  async function saveRecordingPreferencesLast(overrides: Partial<RecordingPreferences> = {}) {
+    const next = {
+      ...recordingPreferences,
+      recordMic,
+      iosLaunchApp,
+      ...overrides,
+    }
+    const saved = await api.settings.setRecordingPreferences(next)
+    setRecordingPreferences(saved.recordingPreferences ?? next)
+  }
+
+  function changeRecordMic(next: boolean) {
+    setRecordMic(next)
+    void saveRecordingPreferencesLast({ recordMic: next })
+  }
+
+  function changeIosLaunchApp(next: boolean) {
+    setIosLaunchApp(next)
+    void saveRecordingPreferencesLast({ iosLaunchApp: next })
   }
 
   async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
@@ -304,7 +335,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
           type="checkbox"
           aria-label={t('new.micRecordingTitle')}
           checked={recordMic}
-          onChange={e => setRecordMic(e.target.checked)}
+          onChange={e => changeRecordMic(e.target.checked)}
           className="mt-1 h-4 w-4 shrink-0 accent-blue-600"
         />
         <span className="min-w-0">
@@ -591,7 +622,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
               <input
                 type="checkbox"
                 checked={iosLaunchApp}
-                onChange={e => setIosLaunchApp(e.target.checked)}
+                onChange={e => changeIosLaunchApp(e.target.checked)}
                 data-testid="ios-launch-app"
                 className="mt-0.5"
               />

@@ -6,10 +6,12 @@ import { PcCaptureSourceSection } from '@/components/source/PcCaptureSourceSecti
 import { AndroidDeviceList } from '@/components/source/AndroidDeviceList'
 import { AndroidWifiSection } from '@/components/source/AndroidWifiSection'
 import { IosSourceSection } from '@/components/source/IosSourceSection'
+import type { RecordingSourceSelection } from '@/lib/recordingSource'
 
 interface Props {
   api: DesktopApi
   selectedId: string | null
+  lastSource?: RecordingSourceSelection | null
   onSelect: SelectRecordingSource
 }
 
@@ -24,7 +26,7 @@ function writeLabels(map: Record<string, string>) {
   localStorage.setItem(LABEL_KEY, JSON.stringify(map))
 }
 
-export function DevicePicker({ api, selectedId, onSelect }: Props) {
+export function DevicePicker({ api, selectedId, lastSource, onSelect }: Props) {
   const { t } = useI18n()
   const [devices, setDevices] = useState<Device[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -66,6 +68,16 @@ export function DevicePicker({ api, selectedId, onSelect }: Props) {
     const t = setInterval(refresh, 3000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    if (!lastSource) return
+    if (lastSource.mode !== 'pc' && lastSource.mode !== 'ios') return
+    void api.app.hidePcCaptureFrame().catch(() => {})
+    setSourceTab(lastSource.mode)
+    if (lastSource.mode === 'pc') {
+      setPcSourceTab(lastSource.id.startsWith('window:') ? 'window' : 'screen')
+    }
+  }, [api, lastSource])
 
   async function refreshPcSources() {
     setPcSourcesLoading(true)

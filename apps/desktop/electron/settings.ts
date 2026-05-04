@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -41,6 +41,11 @@ export const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
   lastPlatform: '',
   lastProject: '',
   lastTester: '',
+}
+
+export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
+  recordMic: true,
+  iosLaunchApp: true,
 }
 
 const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
@@ -332,6 +337,13 @@ function normalizeCommonSession(raw?: Partial<CommonSessionSettings>): CommonSes
   }
 }
 
+function normalizeRecordingPreferences(raw?: Partial<RecordingPreferences>): RecordingPreferences {
+  return {
+    recordMic: typeof raw?.recordMic === 'boolean' ? raw.recordMic : DEFAULT_RECORDING_PREFERENCES.recordMic,
+    iosLaunchApp: typeof raw?.iosLaunchApp === 'boolean' ? raw.iosLaunchApp : DEFAULT_RECORDING_PREFERENCES.iosLaunchApp,
+  }
+}
+
 function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
@@ -447,6 +459,7 @@ export class SettingsStore {
         severities: normalizeSeverities(raw.severities),
         audioAnalysis: normalizeAudioAnalysis(raw.audioAnalysis),
         commonSession: normalizeCommonSession(raw.commonSession),
+        recordingPreferences: normalizeRecordingPreferences(raw.recordingPreferences),
         slack,
         gitlab,
         google,
@@ -521,6 +534,12 @@ export class SettingsStore {
 
   setCommonSession(commonSession: CommonSessionSettings): AppSettings {
     const next = { ...this.get(), commonSession: normalizeCommonSession(commonSession) }
+    this.write(next)
+    return next
+  }
+
+  setRecordingPreferences(recordingPreferences: RecordingPreferences): AppSettings {
+    const next = { ...this.get(), recordingPreferences: normalizeRecordingPreferences(recordingPreferences) }
     this.write(next)
     return next
   }
