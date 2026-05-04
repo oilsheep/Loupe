@@ -372,6 +372,17 @@ export interface AppUpdateCheckResult {
   error?: string
 }
 
+export interface AppUpdateEvent {
+  phase: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion?: string
+  latestVersion?: string
+  message?: string
+  percent?: number
+  transferred?: number
+  total?: number
+  bytesPerSecond?: number
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   app: {
@@ -381,6 +392,8 @@ export interface DesktopApi {
     getVersion():                                                  Promise<string>
     checkForUpdates():                                             Promise<AppUpdateCheckResult>
     openUpdateDownload(url: string):                               Promise<void>
+    downloadUpdate():                                              Promise<void>
+    installUpdate():                                               Promise<void>
     openIphoneMirroring():                                         Promise<boolean>
     startUxPlayReceiver():                                         Promise<UxPlayReceiverStatus>
     stopUxPlayReceiver():                                          Promise<UxPlayReceiverStatus>
@@ -491,6 +504,8 @@ export interface DesktopApi {
   onAudioAnalysisProgress(cb: (progress: AudioAnalysisProgress) => void): () => void
   /** Renderer subscribes to live output from one-click tool installation. */
   onToolInstallLog(cb: (log: ToolInstallLog) => void): () => void
+  /** Renderer subscribes to packaged app update download/install progress. */
+  onAppUpdateEvent(cb: (event: AppUpdateEvent) => void): () => void
   onSlackOAuthCompleted(cb: (result: { ok: boolean; settings?: AppSettings; error?: string }) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>

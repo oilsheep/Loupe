@@ -11,6 +11,8 @@ const api: DesktopApi = {
     getVersion:       () => ipcRenderer.invoke(CHANNEL.appGetVersion),
     checkForUpdates:  () => ipcRenderer.invoke(CHANNEL.appCheckForUpdates),
     openUpdateDownload: (url) => ipcRenderer.invoke(CHANNEL.appOpenUpdateDownload, url),
+    downloadUpdate:   () => ipcRenderer.invoke(CHANNEL.appDownloadUpdate),
+    installUpdate:    () => ipcRenderer.invoke(CHANNEL.appInstallUpdate),
     openIphoneMirroring: () => ipcRenderer.invoke(CHANNEL.appOpenIphoneMirroring),
     startUxPlayReceiver: () => ipcRenderer.invoke(CHANNEL.appStartUxPlayReceiver),
     stopUxPlayReceiver:  () => ipcRenderer.invoke(CHANNEL.appStopUxPlayReceiver),
@@ -132,6 +134,11 @@ const api: DesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, log: any) => cb(log)
     ipcRenderer.on(CHANNEL.appInstallToolsLog, handler)
     return () => ipcRenderer.removeListener(CHANNEL.appInstallToolsLog, handler)
+  },
+  onAppUpdateEvent: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, updateEvent: any) => cb(updateEvent)
+    ipcRenderer.on(CHANNEL.appUpdateEvent, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.appUpdateEvent, handler)
   },
   onSlackOAuthCompleted: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, result: any) => cb(result)

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 vi.mock('electron', () => ({
-  app: { getVersion: vi.fn(() => '0.5.0') },
+  app: { getVersion: vi.fn(() => '0.5.0'), isPackaged: false },
   ipcMain: { handle: vi.fn() },
   BrowserWindow: vi.fn(),
   desktopCapturer: { getSources: vi.fn() },
@@ -18,6 +18,18 @@ vi.mock('electron', () => ({
     openExternal: vi.fn(),
     openPath: vi.fn(),
     showItemInFolder: vi.fn(),
+  },
+}))
+
+vi.mock('electron-updater', () => ({
+  autoUpdater: {
+    autoDownload: false,
+    autoInstallOnAppQuit: false,
+    allowPrerelease: false,
+    on: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
   },
 }))
 

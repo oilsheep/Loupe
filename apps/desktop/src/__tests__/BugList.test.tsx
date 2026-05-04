@@ -54,6 +54,8 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       getVersion: vi.fn().mockResolvedValue('0.5.0'),
       checkForUpdates: vi.fn().mockResolvedValue({ currentVersion: '0.5.0', updateAvailable: false, releaseUrl: 'https://github.com/oilsheep/Loupe/releases/latest' }),
       openUpdateDownload: vi.fn().mockResolvedValue(undefined),
+      downloadUpdate: vi.fn().mockResolvedValue(undefined),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
       openIphoneMirroring: vi.fn().mockResolvedValue(true),
       startUxPlayReceiver: vi.fn().mockResolvedValue({ running: true, receiverName: 'Loupe iOS' }),
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
@@ -115,6 +117,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
     onSessionLoadProgress: () => () => {},
     onAudioAnalysisProgress: () => () => {},
     onToolInstallLog: () => () => {},
+    onAppUpdateEvent: () => () => {},
     onSlackOAuthCompleted: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }

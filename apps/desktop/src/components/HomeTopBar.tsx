@@ -1,21 +1,34 @@
 import { useI18n } from '@/lib/i18n'
-import type { AppUpdateCheckResult, ToolCheck } from '@shared/types'
+import type { AppUpdateCheckResult, AppUpdateEvent, ToolCheck } from '@shared/types'
 
 interface HomeTopBarProps {
   selectedLabel?: string
   missingTools: ToolCheck[]
   updateCheck: AppUpdateCheckResult | null
+  updateEvent: AppUpdateEvent | null
   checkingForUpdates: boolean
   onCheckForUpdates(): void
-  onOpenUpdate(): void
+  onDownloadUpdate(): void
+  onInstallUpdate(): void
   onOpenTools(): void
   onOpenPreferences(): void
 }
 
-export function HomeTopBar({ selectedLabel, missingTools, updateCheck, checkingForUpdates, onCheckForUpdates, onOpenUpdate, onOpenTools, onOpenPreferences }: HomeTopBarProps) {
+export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEvent, checkingForUpdates, onCheckForUpdates, onDownloadUpdate, onInstallUpdate, onOpenTools, onOpenPreferences }: HomeTopBarProps) {
   const { t } = useI18n()
   const missingCount = missingTools.length
   const updateAvailable = Boolean(updateCheck?.updateAvailable)
+  const downloading = updateEvent?.phase === 'downloading'
+  const downloaded = updateEvent?.phase === 'downloaded'
+  const updateButtonText = downloaded
+    ? 'Restart to install'
+    : downloading
+      ? `Downloading ${Math.round(updateEvent?.percent ?? 0)}%`
+      : updateAvailable
+        ? `Download v${updateCheck?.latestVersion}`
+        : checkingForUpdates
+          ? 'Checking...'
+          : 'Check updates'
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3">
@@ -27,11 +40,12 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, checkingF
         {updateAvailable ? (
           <button
             type="button"
-            onClick={onOpenUpdate}
+            onClick={downloaded ? onInstallUpdate : onDownloadUpdate}
+            disabled={downloading}
             className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
-            title={updateCheck?.assetName ? `Download ${updateCheck.assetName}` : 'Open latest Loupe release'}
+            title={downloaded ? 'Restart Loupe and install the downloaded update' : updateCheck?.assetName ? `Download ${updateCheck.assetName}` : 'Download the latest Loupe release'}
           >
-            Update v{updateCheck?.latestVersion}
+            {updateButtonText}
           </button>
         ) : (
           <button
@@ -41,7 +55,7 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, checkingF
             className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
             title={updateCheck?.error || (updateCheck?.latestVersion ? `Latest: v${updateCheck.latestVersion}` : 'Check GitHub Releases for updates')}
           >
-            {checkingForUpdates ? 'Checking...' : 'Check updates'}
+            {updateButtonText}
           </button>
         )}
         <button

@@ -8,7 +8,7 @@ import { HomeTopBar } from '@/components/HomeTopBar'
 import { MissingToolsNotice } from '@/components/MissingToolsNotice'
 import { ImportVideoDialog } from '@/components/ImportVideoDialog'
 import { ToolStatus } from '@/routes/ToolStatus'
-import type { AppUpdateCheckResult, ToolCheck } from '@shared/types'
+import type { AppUpdateCheckResult, AppUpdateEvent, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingSourceSelection } from '@/lib/recordingSource'
@@ -25,6 +25,7 @@ export function Home() {
   const [importVideoOpen, setImportVideoOpen] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [updateCheck, setUpdateCheck] = useState<AppUpdateCheckResult | null>(null)
+  const [updateEvent, setUpdateEvent] = useState<AppUpdateEvent | null>(null)
   const [checkingForUpdates, setCheckingForUpdates] = useState(false)
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export function Home() {
     void api.app.getVersion().then(setAppVersion).catch(() => setAppVersion(''))
     void checkForUpdates(false)
     api.doctor().then(setChecks)
+    return api.onAppUpdateEvent(setUpdateEvent)
   }, [])
 
   async function checkForUpdates(showErrors = true) {
@@ -53,10 +55,30 @@ export function Home() {
     }
   }
 
-  async function openUpdate() {
+  async function openUpdateDownload() {
     const url = updateCheck?.downloadUrl || updateCheck?.releaseUrl
     if (!url) return
     await api.app.openUpdateDownload(url)
+  }
+
+  async function downloadUpdate() {
+    if (!updateCheck?.updateAvailable) return
+    setUpdateEvent({ phase: 'checking', currentVersion: updateCheck.currentVersion, latestVersion: updateCheck.latestVersion, message: 'Preparing update download.' })
+    try {
+      await api.app.downloadUpdate()
+    } catch (err) {
+      setUpdateEvent({
+        phase: 'error',
+        currentVersion: updateCheck.currentVersion,
+        latestVersion: updateCheck.latestVersion,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      await openUpdateDownload().catch(() => {})
+    }
+  }
+
+  async function installUpdate() {
+    await api.app.installUpdate()
   }
 
   const missing = checks.filter(c => !c.ok)
@@ -122,9 +144,11 @@ export function Home() {
           selectedLabel={selected?.label}
           missingTools={missing}
           updateCheck={updateCheck}
+          updateEvent={updateEvent}
           checkingForUpdates={checkingForUpdates}
           onCheckForUpdates={() => { void checkForUpdates(true) }}
-          onOpenUpdate={() => { void openUpdate() }}
+          onDownloadUpdate={() => { void downloadUpdate() }}
+          onInstallUpdate={() => { void installUpdate() }}
           onOpenTools={() => setToolsOpen(true)}
           onOpenPreferences={() => setPreferencesOpen(true)}
         />

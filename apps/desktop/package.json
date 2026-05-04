@@ -6,8 +6,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && electron-builder",
-    "dist:win": "electron-vite build && electron-builder --win",
+    "build": "electron-vite build && electron-builder --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
     "pretest": "node ../../scripts/ensure-node-native.mjs better-sqlite3",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,8 +15,9 @@
     "spike:airplay": "electron scripts/spike-airplay.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "better-sqlite3": "^11.3.0",
+    "electron-updater": "^6.8.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.27.0",
@@ -52,6 +53,13 @@
       "out/**/*",
       "build/icon.png",
       "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "oilsheep",
+        "repo": "Loupe"
+      }
     ],
     "asarUnpack": [
       "node_modules/.pnpm/@ffmpeg-installer+*/node_modules/@ffmpeg-installer/**",

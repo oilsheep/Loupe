@@ -174,7 +174,11 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
-          path: apps/desktop/dist/*.dmg
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
           if-no-files-found: error
           retention-days: 14
 
@@ -187,6 +191,8 @@ jobs:
             apps/desktop/dist/*.exe
             apps/desktop/dist/*.msi
             apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
           if-no-files-found: error
           retention-days: 14
 
@@ -220,3 +226,5 @@ jobs:
             release-assets/**/*.msi
             release-assets/**/*.pkg
             release-assets/**/*.zip
+            release-assets/**/*.yml
+            release-assets/**/*.blockmap

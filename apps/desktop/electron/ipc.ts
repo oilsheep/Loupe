@@ -13,7 +13,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AppUpdateCheckResult, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
@@ -30,6 +30,7 @@ import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 import { resolveBundledTool, withToolPath } from './tool-paths'
 import { MacSystemAudioCapture } from './macos-system-audio'
 import { checkForAppUpdates } from './app-updates'
+import { configureElectronUpdater, downloadElectronUpdate, installElectronUpdate } from './electron-updates'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -39,6 +40,9 @@ export const CHANNEL = {
   appGetVersion:           'app:getVersion',
   appCheckForUpdates:      'app:checkForUpdates',
   appOpenUpdateDownload:   'app:openUpdateDownload',
+  appDownloadUpdate:       'app:downloadUpdate',
+  appInstallUpdate:        'app:installUpdate',
+  appUpdateEvent:          'app:updateEvent',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
   appStartUxPlayReceiver: 'app:startUxPlayReceiver',
   appStopUxPlayReceiver:  'app:stopUxPlayReceiver',
@@ -1991,6 +1995,10 @@ async function showPcCaptureFrame(sourceId: string, color: 'green' | 'red' = 're
 
 export function registerIpc(deps: IpcDeps): void {
   const macSystemAudio = new MacSystemAudioCapture(deps.runner)
+  const emitAppUpdateEvent = (event: AppUpdateEvent) => {
+    deps.getWindow()?.webContents.send(CHANNEL.appUpdateEvent, event)
+  }
+  configureElectronUpdater(emitAppUpdateEvent)
   slackOAuthCallbackHandler = async (callbackUrl: string) => {
     const win = deps.getWindow()
     try {
@@ -2046,6 +2054,8 @@ export function registerIpc(deps: IpcDeps): void {
     }
     await shell.openExternal(url)
   })
+  ipcMain.handle(CHANNEL.appDownloadUpdate, async () => downloadElectronUpdate())
+  ipcMain.handle(CHANNEL.appInstallUpdate, async () => installElectronUpdate())
   ipcMain.handle(CHANNEL.appOpenIphoneMirroring, async () => {
     if (process.platform !== 'darwin') return false
     await new Promise<void>((resolve, reject) => {
