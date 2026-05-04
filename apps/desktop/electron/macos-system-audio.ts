@@ -31,7 +31,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
   func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
     guard outputType == .audio else { return }
-    guard outputType == .audio, sampleBuffer.isValid else { return }
+    guard sampleBuffer.isValid else { return }
     do {
       if writer == nil {
         writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
@@ -87,25 +87,18 @@ func makeFilter(content: SCShareableContent, sourceId: String) -> SCContentFilte
   if sourceId.hasPrefix("window:") {
     let parts = sourceId.split(separator: ":")
     if parts.count >= 2, let windowId = UInt32(parts[1]) {
-      if let window = content.windows.first(where: { $0.windowID == windowId }) {
-        let owner = window.owningApplication?.applicationName ?? "unknown"
-        loupeLog("loupe-system-audio-target display=\(display.displayID) from-window=\(windowId) app=\(owner) mode=display-audio-only")
+      if content.windows.contains(where: { $0.windowID == windowId }) {
         return SCContentFilter(display: display, excludingWindows: [])
       }
-      loupeLog("loupe-system-audio-target window=\(windowId) not-found fallback=display")
     }
   }
-  loupeLog("loupe-system-audio-target display=\(display.displayID) mode=display-audio-only")
   return SCContentFilter(display: display, excludingWindows: [])
 }
 
 @available(macOS 13.0, *)
 func runRecorder(outputPath: String, sourceId: String) async throws {
-  loupeLog("loupe-system-audio-step shareable-content")
   let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-  loupeLog("loupe-system-audio-step make-filter")
   let filter = makeFilter(content: content, sourceId: sourceId)
-  loupeLog("loupe-system-audio-step configure")
   let configuration = SCStreamConfiguration()
   configuration.capturesAudio = true
   configuration.excludesCurrentProcessAudio = false
@@ -116,12 +109,9 @@ func runRecorder(outputPath: String, sourceId: String) async throws {
   configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
 
   let recorder = SystemAudioRecorder(outputPath: outputPath)
-  loupeLog("loupe-system-audio-step create-stream")
   let stream = SCStream(filter: filter, configuration: configuration, delegate: recorder)
   let queue = DispatchQueue(label: "loupe.system-audio")
-  loupeLog("loupe-system-audio-step add-audio-output")
   try stream.addStreamOutput(recorder, type: .audio, sampleHandlerQueue: queue)
-  loupeLog("loupe-system-audio-step start-capture")
   try await stream.startCapture()
   loupeLog("loupe-system-audio-capturing")
 
