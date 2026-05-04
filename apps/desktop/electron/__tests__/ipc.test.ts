@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 vi.mock('electron', () => ({
+  app: { getVersion: vi.fn(() => '0.5.0') },
   ipcMain: { handle: vi.fn() },
   BrowserWindow: vi.fn(),
   desktopCapturer: { getSources: vi.fn() },
@@ -14,6 +15,7 @@ vi.mock('electron', () => ({
     getPrimaryDisplay: vi.fn(),
   },
   shell: {
+    openExternal: vi.fn(),
     openPath: vi.fn(),
     showItemInFolder: vi.fn(),
   },

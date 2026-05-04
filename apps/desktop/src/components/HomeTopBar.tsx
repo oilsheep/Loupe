@@ -1,16 +1,21 @@
 import { useI18n } from '@/lib/i18n'
-import type { ToolCheck } from '@shared/types'
+import type { AppUpdateCheckResult, ToolCheck } from '@shared/types'
 
 interface HomeTopBarProps {
   selectedLabel?: string
   missingTools: ToolCheck[]
+  updateCheck: AppUpdateCheckResult | null
+  checkingForUpdates: boolean
+  onCheckForUpdates(): void
+  onOpenUpdate(): void
   onOpenTools(): void
   onOpenPreferences(): void
 }
 
-export function HomeTopBar({ selectedLabel, missingTools, onOpenTools, onOpenPreferences }: HomeTopBarProps) {
+export function HomeTopBar({ selectedLabel, missingTools, updateCheck, checkingForUpdates, onCheckForUpdates, onOpenUpdate, onOpenTools, onOpenPreferences }: HomeTopBarProps) {
   const { t } = useI18n()
   const missingCount = missingTools.length
+  const updateAvailable = Boolean(updateCheck?.updateAvailable)
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3">
@@ -19,6 +24,26 @@ export function HomeTopBar({ selectedLabel, missingTools, onOpenTools, onOpenPre
         <div className="truncate text-sm text-zinc-300">{selectedLabel || t('home.noSourceSelected')}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {updateAvailable ? (
+          <button
+            type="button"
+            onClick={onOpenUpdate}
+            className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
+            title={updateCheck?.assetName ? `Download ${updateCheck.assetName}` : 'Open latest Loupe release'}
+          >
+            Update v{updateCheck?.latestVersion}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onCheckForUpdates}
+            disabled={checkingForUpdates}
+            className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+            title={updateCheck?.error || (updateCheck?.latestVersion ? `Latest: v${updateCheck.latestVersion}` : 'Check GitHub Releases for updates')}
+          >
+            {checkingForUpdates ? 'Checking...' : 'Check updates'}
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenTools}

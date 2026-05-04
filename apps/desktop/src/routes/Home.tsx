@@ -8,7 +8,7 @@ import { HomeTopBar } from '@/components/HomeTopBar'
 import { MissingToolsNotice } from '@/components/MissingToolsNotice'
 import { ImportVideoDialog } from '@/components/ImportVideoDialog'
 import { ToolStatus } from '@/routes/ToolStatus'
-import type { ToolCheck } from '@shared/types'
+import type { AppUpdateCheckResult, ToolCheck } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingSourceSelection } from '@/lib/recordingSource'
@@ -24,12 +24,40 @@ export function Home() {
   const [toolsOpen, setToolsOpen] = useState(false)
   const [importVideoOpen, setImportVideoOpen] = useState(false)
   const [appVersion, setAppVersion] = useState('')
+  const [updateCheck, setUpdateCheck] = useState<AppUpdateCheckResult | null>(null)
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false)
 
   useEffect(() => {
     void api.app.hidePcCaptureFrame().catch(() => {})
     void api.app.getVersion().then(setAppVersion).catch(() => setAppVersion(''))
+    void checkForUpdates(false)
     api.doctor().then(setChecks)
   }, [])
+
+  async function checkForUpdates(showErrors = true) {
+    setCheckingForUpdates(true)
+    try {
+      const result = await api.app.checkForUpdates()
+      setUpdateCheck(result)
+    } catch (err) {
+      if (showErrors) {
+        setUpdateCheck({
+          currentVersion: appVersion,
+          updateAvailable: false,
+          releaseUrl: 'https://github.com/oilsheep/Loupe/releases/latest',
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    } finally {
+      setCheckingForUpdates(false)
+    }
+  }
+
+  async function openUpdate() {
+    const url = updateCheck?.downloadUrl || updateCheck?.releaseUrl
+    if (!url) return
+    await api.app.openUpdateDownload(url)
+  }
 
   const missing = checks.filter(c => !c.ok)
   const zh = resolvedLocale.startsWith('zh')
@@ -93,6 +121,10 @@ export function Home() {
         <HomeTopBar
           selectedLabel={selected?.label}
           missingTools={missing}
+          updateCheck={updateCheck}
+          checkingForUpdates={checkingForUpdates}
+          onCheckForUpdates={() => { void checkForUpdates(true) }}
+          onOpenUpdate={() => { void openUpdate() }}
           onOpenTools={() => setToolsOpen(true)}
           onOpenPreferences={() => setPreferencesOpen(true)}
         />

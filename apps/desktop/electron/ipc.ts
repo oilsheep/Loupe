@@ -13,7 +13,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import type { AppLocale, AppUpdateCheckResult, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
@@ -29,6 +29,7 @@ import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
 import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
 import { resolveBundledTool, withToolPath } from './tool-paths'
 import { MacSystemAudioCapture } from './macos-system-audio'
+import { checkForAppUpdates } from './app-updates'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -36,6 +37,8 @@ export const CHANNEL = {
   openPath:                'app:openPath',
   appGetPlatform:          'app:getPlatform',
   appGetVersion:           'app:getVersion',
+  appCheckForUpdates:      'app:checkForUpdates',
+  appOpenUpdateDownload:   'app:openUpdateDownload',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
   appStartUxPlayReceiver: 'app:startUxPlayReceiver',
   appStopUxPlayReceiver:  'app:stopUxPlayReceiver',
@@ -2036,6 +2039,13 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.appGetPlatform, async () => process.platform)
   ipcMain.handle(CHANNEL.appGetVersion, async () => app.getVersion())
+  ipcMain.handle(CHANNEL.appCheckForUpdates, async (): Promise<AppUpdateCheckResult> => checkForAppUpdates())
+  ipcMain.handle(CHANNEL.appOpenUpdateDownload, async (_e, url: string) => {
+    if (!/^https:\/\/github\.com\/oilsheep\/Loupe\/releases\//i.test(url)) {
+      throw new Error('Update URL is not a Loupe GitHub release URL.')
+    }
+    await shell.openExternal(url)
+  })
   ipcMain.handle(CHANNEL.appOpenIphoneMirroring, async () => {
     if (process.platform !== 'darwin') return false
     await new Promise<void>((resolve, reject) => {

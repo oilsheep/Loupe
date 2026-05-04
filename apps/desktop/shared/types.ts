@@ -361,6 +361,17 @@ export interface AudioAnalysisResult {
   error?: string
 }
 
+export interface AppUpdateCheckResult {
+  currentVersion: string
+  latestVersion?: string
+  updateAvailable: boolean
+  releaseUrl: string
+  publishedAt?: string
+  downloadUrl?: string
+  assetName?: string
+  error?: string
+}
+
 export interface DesktopApi {
   doctor():                                                        Promise<ToolCheck[]>
   app: {
@@ -368,6 +379,8 @@ export interface DesktopApi {
     openPath(path: string):                                        Promise<void>
     getPlatform():                                                 Promise<string>
     getVersion():                                                  Promise<string>
+    checkForUpdates():                                             Promise<AppUpdateCheckResult>
+    openUpdateDownload(url: string):                               Promise<void>
     openIphoneMirroring():                                         Promise<boolean>
     startUxPlayReceiver():                                         Promise<UxPlayReceiverStatus>
     stopUxPlayReceiver():                                          Promise<UxPlayReceiverStatus>
