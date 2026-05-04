@@ -2,7 +2,7 @@ import type { SlackPublishSettings } from '@shared/types'
 import { createHash, randomBytes } from 'node:crypto'
 import { SLACK_OAUTH_CONFIG } from './slack-oauth-config'
 
-export const SLACK_USER_OAUTH_SCOPES = ['chat:write', 'files:write', 'users:read', 'channels:read', 'groups:read']
+export const SLACK_USER_OAUTH_SCOPES = ['chat:write', 'files:write', 'users:read', 'users:read.email', 'channels:read', 'groups:read']
 export const DEFAULT_SLACK_OAUTH_CLIENT_ID = '2178062560.11055652367536'
 export const DEFAULT_SLACK_OAUTH_REDIRECT_URI = 'loupe://slack-oauth'
 

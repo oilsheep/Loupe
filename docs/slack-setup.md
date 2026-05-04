@@ -20,6 +20,7 @@ Configure scopes in **Slack App > OAuth & Permissions**. After changing scopes, 
 | `channels:read` | Required | List public channels for export channel selection. |
 | `groups:read` | Required for private channels | List private channels the authorized user can access. |
 | `users:read` | Recommended | Load Slack users for mention lookup. |
+| `users:read.email` | Recommended | Include user emails in mention lookup and identity matching. Slack does not return `profile.email` from `users.list` / `users.info` with `users:read` alone. |
 
 ### Bot Token mode: Bot Token Scopes
 
