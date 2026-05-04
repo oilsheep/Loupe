@@ -294,6 +294,12 @@ export interface UxPlayReceiverStatus {
   messageKey?: 'device.uxPlayAlreadyRunning' | 'device.uxPlayRunningHint' | 'device.uxPlayStopped'
 }
 
+export interface IosControlStatus {
+  ok: boolean
+  message: string
+  screen?: { width: number; height: number }
+}
+
 export interface ToolInstallResult {
   ok: boolean
   message: string
@@ -372,6 +378,10 @@ export interface DesktopApi {
     getUserName(id: string):                                       Promise<string | null>
     listPackages(id: string):                                      Promise<string[]>
     listIosApps():                                                 Promise<IosAppInfo[]>
+  }
+  iosControl?: {
+    startWda(args?: { bundleId?: string; testRunnerBundleId?: string; xctestConfig?: string }): Promise<IosControlStatus>
+    tap(args: { x: number; y: number }):                           Promise<IosControlStatus>
   }
   session: {
     start(args: {

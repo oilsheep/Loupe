@@ -28,6 +28,10 @@ const api: DesktopApi = {
     listPackages:(id)           => ipcRenderer.invoke(CHANNEL.deviceListPackages, id),
     listIosApps: ()             => ipcRenderer.invoke(CHANNEL.deviceListIosApps),
   },
+  iosControl: {
+    startWda: (args)            => ipcRenderer.invoke(CHANNEL.iosControlStartWda, args),
+    tap:      (args)            => ipcRenderer.invoke(CHANNEL.iosControlTap, args),
+  },
   session: {
     start:   (args)             => ipcRenderer.invoke(CHANNEL.sessionStart, args),
     chooseVideoFile: ()         => ipcRenderer.invoke(CHANNEL.sessionChooseVideoFile),

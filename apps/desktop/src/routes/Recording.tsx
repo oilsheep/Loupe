@@ -162,8 +162,14 @@ export function Recording({ session }: { session: Session }) {
   const [hotkeys, setHotkeys] = useState<HotkeySettings>(DEFAULT_HOTKEYS)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null)
   const mediaChunksRef = useRef<Blob[]>([])
   const [pcRecorderError, setPcRecorderError] = useState<string | null>(null)
+  const [iosControlStatus, setIosControlStatus] = useState<string | null>(null)
+  const [iosControlScreen, setIosControlScreen] = useState<{ width: number; height: number } | null>(null)
+  const [wdaBundleId, setWdaBundleId] = useState('')
+  const [wdaRunnerBundleId, setWdaRunnerBundleId] = useState('')
+  const [wdaXctestConfig, setWdaXctestConfig] = useState('')
   const micRecorderRef = useRef<MediaRecorder | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
   const micChunksRef = useRef<Blob[]>([])
@@ -319,6 +325,10 @@ export function Recording({ session }: { session: Session }) {
         const recorder = new MediaRecorder(stream, { mimeType })
         mediaChunksRef.current = []
         mediaStreamRef.current = stream
+        if (previewVideoRef.current) {
+          previewVideoRef.current.srcObject = stream
+          void previewVideoRef.current.play().catch(() => {})
+        }
         mediaRecorderRef.current = recorder
         recorder.ondataavailable = event => {
           if (event.data.size > 0) mediaChunksRef.current.push(event.data)
@@ -336,6 +346,12 @@ export function Recording({ session }: { session: Session }) {
       mediaStreamRef.current?.getTracks().forEach(track => track.stop())
     }
   }, [session.connectionMode, session.deviceId, usesRendererPcRecording])
+
+  useEffect(() => {
+    if (!usesRendererPcRecording || !previewVideoRef.current || !mediaStreamRef.current) return
+    previewVideoRef.current.srcObject = mediaStreamRef.current
+    void previewVideoRef.current.play().catch(() => {})
+  }, [usesRendererPcRecording])
 
   useEffect(() => {
     let cancelled = false
@@ -476,6 +492,51 @@ export function Recording({ session }: { session: Session }) {
     } finally { setStopping(false) }
   }
 
+  async function startIosControl() {
+    if (!api.iosControl) {
+      setIosControlStatus('iOS control API is not available in this build.')
+      return
+    }
+    setIosControlStatus('Starting WebDriverAgent...')
+    try {
+      const status = await api.iosControl.startWda({
+        bundleId: wdaBundleId,
+        testRunnerBundleId: wdaRunnerBundleId,
+        xctestConfig: wdaXctestConfig,
+      })
+      setIosControlScreen(status.screen ?? null)
+      setIosControlStatus(status.message)
+    } catch (e) {
+      setIosControlStatus(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function tapIosPreview(event: any) {
+    if (!api.iosControl || !iosControlScreen) return
+    const video = event.currentTarget
+    const rect = video.getBoundingClientRect()
+    const streamWidth = video.videoWidth || rect.width
+    const streamHeight = video.videoHeight || rect.height
+    const scale = Math.min(rect.width / streamWidth, rect.height / streamHeight)
+    const renderedWidth = streamWidth * scale
+    const renderedHeight = streamHeight * scale
+    const left = rect.left + (rect.width - renderedWidth) / 2
+    const top = rect.top + (rect.height - renderedHeight) / 2
+    const localX = event.clientX - left
+    const localY = event.clientY - top
+    if (localX < 0 || localY < 0 || localX > renderedWidth || localY > renderedHeight) return
+    const x = (localX / renderedWidth) * iosControlScreen.width
+    const y = (localY / renderedHeight) * iosControlScreen.height
+    setIosControlStatus(`Tapping ${Math.round(x)}, ${Math.round(y)}...`)
+    try {
+      const status = await api.iosControl.tap({ x, y })
+      setIosControlScreen(status.screen ?? iosControlScreen)
+      setIosControlStatus(status.message)
+    } catch (e) {
+      setIosControlStatus(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   function continueAnalysisInBackground() {
     if (!postAnalysisPrompt) return
     sessionStorage.setItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`, '1')
@@ -518,6 +579,58 @@ export function Recording({ session }: { session: Session }) {
             {pcRecorderError && (
               <div className="mt-2 text-xs text-red-300">
                 PC recording error: {pcRecorderError}
+              </div>
+            )}
+            {usesRendererPcRecording && (
+              <div className="mt-3 max-w-md rounded border border-zinc-800 bg-zinc-950/80 p-2">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-xs text-zinc-400">Experimental iOS control</div>
+                  <button
+                    type="button"
+                    onClick={() => { void startIosControl() }}
+                    className="rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 hover:bg-zinc-700"
+                  >
+                    Start control
+                  </button>
+                </div>
+                <video
+                  ref={previewVideoRef}
+                  muted
+                  playsInline
+                  onPointerDown={(event) => { void tapIosPreview(event) }}
+                  className="aspect-video w-full cursor-crosshair rounded bg-black object-contain"
+                />
+                <details className="mt-2 rounded border border-zinc-800 bg-zinc-950/80 p-2 text-[11px] leading-4 text-zinc-400">
+                  <summary className="cursor-pointer text-zinc-300">Setup guide</summary>
+                  <div className="mt-2 space-y-2">
+                    <p>Requires a signed WebDriverAgentRunner on the iPhone. Use a Mac with Xcode once: open Appium WebDriverAgent, set your Team and unique bundle ids, select the iPhone, then run Product &gt; Test.</p>
+                    <p>On Windows, Loupe starts go-ios tunnel, forwards 8100, then runs WDA. If Start control fails, verify this returns JSON: <span className="font-mono text-zinc-200">curl http://127.0.0.1:8100/status</span></p>
+                    <p>Optional WDA ids, only needed when your signed WDA uses custom bundle ids:</p>
+                    <div className="grid gap-2">
+                      <input
+                        value={wdaBundleId}
+                        onChange={e => setWdaBundleId(e.target.value)}
+                        placeholder="WDA bundle id, e.g. com.example.WebDriverAgentRunner"
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                      <input
+                        value={wdaRunnerBundleId}
+                        onChange={e => setWdaRunnerBundleId(e.target.value)}
+                        placeholder="Test runner bundle id, e.g. com.example.WebDriverAgentRunner.xctrunner"
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                      <input
+                        value={wdaXctestConfig}
+                        onChange={e => setWdaXctestConfig(e.target.value)}
+                        placeholder="xctest config path/name, if your WDA setup requires it"
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </div>
+                  </div>
+                </details>
+                {iosControlStatus && (
+                  <div className="mt-2 text-[11px] leading-4 text-zinc-500">{iosControlStatus}</div>
+                )}
               </div>
             )}
             {session.micRecordingRequested ? (

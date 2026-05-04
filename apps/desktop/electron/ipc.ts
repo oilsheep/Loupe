@@ -2,9 +2,9 @@ import { ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, she
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createServer } from 'node:http'
+import { createServer, request } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
-import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
 import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
@@ -13,7 +13,7 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
@@ -27,6 +27,7 @@ import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } fro
 import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
 import { UxPlayReceiver, type UxPlayReceiverStatus } from './uxplay'
+import { resolveBundledTool, withToolPath } from './tool-paths'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -51,6 +52,8 @@ export const CHANNEL = {
   deviceGetUserName:       'device:getUserName',
   deviceListPackages:      'device:listPackages',
   deviceListIosApps:        'device:listIosApps',
+  iosControlStartWda:      'iosControl:startWda',
+  iosControlTap:           'iosControl:tap',
   sessionStart:            'session:start',
   sessionChooseVideoFile:  'session:chooseVideoFile',
   sessionChooseAudioFile:  'session:chooseAudioFile',
@@ -130,6 +133,10 @@ let gitlabOAuthCancel: (() => void) | null = null
 let gitlabOAuthCallbackHandler: ((url: string) => void) | null = null
 let googleOAuthCancel: (() => void) | null = null
 let uxPlayReceiver: UxPlayReceiver | null = null
+let wdaTunnelProcess: ChildProcess | null = null
+let wdaForwardProcess: ChildProcess | null = null
+let wdaRunProcess: ChildProcess | null = null
+let wdaSessionId: string | null = null
 
 const DEFAULT_GITLAB_OAUTH_REDIRECT_URI = 'loupe://gitlab-oauth'
 const DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = 'http://127.0.0.1:38988/oauth/google/callback'
@@ -217,6 +224,129 @@ async function listIosApps(runner: IProcessRunner): Promise<IosAppInfo[]> {
     }
     return [...apps.values()].sort((a, b) => a.bundleId.localeCompare(b.bundleId))
   }
+}
+
+function wdaRequest(method: string, path: string, body?: unknown, timeoutMs = 5000): Promise<unknown> {
+  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body))
+  return new Promise((resolve, reject) => {
+    const req = request({
+      hostname: '127.0.0.1',
+      port: 8100,
+      path,
+      method,
+      headers: payload ? { 'content-type': 'application/json', 'content-length': payload.length } : undefined,
+      timeout: timeoutMs,
+    }, res => {
+      let text = ''
+      res.setEncoding('utf8')
+      res.on('data', chunk => { text += chunk })
+      res.on('end', () => {
+        if ((res.statusCode ?? 500) >= 400) {
+          reject(new Error(`WDA ${method} ${path} failed (${res.statusCode}): ${text}`))
+          return
+        }
+        try {
+          resolve(text.trim() ? JSON.parse(text) : {})
+        } catch {
+          resolve({ value: text })
+        }
+      })
+    })
+    req.on('timeout', () => {
+      req.destroy(new Error(`Timed out connecting to WebDriverAgent on 127.0.0.1:8100`))
+    })
+    req.on('error', reject)
+    if (payload) req.write(payload)
+    req.end()
+  })
+}
+
+function jsonValue<T>(value: unknown): T | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  return ((record.value ?? record) as T) ?? null
+}
+
+async function wdaStatus(): Promise<boolean> {
+  try {
+    await wdaRequest('GET', '/status', undefined, 1200)
+    return true
+  } catch {
+    return false
+  }
+}
+
+interface IosControlStartArgs {
+  bundleId?: string
+  testRunnerBundleId?: string
+  xctestConfig?: string
+}
+
+function ensureIosControlProcesses(options: IosControlStartArgs = {}): void {
+  if (!wdaTunnelProcess) {
+    wdaTunnelProcess = spawn(resolveBundledTool('ios'), ['tunnel', 'start', '--userspace', '--tunnel-info-port=28100'], withToolPath('ios', { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true }))
+    wdaTunnelProcess.once('exit', () => { wdaTunnelProcess = null })
+  }
+  if (!wdaForwardProcess) {
+    wdaForwardProcess = spawn(resolveBundledTool('ios'), ['forward', '8100', '8100'], withToolPath('ios', { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true }))
+    wdaForwardProcess.once('exit', () => { wdaForwardProcess = null })
+  }
+  if (!wdaRunProcess) {
+    const args = [
+      'runwda',
+      ...(options.bundleId?.trim() ? [`--bundleid=${options.bundleId.trim()}`] : []),
+      ...(options.testRunnerBundleId?.trim() ? [`--testrunnerbundleid=${options.testRunnerBundleId.trim()}`] : []),
+      ...(options.xctestConfig?.trim() ? [`--xctestconfig=${options.xctestConfig.trim()}`] : []),
+    ]
+    wdaRunProcess = spawn(resolveBundledTool('ios'), args, withToolPath('ios', { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true }))
+    wdaRunProcess.once('exit', () => { wdaRunProcess = null; wdaSessionId = null })
+  }
+}
+
+async function waitForWdaReady(timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await wdaStatus()) return
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  throw new Error('WebDriverAgent did not respond on 127.0.0.1:8100. Start go-ios tunnel/forward and make sure WDA is installed/signed for this device.')
+}
+
+async function getWdaSessionId(): Promise<string> {
+  if (wdaSessionId) return wdaSessionId
+  const created = await wdaRequest('POST', '/session', {
+    capabilities: { alwaysMatch: {}, firstMatch: [{}] },
+    desiredCapabilities: {},
+  })
+  const value = jsonValue<Record<string, unknown>>(created)
+  const id = String((created as Record<string, unknown>).sessionId ?? value?.sessionId ?? '')
+  if (!id) throw new Error('WebDriverAgent did not return a session id.')
+  wdaSessionId = id
+  return id
+}
+
+async function getWdaScreen(): Promise<{ width: number; height: number } | undefined> {
+  const sessionId = await getWdaSessionId()
+  const result = await wdaRequest('GET', `/session/${sessionId}/window/size`)
+  const value = jsonValue<{ width?: unknown; height?: unknown }>(result)
+  const width = Number(value?.width)
+  const height = Number(value?.height)
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ? { width, height } : undefined
+}
+
+async function startIosControl(options: IosControlStartArgs = {}): Promise<IosControlStatus> {
+  ensureIosControlProcesses(options)
+  await waitForWdaReady()
+  const screen = await getWdaScreen().catch(() => undefined)
+  return { ok: true, message: screen ? `WebDriverAgent ready (${screen.width}x${screen.height}).` : 'WebDriverAgent ready.', ...(screen ? { screen } : {}) }
+}
+
+async function tapIosControl(x: number, y: number): Promise<IosControlStatus> {
+  await startIosControl()
+  const sessionId = await getWdaSessionId()
+  await wdaRequest('POST', `/session/${sessionId}/wda/tap/0`, { x: Math.round(x), y: Math.round(y) })
+  const screen = await getWdaScreen().catch(() => undefined)
+  return { ok: true, message: `Tapped ${Math.round(x)}, ${Math.round(y)}.`, ...(screen ? { screen } : {}) }
 }
 
 function sessionVideoInputPath(session: { id: string; videoPath: string | null; pcVideoPath: string | null; connectionMode?: string }, paths: Paths): string {
@@ -1942,6 +2072,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.deviceGetUserName, async (_e, id: string) => deps.adb.getUserDeviceName(id))
   ipcMain.handle(CHANNEL.deviceListPackages, async (_e, id: string) => deps.adb.listPackages(id))
   ipcMain.handle(CHANNEL.deviceListIosApps, async () => listIosApps(deps.runner))
+  ipcMain.handle(CHANNEL.iosControlStartWda, async (_e, args?: IosControlStartArgs): Promise<IosControlStatus> => startIosControl(args ?? {}))
+  ipcMain.handle(CHANNEL.iosControlTap, async (_e, args: { x: number; y: number }): Promise<IosControlStatus> => {
+    const x = Number(args?.x)
+    const y = Number(args?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Invalid iOS tap coordinates.')
+    return tapIosControl(x, y)
+  })
 
   ipcMain.handle(CHANNEL.sessionStart, async (_e, args) => {
     const session = await deps.manager.start(args)
