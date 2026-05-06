@@ -1403,6 +1403,11 @@ function remotePublishWarnings(result: RemotePublishResult): string[] {
   return []
 }
 
+function remotePublishTargets(publish: ExportPublishOptions | undefined): Array<'slack' | 'gitlab' | 'google-drive'> {
+  const targets = publish?.targets?.length ? publish.targets : publish?.target ? [publish.target] : []
+  return targets.filter((target): target is 'slack' | 'gitlab' | 'google-drive' => target === 'slack' || target === 'gitlab' || target === 'google-drive')
+}
+
 function throwIfExportCancelled(exportId: string, signal: AbortSignal): void {
   if (signal.aborted) throw new Error(`export cancelled: ${exportId}`)
 }
@@ -2629,7 +2634,9 @@ export function registerIpc(deps: IpcDeps): void {
     const controller = new AbortController()
     exportControllers.set(exportId, controller)
     const runOpts = { signal: controller.signal }
-    const total = 6
+    const publishTargets = remotePublishTargets(args.publish)
+    const localTotal = 6
+    const total = localTotal + publishTargets.length
 
     try {
       emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'Preparing export folder', 'Creating output paths and reading marker metadata.', 0, total, 1, 1))
@@ -2745,6 +2752,19 @@ export function registerIpc(deps: IpcDeps): void {
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
+        onProgress: progress => {
+          const current = progress.phase === 'start' ? localTotal + progress.index - 1 : localTotal + progress.index
+          emitExportProgress(event.sender, exportProgress(
+            exportId,
+            'publish',
+            progress.message,
+            progress.detail,
+            current,
+            total,
+            1,
+            1,
+          ))
+        },
       })
       const remoteWarnings = remotePublishWarnings(remotePublishResult)
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [
@@ -2773,7 +2793,9 @@ export function registerIpc(deps: IpcDeps): void {
     const controller = new AbortController()
     exportControllers.set(exportId, controller)
     const runOpts = { signal: controller.signal }
-    const total = 3 + bugs.length * 3
+    const publishTargets = remotePublishTargets(args.publish)
+    const localTotal = 3 + bugs.length * 3
+    const total = localTotal + publishTargets.length
 
     try {
       const outDir = exportDirForSession(deps.settings.get().exportRoot, session)
@@ -2900,6 +2922,19 @@ export function registerIpc(deps: IpcDeps): void {
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
+        onProgress: progress => {
+          const current = progress.phase === 'start' ? localTotal + progress.index - 1 : localTotal + progress.index
+          emitExportProgress(event.sender, exportProgress(
+            exportId,
+            'publish',
+            progress.message,
+            progress.detail,
+            current,
+            total,
+            bugs.length,
+            bugs.length,
+          ))
+        },
       })
       if (transcriptSubtitlePath) outputs.push(transcriptSubtitlePath)
       const remoteWarnings = remotePublishWarnings(remotePublishResult)

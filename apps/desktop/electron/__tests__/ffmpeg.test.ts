@@ -2,10 +2,15 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   extractClip,
   buildClipArgs,
+  buildConcatCopyArgs,
+  buildCopiedClipSegmentArgs,
+  buildIntroCardSegmentArgs,
   buildIntroClipArgs,
+  buildMuxSessionMicArgs,
   buildContactSheetArgs,
   buildFaststartArgs,
   clampClipWindow,
+  extractClipWithIntro,
   remuxForHtml5Playback,
   assertVideoInputReadable,
   resolveAsarUnpackedPath,
@@ -216,7 +221,6 @@ describe('buildClipArgs', () => {
       ],
     })
     const filter = args[args.indexOf('-filter:v') + 1]
-    expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.06:t=fill')
     expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.55:t=3')
     expect(filter).toContain("enable='between(t\\,2.000\\,4.000)'")
     expect(filter).not.toContain('0.100000')
@@ -271,6 +275,136 @@ describe('extractClip', () => {
 })
 
 describe('buildIntroClipArgs', () => {
+  it('builds fast intro segment, copied clip segment, and concat-copy args', () => {
+    const base = {
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+    }
+    expect(buildIntroCardSegmentArgs(base, 'intro.mp4')).toEqual(expect.arrayContaining([
+      '-loop', '1',
+      '-i', 'card.jpg',
+      '-f', 'lavfi',
+      '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+      '-preset', 'ultrafast',
+      'intro.mp4',
+    ]))
+    expect(buildCopiedClipSegmentArgs(base, 'clip.mp4')).toEqual(expect.arrayContaining([
+      '-ss', '5.000',
+      '-i', 'in.mp4',
+      '-t', '7.000',
+      '-c', 'copy',
+      'clip.mp4',
+    ]))
+    expect(buildConcatCopyArgs('concat.txt', 'out.mp4')).toEqual([
+      '-y',
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', 'concat.txt',
+      '-c', 'copy',
+      '-movflags', '+faststart',
+      'out.mp4',
+    ])
+    expect(buildMuxSessionMicArgs({ ...base, sessionMicPath: 'mic.webm' }, 'video.mp4', 'out.mp4')).toEqual(expect.arrayContaining([
+      '-i', 'video.mp4',
+      '-i', 'mic.webm',
+      '-map', '0:v:0',
+      '-map', '[a]',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      'out.mp4',
+    ]))
+  })
+
+  it('uses the fast stream-copy intro path when the clip has no overlays or replacement audio', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+    await extractClipWithIntro(runner, '/ffmpeg', {
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+    })
+    expect(runner.run).toHaveBeenCalledTimes(3)
+    expect((runner.run as any).mock.calls[0][1]).toEqual(expect.arrayContaining(['-preset', 'ultrafast']))
+    expect((runner.run as any).mock.calls[1][1]).toEqual(expect.arrayContaining(['-c', 'copy']))
+    expect((runner.run as any).mock.calls[2][1]).toEqual(expect.arrayContaining(['-f', 'concat', '-c', 'copy']))
+  })
+
+  it('uses the fast stream-copy video path and only remuxes audio for session MIC exports', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+    await extractClipWithIntro(runner, '/ffmpeg', {
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+      sessionMicPath: 'mic.webm',
+    })
+    expect(runner.run).toHaveBeenCalledTimes(4)
+    expect((runner.run as any).mock.calls[0][1]).not.toContain('anullsrc=channel_layout=stereo:sample_rate=48000')
+    expect((runner.run as any).mock.calls[1][1]).not.toEqual(expect.arrayContaining(['-map', '0:a?']))
+    expect((runner.run as any).mock.calls[2][1]).toEqual(expect.arrayContaining(['-f', 'concat', '-c', 'copy']))
+    expect((runner.run as any).mock.calls[3][1]).toEqual(expect.arrayContaining(['-i', 'mic.webm', '-c:v', 'copy', '-c:a', 'aac']))
+  })
+
+  it('falls back to the re-encode intro path when fast concat is incompatible', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn()
+        .mockResolvedValueOnce({ stdout: '', stderr: '', code: 0 })
+        .mockResolvedValueOnce({ stdout: '', stderr: '', code: 0 })
+        .mockResolvedValueOnce({ stdout: '', stderr: 'concat failed', code: 1 })
+        .mockResolvedValueOnce({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+    await extractClipWithIntro(runner, '/ffmpeg', {
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+    })
+    expect(runner.run).toHaveBeenCalledTimes(4)
+    expect((runner.run as any).mock.calls[3][1]).toEqual(expect.arrayContaining(['-filter_complex']))
+  })
+
+  it('keeps using the re-encode path when marker annotations must be burned in', async () => {
+    const runner: IProcessRunner = {
+      run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', code: 0 }) as any,
+      spawn: vi.fn() as any,
+    }
+    await extractClipWithIntro(runner, '/ffmpeg', {
+      inputPath: 'in.mp4',
+      outputPath: 'out.mp4',
+      introImagePath: 'card.jpg',
+      startMs: 5000,
+      endMs: 12000,
+      canvasWidth: 720,
+      canvasHeight: 1280,
+      annotations: [
+        { id: 'a1', bugId: 'bug', x: 0.2, y: 0.3, width: 0.4, height: 0.2, startMs: 6000, endMs: 8000, createdAt: 1 },
+      ],
+    })
+    expect(runner.run).toHaveBeenCalledTimes(1)
+    expect((runner.run as any).mock.calls[0][1]).toEqual(expect.arrayContaining(['-filter_complex']))
+  })
+
   it('prepends a 3 second review card and pads the clip to the card width without per-frame captions', () => {
     const args = buildIntroClipArgs({
       inputPath: 'in.mp4',

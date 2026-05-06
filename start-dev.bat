@@ -57,7 +57,11 @@ if errorlevel 1 (
   set "PNPM=corepack pnpm"
 )
 
-if not exist "node_modules\.modules.yaml" (
+set "NEEDS_INSTALL=0"
+if not exist "node_modules\.modules.yaml" set "NEEDS_INSTALL=1"
+if not exist "apps\desktop\node_modules\electron-updater" set "NEEDS_INSTALL=1"
+
+if "%NEEDS_INSTALL%"=="1" (
   echo [setup] Installing dependencies for current master...
   call %PNPM% install --frozen-lockfile
   if errorlevel 1 goto :error

@@ -322,7 +322,7 @@ export interface ToolInstallLog {
 
 export interface ExportProgress {
   exportId: string
-  phase: 'prepare' | 'video' | 'image' | 'complete' | 'error'
+  phase: 'prepare' | 'video' | 'image' | 'publish' | 'complete' | 'error'
   message: string
   detail?: string
   current: number

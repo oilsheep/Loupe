@@ -116,14 +116,18 @@ describe('remote publisher', () => {
         throw new Error(`unexpected URL ${input}`)
       })
       vi.stubGlobal('fetch', fetchImpl)
+      const onProgress = vi.fn()
 
       const result = await publishManifestToRemote({
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
         settings: settings(),
+        onProgress,
       })
 
       expect(result.target).toBe('slack')
+      expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ target: 'slack', phase: 'start', message: 'Publishing to Slack' }))
+      expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ target: 'slack', phase: 'complete', message: 'Slack publish complete' }))
       expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))).toHaveLength(1)
     } finally {
       vi.stubGlobal('fetch', originalFetch)
@@ -230,15 +234,19 @@ describe('remote publisher', () => {
     })
     const appSettings = settings()
     appSettings.google = { ...appSettings.google, token: '', refreshToken: '', driveFolderId: '' }
+    const onProgress = vi.fn()
 
     await expect(publishManifestToRemote({
       manifest,
       manifestPaths: { jsonPath: '/exports/export-manifest.json', csvPath: '/exports/export-manifest.csv' },
       settings: appSettings,
+      onProgress,
     })).resolves.toEqual({
       target: 'google-drive',
       failed: true,
       error: 'Google OAuth token is missing',
     })
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ target: 'google-drive', phase: 'start' }))
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ target: 'google-drive', phase: 'error', detail: 'Google OAuth token is missing' }))
   })
 })

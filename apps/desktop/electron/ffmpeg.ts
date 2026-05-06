@@ -1,5 +1,7 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import type { SpawnOptions } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { dirname, join } from 'node:path'
 import type { IProcessRunner } from './process-runner'
 import type { BugAnnotation } from '@shared/types'
 
@@ -88,6 +90,10 @@ export interface ClipWindowOptions {
 
 function ms(n: number): string {
   return (Math.max(0, n) / 1000).toFixed(3)
+}
+
+function concatFilePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/'/g, "'\\''")
 }
 
 function escapeDrawtextValue(value: string): string {
@@ -446,6 +452,11 @@ function annotationOverlayFilters(annotations: BugAnnotation[] | undefined, star
   return out
 }
 
+function hasClipOverlays(opts: Pick<ClipOptions, 'annotations' | 'clicks'>, startMs: number, endMs: number): boolean {
+  return clickOverlayFilters(opts.clicks, startMs, endMs).length > 0
+    || annotationOverlayFilters(opts.annotations, startMs, endMs, '#f59e0b').length > 0
+}
+
 function videoCaptionFilters(opts: ClipOptions, prefixFilters: string[] = [], layout?: CaptionLayout & { x?: number }): string[] {
   const captionLines = buildCaptionLines(opts, layout)
   const filters = [...prefixFilters]
@@ -569,6 +580,88 @@ export async function extractClip(runner: IProcessRunner, ffmpegPath: string, op
   if (r.code !== 0) throw new Error(`ffmpeg failed (code ${r.code}): ${r.stderr.trim()}`)
 }
 
+export function buildIntroCardSegmentArgs(opts: IntroClipOptions, outputPath: string): string[] {
+  const introDurationMs = Math.max(500, opts.introDurationMs ?? 3_000)
+  const introFadeMs = Math.max(0, Math.min(introDurationMs, opts.introFadeMs ?? 500))
+  const introDurationSec = ms(introDurationMs)
+  const fadeStartSec = ms(Math.max(0, introDurationMs - introFadeMs))
+  const fadeDurationSec = ms(introFadeMs)
+  const canvasWidth = Math.max(2, Math.floor(opts.canvasWidth / 2) * 2)
+  const canvasHeight = Math.max(2, Math.floor(opts.canvasHeight / 2) * 2)
+  const sourceHasAudio = opts.sourceHasAudio ?? true
+
+  return [
+    '-y',
+    '-loop', '1',
+    '-framerate', '30',
+    '-t', introDurationSec,
+    '-i', opts.introImagePath,
+    ...(sourceHasAudio ? ['-f', 'lavfi', '-t', introDurationSec, '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000'] : []),
+    '-vf', `scale=${canvasWidth}:${canvasHeight}:force_original_aspect_ratio=decrease,pad=${canvasWidth}:${canvasHeight}:(ow-iw)/2:(oh-ih)/2:color=black,fade=t=out:st=${fadeStartSec}:d=${fadeDurationSec},format=yuv420p,setsar=1`,
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-crf', '20',
+    '-r', '30',
+    ...(sourceHasAudio ? ['-c:a', 'aac', '-b:a', '128k', '-shortest'] : []),
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+}
+
+export function buildCopiedClipSegmentArgs(opts: IntroClipOptions, outputPath: string, options: { videoOnly?: boolean } = {}): string[] {
+  const startMs = Math.max(0, opts.startMs)
+  const endMs = Math.max(0, opts.endMs)
+  if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
+  const durationMs = endMs - startMs
+  return [
+    '-y',
+    '-ss', ms(startMs),
+    '-i', opts.inputPath,
+    '-t', ms(durationMs),
+    '-map', '0:v:0',
+    ...(options.videoOnly ? [] : ['-map', '0:a?']),
+    '-c', 'copy',
+    '-avoid_negative_ts', 'make_zero',
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+}
+
+export function buildConcatCopyArgs(listPath: string, outputPath: string): string[] {
+  return [
+    '-y',
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', listPath,
+    '-c', 'copy',
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+}
+
+export function buildMuxSessionMicArgs(opts: IntroClipOptions, videoPath: string, outputPath: string): string[] {
+  const startMs = Math.max(0, opts.startMs)
+  const endMs = Math.max(0, opts.endMs)
+  if (endMs <= startMs) throw new Error(`endMs (${opts.endMs}) must be > startMs (${opts.startMs})`)
+  const durationMs = endMs - startMs
+  const introDurationMs = Math.max(500, opts.introDurationMs ?? 3_000)
+  return [
+    '-y',
+    '-i', videoPath,
+    '-i', opts.sessionMicPath!,
+    '-filter_complex', `[1:a:0]atrim=start=${ms(startMs)}:duration=${ms(durationMs)},asetpts=PTS-STARTPTS,adelay=${introDurationMs}|${introDurationMs}[a]`,
+    '-map', '0:v:0',
+    '-map', '[a]',
+    '-t', ms(introDurationMs + durationMs),
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-shortest',
+    '-movflags', '+faststart',
+    outputPath,
+  ]
+}
+
 export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
   const startMs = Math.max(0, opts.startMs)
   const endMs = Math.max(0, opts.endMs)
@@ -634,6 +727,50 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
 }
 
 export async function extractClipWithIntro(runner: IProcessRunner, ffmpegPath: string, opts: IntroClipOptions, runOpts?: SpawnOptions): Promise<void> {
+  const startMs = Math.max(0, opts.startMs)
+  const endMs = Math.max(0, opts.endMs)
+  const canTryFastPath = !opts.narrationPath
+    && !hasClipOverlays(opts, startMs, endMs)
+
+  if (canTryFastPath) {
+    const useSessionMic = Boolean(opts.sessionMicPath)
+    const tempDir = join(dirname(opts.outputPath), `.loupe-fast-${randomUUID()}`)
+    const introPath = join(tempDir, 'intro.mp4')
+    const clipPath = join(tempDir, 'clip.mp4')
+    const concatVideoPath = useSessionMic ? join(tempDir, 'video.mp4') : opts.outputPath
+    const listPath = join(tempDir, 'concat.txt')
+    try {
+      mkdirSync(tempDir, { recursive: true })
+      let r = runOpts
+        ? await runner.run(ffmpegPath, buildIntroCardSegmentArgs({ ...opts, sourceHasAudio: useSessionMic ? false : opts.sourceHasAudio }, introPath), runOpts)
+        : await runner.run(ffmpegPath, buildIntroCardSegmentArgs({ ...opts, sourceHasAudio: useSessionMic ? false : opts.sourceHasAudio }, introPath))
+      if (r.code !== 0) throw new Error(`intro segment failed: ${r.stderr.trim()}`)
+
+      r = runOpts
+        ? await runner.run(ffmpegPath, buildCopiedClipSegmentArgs(opts, clipPath, { videoOnly: useSessionMic }), runOpts)
+        : await runner.run(ffmpegPath, buildCopiedClipSegmentArgs(opts, clipPath, { videoOnly: useSessionMic }))
+      if (r.code !== 0) throw new Error(`clip copy segment failed: ${r.stderr.trim()}`)
+
+      writeFileSync(listPath, `file '${concatFilePath(introPath)}'\nfile '${concatFilePath(clipPath)}'\n`, 'utf8')
+      r = runOpts
+        ? await runner.run(ffmpegPath, buildConcatCopyArgs(listPath, concatVideoPath), runOpts)
+        : await runner.run(ffmpegPath, buildConcatCopyArgs(listPath, concatVideoPath))
+      if (r.code !== 0) throw new Error(`concat copy failed: ${r.stderr.trim()}`)
+      if (!useSessionMic) return
+
+      r = runOpts
+        ? await runner.run(ffmpegPath, buildMuxSessionMicArgs(opts, concatVideoPath, opts.outputPath), runOpts)
+        : await runner.run(ffmpegPath, buildMuxSessionMicArgs(opts, concatVideoPath, opts.outputPath))
+      if (r.code === 0) return
+    } catch (error) {
+      if (runOpts?.signal?.aborted) throw error
+      // Fast stream-copy concat only works when the source clip is compatible with
+      // the generated intro segment. Fall back to the slower re-encode path.
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  }
+
   const args = buildIntroClipArgs(opts)
   const r = runOpts ? await runner.run(ffmpegPath, args, runOpts) : await runner.run(ffmpegPath, args)
   if (r.code !== 0) throw new Error(`ffmpeg intro clip failed (code ${r.code}): ${r.stderr.trim()}`)

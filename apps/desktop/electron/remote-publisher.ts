@@ -19,6 +19,15 @@ export type RemotePublishResult =
   | ({ target: 'gitlab' } & GitLabPublishResult)
   | ({ target: 'google-drive' } & GooglePublishResult)
 
+export interface RemotePublishProgress {
+  target: 'slack' | 'gitlab' | 'google-drive'
+  index: number
+  total: number
+  phase: 'start' | 'complete' | 'error'
+  message: string
+  detail?: string
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -27,6 +36,7 @@ export async function publishManifestToRemote(args: {
   manifest: ExportManifest
   manifestPaths: ManifestPaths
   settings: AppSettings
+  onProgress?: (progress: RemotePublishProgress) => void
 }): Promise<RemotePublishResult> {
   const targets = args.manifest.publish.targets?.length ? args.manifest.publish.targets : [args.manifest.publish.target]
   const remoteTargets = targets.filter((target): target is 'slack' | 'gitlab' | 'google-drive' => target === 'slack' || target === 'gitlab' || target === 'google-drive')
@@ -35,8 +45,18 @@ export async function publishManifestToRemote(args: {
   }
 
   const results: RemotePublishResult[] = []
-  for (const target of remoteTargets) {
+  for (let i = 0; i < remoteTargets.length; i++) {
+    const target = remoteTargets[i]
+    const index = i + 1
     try {
+      args.onProgress?.({
+        target,
+        index,
+        total: remoteTargets.length,
+        phase: 'start',
+        message: `Publishing to ${publishTargetLabel(target)}`,
+        detail: `Destination ${index} of ${remoteTargets.length}`,
+      })
       if (target === 'slack') {
         const result = await publishManifestToSlack({
           manifest: args.manifest,
@@ -62,9 +82,32 @@ export async function publishManifestToRemote(args: {
         })
         results.push({ target: 'google-drive', ...result })
       }
+      args.onProgress?.({
+        target,
+        index,
+        total: remoteTargets.length,
+        phase: 'complete',
+        message: `${publishTargetLabel(target)} publish complete`,
+        detail: `Destination ${index} of ${remoteTargets.length} complete.`,
+      })
     } catch (err) {
-      results.push({ target, failed: true, error: errorMessage(err) })
+      const error = errorMessage(err)
+      args.onProgress?.({
+        target,
+        index,
+        total: remoteTargets.length,
+        phase: 'error',
+        message: `${publishTargetLabel(target)} publish failed`,
+        detail: error,
+      })
+      results.push({ target, failed: true, error })
     }
   }
   return results.length === 1 ? results[0] : { target: 'multi', results }
+}
+
+function publishTargetLabel(target: 'slack' | 'gitlab' | 'google-drive'): string {
+  if (target === 'slack') return 'Slack'
+  if (target === 'gitlab') return 'GitLab'
+  return 'Google Drive'
 }
