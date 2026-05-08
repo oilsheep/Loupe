@@ -36,7 +36,6 @@ jobs:
       CI: true
       CSC_IDENTITY_AUTO_DISCOVERY: false
       LOUPE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_ID }}
-      LOUPE_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET }}
 
     steps:
       - name: Check out repository
@@ -58,11 +57,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify Google OAuth build secrets
+      - name: Verify Google OAuth build inputs
         if: github.event_name != 'pull_request'
         run: |
-          if [[ -z "${LOUPE_GOOGLE_OAUTH_CLIENT_ID}" || -z "${LOUPE_GOOGLE_OAUTH_CLIENT_SECRET}" ]]; then
-            echo "::error::Set LOUPE_GOOGLE_OAUTH_CLIENT_ID and LOUPE_GOOGLE_OAUTH_CLIENT_SECRET in the repository or environment secrets."
+          if [[ -z "${LOUPE_GOOGLE_OAUTH_CLIENT_ID}" ]]; then
+            echo "::error::Set LOUPE_GOOGLE_OAUTH_CLIENT_ID in the repository or environment secrets. (Loupe uses Desktop OAuth + PKCE; no client_secret is needed.)"
             exit 1
           fi
 
