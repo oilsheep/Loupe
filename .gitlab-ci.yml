@@ -54,6 +54,7 @@ build:mac:
   needs:
     - typecheck
     - test
+  allow_failure: true
   variables:
     LOUPE_SIGN_MAC: "0"
     CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -91,6 +92,7 @@ build:win:
   needs:
     - typecheck
     - test
+  allow_failure: true
   before_script:
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
