@@ -14,6 +14,7 @@ import {
   sortIdentities,
 } from '@/components/PreferencesDialog'
 import { triggerPreset } from '@/lib/audioAnalysisPresets'
+import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type {
   AppLocale,
   AppSettings,
@@ -184,7 +185,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMentionIdentities(settings.mentionIdentities ?? [])
     setMentionIdentitiesSaved(false)
     setMentionIdentitiesStatus('')
-    setMarkerFieldPresets(settings.markerFieldPresets ?? [])
+    setMarkerFieldPresets(settings.markerFieldPresets?.length ? settings.markerFieldPresets : DEFAULT_MARKER_FIELD_PRESETS)
     setMarkerFieldPresetsSaved(false)
     setPublishTemplates(settings.publishTemplates ?? {})
     setPublishTemplatesSaved(false)

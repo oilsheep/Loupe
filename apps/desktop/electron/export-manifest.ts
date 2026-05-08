@@ -274,7 +274,8 @@ function templateContext(manifest: ExportManifest, marker?: ExportManifest['mark
 
 export function renderPublishTemplate(template: string, manifest: ExportManifest, marker?: ExportManifest['markers'][number]): string {
   const context = templateContext(manifest, marker)
-  return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key: string) => {
+  return template.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, key: string) => {
+    key = key.trim()
     if (key.startsWith('custom.') && marker) return markerCustomValue(marker, key.slice('custom.'.length))
     return context[key] ?? context[key.trim().toLocaleLowerCase()] ?? ''
   }).trim()

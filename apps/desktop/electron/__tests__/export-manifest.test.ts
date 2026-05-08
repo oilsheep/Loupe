@@ -165,6 +165,23 @@ describe('export manifest', () => {
       .toBe('high / gitlab, slack')
   })
 
+  it('renders publish templates with Chinese custom marker field keys', () => {
+    const manifest = buildExportManifest({
+      session: session({ project: '圖鑑' }),
+      bugs: [bug({ note: '從角色圖鑑回顧完劇情後頁籤會顯示在角色資料', customFields: [
+        { key: '分類', value: 'List' },
+        { key: '回報人', value: '內部回報' },
+        { key: '優先級', value: '一般' },
+        { key: '狀態', value: ':zzz: 等待分配' },
+      ] })],
+      files: [file()],
+      outDir: '/exports',
+    })
+
+    expect(renderPublishTemplate('【{{severityLabel}}】{{project}}：{{note}} ({{分類}})\n優先級： {{優先級}}\n狀態： {{狀態}}', manifest, manifest.markers[0]))
+      .toContain('優先級： 一般')
+  })
+
   it('formats Slack session messages and thread payloads', () => {
     const manifest = buildExportManifest({
       session: session(),

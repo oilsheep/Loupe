@@ -12,6 +12,7 @@ import { createPaths, defaultRoot } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
+import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { HotkeySettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -236,7 +237,7 @@ app.whenReady().then(async () => {
     gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     mentionIdentities: [],
-    markerFieldPresets: [],
+    markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
     publishTemplates: {},
   })
   const db = openDb(paths.dbFile())
