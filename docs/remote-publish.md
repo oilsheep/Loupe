@@ -242,20 +242,19 @@ OAuth 使用 authorization code + PKCE：
 - `drive.file` 讓 Loupe 管理自己建立或由使用者透過 app 選到的檔案。
 - `drive.metadata.readonly` 用來列出既有 Drive folders/spreadsheets 給 UI picker。若 token 是舊 scope 登入取得，新增這個 scope 後需要重新 Connect Google。
 
-Google OAuth client ID / secret 不由使用者手動填寫，也不要 commit 到 git。Loupe 用 build-time env injection：
+Google OAuth 採 Desktop Application client + PKCE，**不使用 client secret**：
 
 - 檔案：`apps/desktop/electron/google-oauth-config.ts`
-- `electron.vite.config.ts` 會把下列環境變數編進 main process bundle：
+- `electron.vite.config.ts` 只把下列環境變數編進 main process bundle：
   - `LOUPE_GOOGLE_OAUTH_CLIENT_ID`
-  - `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`
 - Google redirect URI 寫死為 `http://127.0.0.1:38988/oauth/google/callback`。
 - local 打包可建立 `apps/desktop/.env.local`，格式可參考 `apps/desktop/.env.example`。`.env.local` / `.env.*.local` 已被 `.gitignore` 排除。
-- CI 打包時把上述值放在 secret variables，再執行 `pnpm --dir apps/desktop build`。
-- `SettingsStore` 會在 `normalizeGoogle()` 時自動補上 bundled `clientId`、`clientSecret`、`redirectUri`。
+- CI 打包時把 `LOUPE_GOOGLE_OAUTH_CLIENT_ID` 放在 build variables，再執行 `pnpm --dir apps/desktop build`。
+- `SettingsStore` 會在 `normalizeGoogle()` 時自動補上 bundled `clientId` 與 `redirectUri`。
 - `main.ts` 的 default settings 也使用同一份 config。
-- Home UI 只顯示「OAuth credentials are bundled with Loupe」，不再露出輸入欄位。
-- 若 build 時沒有提供 `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`，Google OAuth token exchange 會失敗並提示 `client_secret is missing`。
-- 注意：secret 不在 source repo，但會存在打包後的 app bundle 中；這只適合團隊內部分發，不適合公開散布 confidential OAuth client secret。
+- Build 有提供 `LOUPE_GOOGLE_OAUTH_CLIENT_ID` 時，Preferences UI 顯示「OAuth credentials are bundled with Loupe」；沒有 bundled client ID（例如 self-build）時才顯示 Client ID 輸入欄位。Client Secret 欄位已移除，不論哪種情境都不再出現。
+- Token exchange 與 refresh 都只送 `client_id` + PKCE `code_verifier`，不送 `client_secret`，符合 RFC 8252（OAuth 2.0 for Native Apps）。Google Cloud Console 建立的 OAuth client 必須是「Desktop app」類型；Web client 會在沒有 secret 時被拒絕。
+- Client ID 在 native app 不視為機密；client secret 完全不存在 source repo 也不在打包後的 app bundle 中。
 
 Home 的 Publish settings 新增 Google Drive 區塊：
 

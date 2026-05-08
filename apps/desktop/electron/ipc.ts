@@ -551,7 +551,6 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
 async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<GooglePublishSettings> {
   googleOAuthCancel?.()
   const clientId = settings.oauthClientId?.trim() || ''
-  const clientSecret = settings.oauthClientSecret?.trim() || ''
   const redirectUri = DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
   if (!clientId) throw new Error('Google OAuth client ID is missing')
 
@@ -630,7 +629,6 @@ async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<Goog
     redirect_uri: redirectUri,
     code_verifier: verifier,
   })
-  if (clientSecret) body.set('client_secret', clientSecret)
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

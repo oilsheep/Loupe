@@ -421,7 +421,6 @@ function normalizeGoogle(raw?: Partial<GooglePublishSettings>): GooglePublishSet
     tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
     accountEmail: normalizeEmail(raw?.accountEmail) || undefined,
     oauthClientId: GOOGLE_OAUTH_CONFIG.clientId || (typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : ''),
-    oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret || (typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : ''),
     oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri || (typeof raw?.oauthRedirectUri === 'string' ? raw.oauthRedirectUri.trim() : ''),
     driveFolderId: typeof raw?.driveFolderId === 'string' ? raw.driveFolderId.trim() : '',
     driveFolderName: typeof raw?.driveFolderName === 'string' ? raw.driveFolderName.trim() : '',

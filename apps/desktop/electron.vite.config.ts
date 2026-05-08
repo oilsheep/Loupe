@@ -30,7 +30,6 @@ export default defineConfig(({ mode }) => {
         __LOUPE_SLACK_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? ''),
         __LOUPE_SLACK_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? ''),
-        __LOUPE_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? ''),
       },
       build: {
         outDir: 'out/main',

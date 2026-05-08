@@ -2,7 +2,7 @@
 
 Loupe can publish exported QA evidence to Google Drive and optionally append marker rows to a Google Sheet.
 
-Google publishing uses OAuth. The OAuth client ID / secret can be bundled at build time so testers do not need to type them in Loupe. If a build was created without bundled Google credentials, Loupe will show OAuth Client ID / Secret fields in Preferences > Publish > Google Drive.
+Google publishing uses OAuth as a **Desktop app** client with PKCE (RFC 8252). Loupe never sends or stores a `client_secret` — only the OAuth client ID is bundled at build time. If a build was created without a bundled client ID, Loupe will show an OAuth Client ID field in Preferences > Publish > Google Drive.
 
 ## 1. Create A Google Cloud Project
 
@@ -37,9 +37,9 @@ Open **APIs & Services** > **Credentials**.
 
 1. Click **Create credentials**.
 2. Choose **OAuth client ID**.
-3. Choose **Desktop app**.
+3. Choose **Desktop app**. (Required. A Web client will be rejected because Loupe does not send a `client_secret`.)
 4. Create the client.
-5. Copy **Client ID** and **Client secret**.
+5. Copy **Client ID**. Loupe does not use the **Client secret** — you can ignore it. Treat the client ID as non-confidential, since native-app client IDs are not secrets per the OAuth 2.0 for Native Apps RFC.
 
 Loupe uses this redirect URI:
 
@@ -50,9 +50,9 @@ http://127.0.0.1:38988/oauth/google/callback
 Keep Loupe's configured redirect URI unchanged unless the app code is also changed.
 Unlike Slack and GitLab, Google Desktop OAuth should use the loopback redirect. Do not set this to `loupe://google-oauth`; Google rejects arbitrary custom schemes for this client flow.
 
-## 4. Configure Build-Time Secrets
+## 4. Configure Build-Time Client ID
 
-Do not commit the Google OAuth secret to git.
+Loupe uses PKCE for the Desktop OAuth flow, so there is no client secret to keep. Only the client ID is bundled into the build.
 
 For local builds, create:
 
@@ -64,16 +64,14 @@ Use this format:
 
 ```text
 LOUPE_GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
-LOUPE_GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
 ```
 
 `apps/desktop/.env.local` is ignored by git. `apps/desktop/.env.example` is the committed template.
 
-For CI/release builds, configure these as secret variables:
+For CI/release builds, set the same variable:
 
 ```text
 LOUPE_GOOGLE_OAUTH_CLIENT_ID
-LOUPE_GOOGLE_OAUTH_CLIENT_SECRET
 ```
 
 Then build normally:
@@ -82,9 +80,9 @@ Then build normally:
 pnpm --dir apps/desktop build
 ```
 
-`electron.vite.config.ts` injects those values into the Electron main bundle at build time. The source repo stays secret-free, but the packaged app still contains the OAuth client secret. This is suitable for internal distribution, not public distribution of a confidential OAuth client.
+`electron.vite.config.ts` injects the client ID into the Electron main bundle at build time. No `client_secret` is ever read, bundled, or sent to Google — extracting the packaged app cannot reveal a secret because none exists.
 
-If these variables are not present when packaging Loupe, the Google Drive section will not be connected by default. Open **Preferences > Publish > Google Drive**, paste the Desktop OAuth Client ID, optionally paste the Client Secret, then click **Connect Google**.
+If `LOUPE_GOOGLE_OAUTH_CLIENT_ID` is not present when packaging Loupe, the Google Drive section will not be connected by default. Open **Preferences > Publish > Google Drive**, paste the Desktop OAuth Client ID, then click **Connect Google**.
 
 ## 5. Configure Loupe
 
@@ -143,15 +141,9 @@ Use `googleEmail` when the person's Google account email differs from their Slac
 
 ## Troubleshooting
 
-### `client_secret is missing`
+### Token exchange returns `invalid_client` / `client_secret is missing`
 
-The packaged app was built without `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`.
-
-Check:
-
-- local build has `apps/desktop/.env.local`
-- CI has `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET` configured as a secret
-- the app was rebuilt after setting the env variable
+The OAuth client in Google Cloud Console is configured as **Web application** instead of **Desktop app**. Web clients require a `client_secret`, which Loupe deliberately does not send. Recreate the OAuth client and choose **Desktop app**, then update `LOUPE_GOOGLE_OAUTH_CLIENT_ID` and rebuild.
 
 ### OAuth browser says access blocked
 
