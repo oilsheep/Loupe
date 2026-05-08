@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -62,6 +62,39 @@ const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
   lastPlatform: '',
   lastProject: '',
   lastTester: '',
+}
+
+function fieldValueText(value: MarkerCustomField['value'] | undefined): string {
+  return Array.isArray(value) ? value.join(', ') : value ?? ''
+}
+
+function normalizeCustomFields(fields: MarkerCustomField[]): MarkerCustomField[] {
+  const byKey = new Map<string, MarkerCustomField>()
+  for (const field of fields) {
+    const key = field.key.trim()
+    if (!key) continue
+    const value = Array.isArray(field.value)
+      ? Array.from(new Set(field.value.map(item => item.trim()).filter(Boolean)))
+      : field.value.trim()
+    if (Array.isArray(value) ? value.length > 0 : value) byKey.set(key, { key, value })
+  }
+  return [...byKey.values()]
+}
+
+function effectiveCustomFields(fields: MarkerCustomField[] | undefined, presets: MarkerFieldPreset[]): MarkerCustomField[] {
+  const byKey = new Map<string, MarkerCustomField>()
+  for (const preset of presets) {
+    const key = preset.key.trim()
+    if (!key) continue
+    const value = preset.defaultValue ?? (preset.multi ? [] : '')
+    byKey.set(key, { key, value: Array.isArray(value) ? value : String(value) })
+  }
+  for (const field of fields ?? []) {
+    const key = field.key.trim()
+    if (!key) continue
+    byKey.set(key, field)
+  }
+  return [...byKey.values()]
 }
 
 const AUDIO_TRIGGER_WORDS = [
@@ -1499,6 +1532,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
   const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
   const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
+  const [markerFieldPresets, setMarkerFieldPresets] = useState<MarkerFieldPreset[]>([])
   const visibleSeverityList = useMemo(() => visibleSeverities(severities, bugs), [severities, bugs])
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const options = mentionIdentities.map(identity => {
@@ -1552,6 +1586,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setGitLabMode(settings.gitlab.mode)
       setGoogleSettings(settings.google)
       setMentionIdentities(settings.mentionIdentities ?? [])
+      setMarkerFieldPresets(settings.markerFieldPresets ?? [])
       setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
     }).catch(() => {})
   }, [api])
@@ -1960,6 +1995,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
             selectedAnnotationId={selectedAnnotationId}
             mentionOptions={mentionOptions}
             slackAliases={slackAliases}
+            markerFieldPresets={markerFieldPresets}
             onAnnotationSelect={onAnnotationSelect}
             onAnnotationUpdate={onAnnotationUpdate}
             onAnnotationDelete={onAnnotationDelete}
@@ -2180,6 +2216,7 @@ interface RowProps {
   selectedAnnotationId?: string | null
   mentionOptions: MentionOption[]
   slackAliases: Record<string, string>
+  markerFieldPresets: MarkerFieldPreset[]
   onAnnotationSelect?(bug: Bug, annotation: BugAnnotation): void
   onAnnotationUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'startMs' | 'endMs'>>): void
   onAnnotationDelete?(id: string): void
@@ -2187,12 +2224,203 @@ interface RowProps {
   onExportRequest(bug: Bug): void
 }
 
-function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, selectedAnnotationId, mentionOptions, slackAliases, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, onToggleLogcat, onExportRequest }: RowProps) {
+function MarkerCustomFieldsEditor({
+  fields,
+  presets,
+  onChange,
+}: {
+  fields: MarkerCustomField[]
+  presets: MarkerFieldPreset[]
+  onChange(fields: MarkerCustomField[]): void
+}) {
+  const [draft, setDraft] = useState(fields)
+  const [newKey, setNewKey] = useState('')
+  const [newValue, setNewValue] = useState('')
+
+  useEffect(() => setDraft(fields), [fields])
+
+  function commit(next = draft) {
+    const normalized = normalizeCustomFields(next)
+    setDraft(normalized)
+    onChange(normalized)
+  }
+
+  function updateField(index: number, patch: Partial<MarkerCustomField>) {
+    const next = draft.map((field, i) => i === index ? { ...field, ...patch } : field)
+    setDraft(next)
+  }
+
+  function presetFor(key: string): MarkerFieldPreset | undefined {
+    return presets.find(preset => preset.key.trim() === key.trim())
+  }
+
+  function addField() {
+    const key = newKey.trim()
+    if (!key) return
+    const preset = presetFor(key)
+    const value = preset?.multi
+      ? newValue.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean)
+      : newValue.trim()
+    const next = [...draft, { key, value }]
+    setNewKey('')
+    setNewValue('')
+    commit(next)
+  }
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/30 p-2 text-[11px] text-zinc-400" data-row-click-ignore="true">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="font-medium text-zinc-300">Custom fields</span>
+        <span className="text-zinc-600">key / value</span>
+      </div>
+      <div className="space-y-1">
+        {draft.map((field, index) => {
+          const preset = presetFor(field.key)
+          const optionsId = `custom-field-options-${field.key.replace(/[^a-z0-9_-]+/gi, '-')}-${index}`
+          return (
+            <div key={`${field.key}-${index}`} className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)_auto] gap-1">
+              <input
+                value={field.key}
+                list="marker-custom-field-keys"
+                onChange={(e) => updateField(index, { key: e.target.value })}
+                onBlur={() => commit()}
+                placeholder="key"
+                className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+              <div className="min-w-0">
+                {preset?.multi ? (
+                  <MultiValueInput
+                    value={Array.isArray(field.value) ? field.value : fieldValueText(field.value).split(/[,;\n]+/).map(item => item.trim()).filter(Boolean)}
+                    options={preset.options ?? []}
+                    onChange={(value) => {
+                      const next = draft.map((item, i) => i === index ? { ...item, value } : item)
+                      setDraft(next)
+                      onChange(normalizeCustomFields(next))
+                    }}
+                  />
+                ) : (
+                  <>
+                    <input
+                      value={fieldValueText(field.value)}
+                      list={preset?.options?.length ? optionsId : undefined}
+                      onChange={(e) => updateField(index, { value: e.target.value })}
+                      onBlur={() => commit()}
+                      placeholder="value"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    {preset?.options?.length ? (
+                      <datalist id={optionsId}>
+                        {preset.options.map(option => <option key={option} value={option} />)}
+                      </datalist>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => commit(draft.filter((_, i) => i !== index))}
+                className="rounded bg-zinc-900 px-2 text-zinc-500 hover:bg-red-900/60 hover:text-red-100"
+                title="Remove custom field"
+              >
+                x
+              </button>
+            </div>
+          )
+        })}
+        <div className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)_auto] gap-1">
+          <input
+            value={newKey}
+            list="marker-custom-field-keys"
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="key"
+            className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+          />
+          <input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addField()
+              }
+            }}
+            placeholder="value"
+            className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+          />
+          <button type="button" onClick={addField} className="rounded bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700" title="Add custom field">
+            +
+          </button>
+        </div>
+      </div>
+      <datalist id="marker-custom-field-keys">
+        {presets.map(preset => <option key={preset.key} value={preset.key} />)}
+      </datalist>
+    </div>
+  )
+}
+
+function MultiValueInput({ value, options, onChange }: { value: string[]; options: string[]; onChange(value: string[]): void }) {
+  const [input, setInput] = useState('')
+  const remainingOptions = options.filter(option => !value.includes(option))
+  function add(nextValue = input) {
+    const trimmed = nextValue.trim()
+    if (!trimmed) return
+    onChange(Array.from(new Set([...value, trimmed])))
+    setInput('')
+  }
+  return (
+    <div className="rounded bg-zinc-900 px-1 py-1">
+      <div className="flex flex-wrap gap-1">
+        {value.map(item => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => onChange(value.filter(current => current !== item))}
+            className="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] text-zinc-200 hover:bg-red-900/60"
+            title="Remove value"
+          >
+            {item} x
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 flex gap-1">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+          placeholder="add value"
+          className="min-w-0 flex-1 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+        />
+        {remainingOptions.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => add(e.target.value)}
+            className="w-24 rounded bg-zinc-950 px-1 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="">Select</option>
+            {remainingOptions.map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
+        )}
+        <button type="button" onClick={() => add()} className="rounded bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700" title="Add value">
+          +
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, selectedAnnotationId, mentionOptions, slackAliases, markerFieldPresets, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, onToggleLogcat, onExportRequest }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
   const [post, setPost] = useState(bug.postSec)
   const [mentionUserIds, setMentionUserIds] = useState(bug.mentionUserIds ?? [])
+  const [customFields, setCustomFields] = useState<MarkerCustomField[]>(() => effectiveCustomFields(bug.customFields, markerFieldPresets))
   const [editingNote, setEditingNote] = useState(false)
   const rowRef = useRef<HTMLLIElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
@@ -2206,6 +2434,7 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
   useEffect(() => { setPre(bug.preSec) }, [bug.preSec])
   useEffect(() => { setPost(bug.postSec) }, [bug.postSec])
   useEffect(() => { setMentionUserIds(bug.mentionUserIds ?? []) }, [bug.mentionUserIds])
+  useEffect(() => { setCustomFields(effectiveCustomFields(bug.customFields, markerFieldPresets)) }, [bug.customFields, markerFieldPresets])
   useEffect(() => {
     if (!shouldScrollIntoView) return
     rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
@@ -2217,13 +2446,14 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
     el.style.height = `${el.scrollHeight}px`
   }, [note])
 
-  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'preSec' | 'postSec' | 'mentionUserIds'>>) {
+  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'preSec' | 'postSec' | 'mentionUserIds' | 'customFields'>>) {
     await api.bug.update(bug.id, {
       note: bug.note,
       severity: bug.severity,
       preSec: bug.preSec,
       postSec: bug.postSec,
       mentionUserIds: bug.mentionUserIds ?? [],
+      customFields: bug.customFields ?? [],
       ...patch,
     })
     onMutated()
@@ -2249,6 +2479,11 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
   async function changeMentions(ids: string[]) {
     setMentionUserIds(ids)
     await save({ mentionUserIds: ids })
+  }
+
+  async function changeCustomFields(next: MarkerCustomField[]) {
+    setCustomFields(next)
+    await save({ customFields: normalizeCustomFields(next) })
   }
 
   async function del() {
@@ -2423,6 +2658,12 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
             aliases={slackAliases}
             dropdownMode="fixed"
             onChange={changeMentions}
+          />
+
+          <MarkerCustomFieldsEditor
+            fields={customFields}
+            presets={markerFieldPresets}
+            onChange={(next) => { void changeCustomFields(next) }}
           />
 
           {(isSelected || (bug.annotations?.length ?? 0) > 0) && (

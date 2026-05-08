@@ -92,6 +92,19 @@ describe('Db', () => {
     expect(db.listBugs('sess-1')[0].severity).toBe('custom1')
   })
 
+  it('stores and updates marker custom fields', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug({ customFields: [{ key: 'priority', value: 'high' }, { key: 'targets', value: ['gitlab', 'slack'] }] }))
+    expect(db.listBugs('sess-1')[0].customFields).toEqual([
+      { key: 'priority', value: 'high' },
+      { key: 'targets', value: ['gitlab', 'slack'] },
+    ])
+
+    db.updateBug('bug-1', { note: 'cards stuck', severity: 'normal', preSec: 5, postSec: 5, customFields: [{ key: 'owner', value: 'qa' }] })
+
+    expect(db.listBugs('sess-1')[0].customFields).toEqual([{ key: 'owner', value: 'qa' }])
+  })
+
   it('stores marker source and can delete only audio auto markers', () => {
     db.insertSession(fixSession())
     db.insertBug(fixBug({ id: 'manual', source: 'manual' }))

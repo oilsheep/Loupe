@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
@@ -59,6 +59,15 @@ export function sortIdentities(identities: MentionIdentity[]): MentionIdentity[]
 
 export function sortGoogleFolders(folders: GoogleDriveFolder[]): GoogleDriveFolder[] {
   return [...folders].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function parsePresetValueLines(value: string): string[] {
+  return value.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean)
+}
+
+function presetDefaultValueText(preset: MarkerFieldPreset): string {
+  if (Array.isArray(preset.defaultValue)) return preset.defaultValue.join('\n')
+  return preset.defaultValue ?? ''
 }
 
 function maskSlackToken(value: string): string {
@@ -190,6 +199,8 @@ interface PreferencesDialogProps {
   mentionIdentitiesSaved: boolean
   mentionIdentitiesError: string
   mentionIdentitiesStatus: string
+  markerFieldPresets: MarkerFieldPreset[]
+  markerFieldPresetsSaved: boolean
   onLocaleChange(locale: AppLocale): void
   onExportRootChange(value: string): void
   onSaveExportRoot(): void
@@ -233,6 +244,8 @@ interface PreferencesDialogProps {
   onImportMentionIdentities(): void
   onExportMentionIdentities(): void
   onSaveMentionIdentities(): void
+  onMarkerFieldPresetsChange(value: MarkerFieldPreset[]): void
+  onSaveMarkerFieldPresets(value: MarkerFieldPreset[]): void
   onClose(): void
 }
 
@@ -281,6 +294,8 @@ export function PreferencesDialog({
   mentionIdentitiesSaved,
   mentionIdentitiesError,
   mentionIdentitiesStatus,
+  markerFieldPresets,
+  markerFieldPresetsSaved,
   onLocaleChange,
   onExportRootChange,
   onSaveExportRoot,
@@ -324,6 +339,8 @@ export function PreferencesDialog({
   onImportMentionIdentities,
   onExportMentionIdentities,
   onSaveMentionIdentities,
+  onMarkerFieldPresetsChange,
+  onSaveMarkerFieldPresets,
   onClose,
 }: PreferencesDialogProps) {
   const { t, resolvedLocale } = useI18n()
@@ -374,6 +391,14 @@ export function PreferencesDialog({
     }
     setCustomSlots(customSlots.filter(slot => slot !== severity))
     onSaveSeverities(next)
+  }
+
+  function updateMarkerFieldPreset(index: number, patch: Partial<MarkerFieldPreset>) {
+    onMarkerFieldPresetsChange(markerFieldPresets.map((preset, i) => i === index ? { ...preset, ...patch } : preset))
+  }
+
+  function addMarkerFieldPreset() {
+    onMarkerFieldPresetsChange([...markerFieldPresets, { key: '', defaultValue: '', options: [], multi: false }])
   }
 
   return (
@@ -590,6 +615,110 @@ export function PreferencesDialog({
                       </div>
                     </label>
                   ))}
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-800 pt-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-medium text-zinc-300">{zh ? 'Marker 客製欄位 preset' : 'Marker field presets'}</div>
+                    <div className="mt-1 text-[11px] leading-4 text-zinc-500">
+                      {zh ? '團隊可先定義 key、預設值與選項。Marker 上仍可自由新增或手填 value。' : 'Define shared keys, defaults, and options. Markers can still add free-form fields.'}
+                    </div>
+                  </div>
+                  <button type="button" onClick={addMarkerFieldPreset} className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700" title={t('common.add')}>
+                    +
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {markerFieldPresets.map((preset, index) => (
+                    <div key={index} className="rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                        <label className="min-w-0 text-xs text-zinc-500">
+                          Key
+                          <input
+                            value={preset.key}
+                            onChange={(e) => updateMarkerFieldPreset(index, { key: e.target.value })}
+                            onBlur={() => onSaveMarkerFieldPresets(markerFieldPresets)}
+                            placeholder="priority"
+                            className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                          />
+                        </label>
+                        <label className="min-w-0 text-xs text-zinc-500">
+                          {zh ? '預設值' : 'Default value'}
+                          {preset.multi ? (
+                            <textarea
+                              defaultValue={presetDefaultValueText(preset)}
+                              rows={2}
+                              onBlur={(e) => {
+                                const next = markerFieldPresets.map((item, i) => i === index ? { ...item, defaultValue: parsePresetValueLines(e.currentTarget.value) } : item)
+                                onMarkerFieldPresetsChange(next)
+                                onSaveMarkerFieldPresets(next)
+                              }}
+                              placeholder={`ios\nregression`}
+                              className="mt-1 w-full resize-y rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                            />
+                          ) : (
+                            <input
+                              defaultValue={Array.isArray(preset.defaultValue) ? preset.defaultValue[0] ?? '' : preset.defaultValue ?? ''}
+                              onBlur={(e) => {
+                                const next = markerFieldPresets.map((item, i) => i === index ? { ...item, defaultValue: e.currentTarget.value.trim() } : item)
+                                onMarkerFieldPresetsChange(next)
+                                onSaveMarkerFieldPresets(next)
+                              }}
+                              placeholder="normal"
+                              className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                            />
+                          )}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => onMarkerFieldPresetsChange(markerFieldPresets.filter((_, i) => i !== index))}
+                          onBlur={() => onSaveMarkerFieldPresets(markerFieldPresets.filter((_, i) => i !== index))}
+                          className="self-end rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-red-700 hover:text-white"
+                          title={t('bug.deleteConfirm')}
+                        >
+                          x
+                        </button>
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
+                        <label className="min-w-0 text-xs text-zinc-500">
+                          {zh ? '選項（一行一個，可手填其他值）' : 'Options (one per line; free text allowed)'}
+                          <textarea
+                            defaultValue={(preset.options ?? []).join('\n')}
+                            rows={3}
+                            onBlur={(e) => {
+                              const next = markerFieldPresets.map((item, i) => i === index ? { ...item, options: parsePresetValueLines(e.currentTarget.value) } : item)
+                              onMarkerFieldPresetsChange(next)
+                              onSaveMarkerFieldPresets(next)
+                            }}
+                            className="mt-1 w-full resize-y rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                          />
+                        </label>
+                        <label className="mt-5 flex items-center gap-2 text-xs text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(preset.multi)}
+                            onChange={(e) => updateMarkerFieldPreset(index, { multi: e.target.checked, defaultValue: e.target.checked ? (Array.isArray(preset.defaultValue) ? preset.defaultValue : parsePresetValueLines(String(preset.defaultValue ?? ''))) : (Array.isArray(preset.defaultValue) ? preset.defaultValue[0] ?? '' : preset.defaultValue ?? '') })}
+                            onBlur={() => onSaveMarkerFieldPresets(markerFieldPresets)}
+                            className="h-4 w-4 accent-blue-600"
+                          />
+                          {zh ? '多選' : 'Multi-select'}
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                  {markerFieldPresets.length === 0 && (
+                    <div className="rounded bg-zinc-950/50 px-2 py-3 text-xs text-zinc-500">
+                      {zh ? '尚未設定欄位 preset。' : 'No field presets yet.'}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2 flex justify-end gap-2">
+                  {markerFieldPresetsSaved && <span className="self-center text-xs text-emerald-300">{t('common.saved')}</span>}
+                  <button type="button" onClick={() => onSaveMarkerFieldPresets(markerFieldPresets)} className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">
+                    {zh ? '儲存' : 'Save'}
+                  </button>
                 </div>
               </div>
             </div>

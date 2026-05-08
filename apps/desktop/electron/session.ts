@@ -8,7 +8,7 @@ import { IosSyslogBuffer, type IosSyslogStartOptions } from './ios-syslog'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { Paths } from './paths'
-import type { Session, Bug, BugAnnotation, BugSeverity } from '@shared/types'
+import type { Session, Bug, BugAnnotation, BugSeverity, MarkerCustomField } from '@shared/types'
 import { captureScreenshot as defaultCapture } from './screenshot'
 import { assertVideoInputReadable, extractAudioTrack, extractThumbnail, probeMediaDurationMs, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
@@ -645,7 +645,7 @@ export class SessionManager {
     if (!updated) throw new Error('session not found')
     return updated
   }
-  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }) {
+  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }) {
     this.deps.db.updateBug(id, patch)
     const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
     if (session?.session_id) this.persistProject(session.session_id)

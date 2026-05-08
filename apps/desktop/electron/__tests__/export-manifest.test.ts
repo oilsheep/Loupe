@@ -137,14 +137,18 @@ describe('export manifest', () => {
   it('renders CSV rows for spreadsheet import', () => {
     const csv = manifestToCsv(buildExportManifest({
       session: session(),
-      bugs: [bug()],
+      bugs: [bug({ customFields: [{ key: 'priority', value: 'high' }, { key: 'targets', value: ['gitlab', 'slack'] }] })],
       files: [file()],
       outDir: '/exports',
     }))
 
-    expect(csv).toContain('"Build","Tester"')
-    expect(csv).toContain('"1.0","Avery"')
+    expect(csv).toContain('"Build"')
+    expect(csv).toContain('"Tester"')
+    expect(csv).toContain('"Custom Fields"')
+    expect(csv).toContain('"1.0"')
+    expect(csv).toContain('"Avery"')
     expect(csv).toContain('"/exports/b1.logcat.txt"')
+    expect(csv).toContain('"priority=high\ntargets=gitlab;slack"')
   })
 
   it('formats Slack session messages and thread payloads', () => {

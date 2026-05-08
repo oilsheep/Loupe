@@ -87,6 +87,7 @@ const api: DesktopApi = {
     listGoogleSpreadsheets: (settings) => ipcRenderer.invoke(CHANNEL.settingsListGoogleSpreadsheets, settings),
     listGoogleSheetTabs: (settings) => ipcRenderer.invoke(CHANNEL.settingsListGoogleSheetTabs, settings),
     setMentionIdentities: (identities) => ipcRenderer.invoke(CHANNEL.settingsSetMentionIdentities, identities),
+    setMarkerFieldPresets: (presets) => ipcRenderer.invoke(CHANNEL.settingsSetMarkerFieldPresets, presets),
     importMentionIdentities: () => ipcRenderer.invoke(CHANNEL.settingsImportMentionIdentities),
     exportMentionIdentities: () => ipcRenderer.invoke(CHANNEL.settingsExportMentionIdentities),
     refreshSlackUsers: ()        => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackUsers),

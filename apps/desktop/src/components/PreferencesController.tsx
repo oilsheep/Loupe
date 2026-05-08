@@ -26,6 +26,7 @@ import type {
   GoogleSheetTab,
   GoogleSpreadsheet,
   HotkeySettings,
+  MarkerFieldPreset,
   MentionIdentity,
   SeveritySettings,
   SlackPublishSettings,
@@ -162,6 +163,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [mentionIdentitiesSaved, setMentionIdentitiesSaved] = useState(false)
   const [mentionIdentitiesError, setMentionIdentitiesError] = useState('')
   const [mentionIdentitiesStatus, setMentionIdentitiesStatus] = useState('')
+  const [markerFieldPresets, setMarkerFieldPresets] = useState<MarkerFieldPreset[]>([])
+  const [markerFieldPresetsSaved, setMarkerFieldPresetsSaved] = useState(false)
 
   function applySettings(settings: AppSettings) {
     setExportRoot(settings.exportRoot)
@@ -178,6 +181,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMentionIdentities(settings.mentionIdentities ?? [])
     setMentionIdentitiesSaved(false)
     setMentionIdentitiesStatus('')
+    setMarkerFieldPresets(settings.markerFieldPresets ?? [])
+    setMarkerFieldPresetsSaved(false)
   }
 
   useEffect(() => {
@@ -627,6 +632,12 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMentionIdentities(prev => prev.filter((_, i) => i !== index))
   }
 
+  async function saveMarkerFieldPresets(next = markerFieldPresets) {
+    const settings = await api.settings.setMarkerFieldPresets(next)
+    setMarkerFieldPresets(settings.markerFieldPresets ?? [])
+    setMarkerFieldPresetsSaved(true)
+  }
+
   if (!open) return null
 
   return (
@@ -675,6 +686,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       mentionIdentitiesSaved={mentionIdentitiesSaved}
       mentionIdentitiesError={mentionIdentitiesError}
       mentionIdentitiesStatus={mentionIdentitiesStatus}
+      markerFieldPresets={markerFieldPresets}
+      markerFieldPresetsSaved={markerFieldPresetsSaved}
       onLocaleChange={changeLocale}
       onExportRootChange={setExportRoot}
       onSaveExportRoot={saveExportRoot}
@@ -718,6 +731,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onImportMentionIdentities={importMentionIdentities}
       onExportMentionIdentities={exportMentionIdentities}
       onSaveMentionIdentities={saveMentionIdentities}
+      onMarkerFieldPresetsChange={(next) => { setMarkerFieldPresets(next); setMarkerFieldPresetsSaved(false) }}
+      onSaveMarkerFieldPresets={(next) => { void saveMarkerFieldPresets(next) }}
       onClose={onClose}
     />
   )

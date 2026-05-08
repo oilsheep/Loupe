@@ -43,7 +43,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
   const slack = options.slack ?? { botToken: '', channelId: '' }
   const gitlabSettings = options.gitlab ?? gitlab
   const googleSettings = options.google ?? google
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, google, mentionIdentities }
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, google, mentionIdentities, markerFieldPresets: [] }
   const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings, google: googleSettings }
   return {
     doctor: vi.fn() as any,
@@ -100,6 +100,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       listGoogleSpreadsheets: vi.fn() as any,
       listGoogleSheetTabs: vi.fn() as any,
       setMentionIdentities: vi.fn() as any,
+      setMarkerFieldPresets: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       importMentionIdentities: vi.fn() as any,
       exportMentionIdentities: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,

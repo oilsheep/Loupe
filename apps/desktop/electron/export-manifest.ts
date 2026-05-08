@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Bug, BugSeverity, ExportedMarkerFile, ExportPublishOptions, Session, SeveritySettings } from '@shared/types'
+import type { Bug, BugSeverity, ExportedMarkerFile, ExportPublishOptions, MarkerCustomField, MarkerFieldPreset, Session, SeveritySettings } from '@shared/types'
 
 interface BuildExportManifestArgs {
   session: Session
@@ -10,6 +10,7 @@ interface BuildExportManifestArgs {
   reportPdfPath?: string | null
   publish?: ExportPublishOptions
   severities?: SeveritySettings
+  markerFieldPresets?: MarkerFieldPreset[]
   now?: number
 }
 
@@ -55,6 +56,7 @@ export interface ExportManifest {
     previewPath: string
     logcatPath: string | null
     mentionUserIds: string[]
+    customFields: MarkerCustomField[]
   }>
 }
 
@@ -85,6 +87,22 @@ function severityStyle(severities: SeveritySettings | undefined, severity: BugSe
     label: configured?.label?.trim() || DEFAULT_SEVERITY_STYLE[severity]?.label || severity,
     color: configured?.color || DEFAULT_SEVERITY_STYLE[severity]?.color || '#888888',
   }
+}
+
+function effectiveCustomFields(bug: Bug, presets: MarkerFieldPreset[] | undefined): MarkerCustomField[] {
+  const byKey = new Map<string, MarkerCustomField>()
+  for (const preset of presets ?? []) {
+    const key = preset.key.trim()
+    if (!key) continue
+    const value = preset.defaultValue ?? (preset.multi ? [] : '')
+    byKey.set(key, { key, value: Array.isArray(value) ? value.filter(Boolean) : String(value).trim() })
+  }
+  for (const field of bug.customFields ?? []) {
+    const key = field.key.trim()
+    if (!key) continue
+    byKey.set(key, { key, value: Array.isArray(field.value) ? field.value.filter(Boolean) : String(field.value).trim() })
+  }
+  return [...byKey.values()].filter(field => Array.isArray(field.value) ? field.value.length > 0 : field.value)
 }
 
 export function buildExportManifest(args: BuildExportManifestArgs): ExportManifest {
@@ -136,6 +154,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
         previewPath: file.previewPath,
         logcatPath: file.logcatPath,
         mentionUserIds: bug.mentionUserIds ?? [],
+        customFields: effectiveCustomFields(bug, args.markerFieldPresets),
       }
     }),
   }
@@ -167,6 +186,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Publish Targets',
       'Slack Thread Mode',
       'GitLab Mode',
+      'Custom Fields',
     ],
     ...manifest.markers.map(marker => [
       manifest.session.id,
@@ -192,6 +212,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       manifest.publish.targets.join(';'),
       manifest.publish.slackThreadMode ?? '',
       manifest.publish.gitlabMode ?? '',
+      marker.customFields.map(field => `${field.key}=${Array.isArray(field.value) ? field.value.join(';') : field.value}`).join('\n'),
     ]),
   ]
   return `${rows.map(row => row.map(csvCell).join(',')).join('\n')}\n`

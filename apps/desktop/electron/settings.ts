@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MentionIdentity, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -327,6 +327,32 @@ function uniqueList(values: unknown, fallback: string[] = []): string[] {
   return Array.from(new Set(input.map(value => String(value).trim()).filter(Boolean)))
 }
 
+function normalizeMarkerFieldValue(value: unknown): string | string[] {
+  if (Array.isArray(value)) return uniqueList(value)
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
+  if (!Array.isArray(raw)) return []
+  const byKey = new Map<string, MarkerFieldPreset>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const value = item as Partial<MarkerFieldPreset>
+    const key = typeof value.key === 'string' ? value.key.trim() : ''
+    if (!key) continue
+    const options = uniqueList(value.options)
+    const multi = Boolean(value.multi)
+    const defaultValue = normalizeMarkerFieldValue(value.defaultValue)
+    byKey.set(key, {
+      key,
+      ...(Array.isArray(defaultValue) ? (defaultValue.length ? { defaultValue } : {}) : (defaultValue ? { defaultValue } : {})),
+      ...(options.length ? { options } : {}),
+      ...(multi ? { multi: true } : {}),
+    })
+  }
+  return [...byKey.values()]
+}
+
 function normalizeCommonSession(raw?: Partial<CommonSessionSettings>): CommonSessionSettings {
   return {
     platforms: uniqueList(raw?.platforms, DEFAULT_COMMON_SESSION.platforms),
@@ -466,6 +492,7 @@ export class SettingsStore {
         gitlab,
         google,
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
+        markerFieldPresets: normalizeMarkerFieldPresets(raw.markerFieldPresets),
       }
     } catch {
       return this.defaults
@@ -505,6 +532,12 @@ export class SettingsStore {
   setMentionIdentities(mentionIdentities: MentionIdentity[]): AppSettings {
     const current = this.get()
     const next = { ...current, mentionIdentities: normalizeManualMentionIdentities(mentionIdentities) }
+    this.write(next)
+    return next
+  }
+
+  setMarkerFieldPresets(markerFieldPresets: MarkerFieldPreset[]): AppSettings {
+    const next = { ...this.get(), markerFieldPresets: normalizeMarkerFieldPresets(markerFieldPresets) }
     this.write(next)
     return next
   }

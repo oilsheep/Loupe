@@ -111,6 +111,7 @@ export const CHANNEL = {
   settingsListGoogleSpreadsheets:'settings:listGoogleSpreadsheets',
   settingsListGoogleSheetTabs:'settings:listGoogleSheetTabs',
   settingsSetMentionIdentities:'settings:setMentionIdentities',
+  settingsSetMarkerFieldPresets:'settings:setMarkerFieldPresets',
   settingsImportMentionIdentities:'settings:importMentionIdentities',
   settingsExportMentionIdentities:'settings:exportMentionIdentities',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
@@ -2321,7 +2322,7 @@ export function registerIpc(deps: IpcDeps): void {
     return join(deps.paths.sessionDir(sessionId), relPath)
   })
 
-  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; preSec: number; postSec: number; mentionUserIds?: string[] }) => deps.manager.updateBug(id, patch))
+  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: Bug['customFields'] }) => deps.manager.updateBug(id, patch))
   ipcMain.handle(CHANNEL.bugAddAnnotation, async (_e, args: { bugId: string; x: number; y: number; width: number; height: number; startMs: number; endMs: number }) => deps.manager.addAnnotation(args))
   ipcMain.handle(CHANNEL.bugUpdateAnnotation, async (_e, id: string, patch: any) => deps.manager.updateAnnotation(id, patch))
   ipcMain.handle(CHANNEL.bugDeleteAnnotation, async (_e, id: string) => deps.manager.deleteAnnotation(id))
@@ -2411,6 +2412,7 @@ export function registerIpc(deps: IpcDeps): void {
     return tabs
   })
   ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
+  ipcMain.handle(CHANNEL.settingsSetMarkerFieldPresets, async (_e, presets) => deps.settings.setMarkerFieldPresets(presets))
   ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {
     const win = deps.getWindow()
     const result = await (win
@@ -2740,7 +2742,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: deps.settings.get().markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
@@ -2895,7 +2897,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities })
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: deps.settings.get().markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },

@@ -148,6 +148,18 @@ export interface CommonSessionSettings {
   lastTester: string
 }
 
+export interface MarkerCustomField {
+  key: string
+  value: string | string[]
+}
+
+export interface MarkerFieldPreset {
+  key: string
+  defaultValue?: string | string[]
+  options?: string[]
+  multi?: boolean
+}
+
 export interface RecordingPreferences {
   recordMic: boolean
   iosLaunchApp: boolean
@@ -183,6 +195,7 @@ export interface AppSettings {
   gitlab: GitLabPublishSettings
   google: GooglePublishSettings
   mentionIdentities: MentionIdentity[]
+  markerFieldPresets?: MarkerFieldPreset[]
 }
 
 export interface Session {
@@ -233,6 +246,8 @@ export interface Bug {
   postSec: number
   /** Mention identity ids. Legacy sessions may contain Slack user ids. */
   mentionUserIds?: string[]
+  /** Extra marker metadata for downstream systems such as GitLab, Slack, or Sheets. */
+  customFields?: MarkerCustomField[]
   /** Origin of the marker. Missing in legacy sessions and treated as manual. */
   source?: MarkerSource
   /** Video-space rectangular highlights attached to this marker. */
@@ -441,7 +456,7 @@ export interface DesktopApi {
   bug: {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string; preSec?: number; postSec?: number }): Promise<Bug>
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
-    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[] }): Promise<void>
+    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }): Promise<void>
     addAnnotation(args: { bugId: string; kind?: BugAnnotation['kind']; x: number; y: number; width: number; height: number; points?: BugAnnotation['points']; text?: string; startMs: number; endMs: number }): Promise<BugAnnotation>
     updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>): Promise<void>
     deleteAnnotation(id: string): Promise<void>
@@ -474,6 +489,7 @@ export interface DesktopApi {
     listGoogleSpreadsheets(settings: GooglePublishSettings):          Promise<GoogleSpreadsheet[]>
     listGoogleSheetTabs(settings: GooglePublishSettings):             Promise<GoogleSheetTab[]>
     setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
+    setMarkerFieldPresets(presets: MarkerFieldPreset[]):             Promise<AppSettings>
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>
     refreshSlackUsers():                                            Promise<AppSettings>

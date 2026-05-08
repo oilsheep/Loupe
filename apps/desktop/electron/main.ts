@@ -236,6 +236,7 @@ app.whenReady().then(async () => {
     gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     mentionIdentities: [],
+    markerFieldPresets: [],
   })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()
