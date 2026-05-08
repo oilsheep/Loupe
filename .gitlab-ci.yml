@@ -54,6 +54,9 @@ build:mac:
   variables:
     LOUPE_SIGN_MAC: "0"
     CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    # Pin node-gyp to a working Python; the host's /opt/homebrew Python 3.14
+    # has a broken libexpat link that crashes during better-sqlite3 rebuild.
+    PYTHON: "/opt/homebrew/bin/python3.13"
   before_script:
     - export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
     - eval "$(fnm env)"
