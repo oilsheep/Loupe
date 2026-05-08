@@ -189,7 +189,7 @@ describe('NewSessionForm audio trigger settings', () => {
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
     const systemAudio = await screen.findByLabelText('Record computer/game audio') as HTMLInputElement
-    expect(systemAudio.checked).toBe(true)
+    await waitFor(() => expect(systemAudio.checked).toBe(true))
 
     fireEvent.click(systemAudio)
     await waitFor(() => {
