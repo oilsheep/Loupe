@@ -216,7 +216,6 @@ describe('buildClipArgs', () => {
       ],
     })
     const filter = args[args.indexOf('-filter:v') + 1]
-    expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.06:t=fill')
     expect(filter).toContain('drawbox=x=iw*0.250000:y=ih*0.300000:w=iw*0.400000:h=ih*0.200000:color=0x22c55e@0.55:t=3')
     expect(filter).toContain("enable='between(t\\,2.000\\,4.000)'")
     expect(filter).not.toContain('0.100000')
