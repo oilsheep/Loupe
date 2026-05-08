@@ -11,6 +11,9 @@ variables:
   PNPM_VERSION: "9.12.0"
   PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
   HUSKY: "0"
+  # Skip the ~200MB Electron postinstall binary; vitest/typecheck don't need it,
+  # and electron-builder fetches its own platform binary independently.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
 .pnpm:
   before_script:
@@ -58,7 +61,11 @@ build:mac:
     # has a broken libexpat link that crashes during better-sqlite3 rebuild.
     PYTHON: "/opt/homebrew/bin/python3.13"
   before_script:
-    - export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+    # Provide unversioned `python` for electron-builder DMG step (it calls
+    # `which python` directly, ignoring the PYTHON env). Homebrew ships only python3.
+    - mkdir -p "$CI_PROJECT_DIR/.bin"
+    - ln -sf "$PYTHON" "$CI_PROJECT_DIR/.bin/python"
+    - export PATH="$CI_PROJECT_DIR/.bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
     - eval "$(fnm env)"
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
