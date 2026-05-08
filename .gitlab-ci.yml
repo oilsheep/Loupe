@@ -37,6 +37,5 @@ typecheck:
 test:
   stage: verify
   extends: .pnpm
-  allow_failure: true
   script:
     - pnpm desktop:test
