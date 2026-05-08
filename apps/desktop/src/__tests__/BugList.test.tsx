@@ -101,6 +101,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       listGoogleSheetTabs: vi.fn() as any,
       setMentionIdentities: vi.fn() as any,
       setMarkerFieldPresets: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setPublishTemplates: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       importMentionIdentities: vi.fn() as any,
       exportMentionIdentities: vi.fn() as any,
       refreshSlackUsers: vi.fn() as any,

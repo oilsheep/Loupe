@@ -112,6 +112,7 @@ export const CHANNEL = {
   settingsListGoogleSheetTabs:'settings:listGoogleSheetTabs',
   settingsSetMentionIdentities:'settings:setMentionIdentities',
   settingsSetMarkerFieldPresets:'settings:setMarkerFieldPresets',
+  settingsSetPublishTemplates:'settings:setPublishTemplates',
   settingsImportMentionIdentities:'settings:importMentionIdentities',
   settingsExportMentionIdentities:'settings:exportMentionIdentities',
   settingsRefreshSlackUsers:'settings:refreshSlackUsers',
@@ -2413,6 +2414,7 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
   ipcMain.handle(CHANNEL.settingsSetMarkerFieldPresets, async (_e, presets) => deps.settings.setMarkerFieldPresets(presets))
+  ipcMain.handle(CHANNEL.settingsSetPublishTemplates, async (_e, templates) => deps.settings.setPublishTemplates(templates))
   ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {
     const win = deps.getWindow()
     const result = await (win

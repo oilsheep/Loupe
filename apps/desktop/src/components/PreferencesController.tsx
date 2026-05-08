@@ -28,6 +28,7 @@ import type {
   HotkeySettings,
   MarkerFieldPreset,
   MentionIdentity,
+  PublishTemplateSettings,
   SeveritySettings,
   SlackPublishSettings,
 } from '@shared/types'
@@ -165,6 +166,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [mentionIdentitiesStatus, setMentionIdentitiesStatus] = useState('')
   const [markerFieldPresets, setMarkerFieldPresets] = useState<MarkerFieldPreset[]>([])
   const [markerFieldPresetsSaved, setMarkerFieldPresetsSaved] = useState(false)
+  const [publishTemplates, setPublishTemplates] = useState<PublishTemplateSettings>({})
+  const [publishTemplatesSaved, setPublishTemplatesSaved] = useState(false)
 
   function applySettings(settings: AppSettings) {
     setExportRoot(settings.exportRoot)
@@ -183,6 +186,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMentionIdentitiesStatus('')
     setMarkerFieldPresets(settings.markerFieldPresets ?? [])
     setMarkerFieldPresetsSaved(false)
+    setPublishTemplates(settings.publishTemplates ?? {})
+    setPublishTemplatesSaved(false)
   }
 
   useEffect(() => {
@@ -638,6 +643,12 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMarkerFieldPresetsSaved(true)
   }
 
+  async function savePublishTemplates(next = publishTemplates) {
+    const settings = await api.settings.setPublishTemplates(next)
+    setPublishTemplates(settings.publishTemplates ?? {})
+    setPublishTemplatesSaved(true)
+  }
+
   if (!open) return null
 
   return (
@@ -688,6 +699,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       mentionIdentitiesStatus={mentionIdentitiesStatus}
       markerFieldPresets={markerFieldPresets}
       markerFieldPresetsSaved={markerFieldPresetsSaved}
+      publishTemplates={publishTemplates}
+      publishTemplatesSaved={publishTemplatesSaved}
       onLocaleChange={changeLocale}
       onExportRootChange={setExportRoot}
       onSaveExportRoot={saveExportRoot}
@@ -733,6 +746,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onSaveMentionIdentities={saveMentionIdentities}
       onMarkerFieldPresetsChange={(next) => { setMarkerFieldPresets(next); setMarkerFieldPresetsSaved(false) }}
       onSaveMarkerFieldPresets={(next) => { void saveMarkerFieldPresets(next) }}
+      onPublishTemplatesChange={(next) => { setPublishTemplates(next); setPublishTemplatesSaved(false) }}
+      onSavePublishTemplates={(next) => { void savePublishTemplates(next) }}
       onClose={onClose}
     />
   )

@@ -1,7 +1,7 @@
 import { basename } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import type { GitLabMentionUser, GitLabProject, GitLabPublishSettings, MentionIdentity } from '@shared/types'
-import type { ExportManifest } from './export-manifest'
+import type { GitLabMentionUser, GitLabProject, GitLabPublishSettings, MentionIdentity, PublishTemplateConfig } from '@shared/types'
+import { renderPublishTemplate, type ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
   jsonPath: string
@@ -317,10 +317,11 @@ function sessionLines(manifest: ExportManifest): string[] {
   return lines
 }
 
-function rootDescription(manifest: ExportManifest, summaryTextPath: string | null | undefined, attachments: string[]): string {
+function rootDescription(manifest: ExportManifest, summaryTextPath: string | null | undefined, attachments: string[], template?: PublishTemplateConfig): string {
   const summary = summaryTextPath && existsSync(summaryTextPath) ? readFileSync(summaryTextPath, 'utf8').trim() : ''
+  const templated = template?.session?.trim() ? renderPublishTemplate(template.session, manifest) : ''
   const lines = [
-    summary || ['Loupe QA Export', '', ...sessionLines(manifest), '', `Markers: ${manifest.markers.length}`].join('\n'),
+    templated || summary || ['Loupe QA Export', '', ...sessionLines(manifest), '', `Markers: ${manifest.markers.length}`].join('\n'),
     '',
     ...attachments,
     '',
@@ -329,15 +330,14 @@ function rootDescription(manifest: ExportManifest, summaryTextPath: string | nul
   return lines.filter((line, index, arr) => line || arr[index - 1]).join('\n')
 }
 
-function markerBody(manifest: ExportManifest, settings: GitLabPublishSettings, marker: ExportManifest['markers'][number], attachments: string[], errors: string[], identities: MentionIdentity[]): string {
+function markerBody(manifest: ExportManifest, settings: GitLabPublishSettings, marker: ExportManifest['markers'][number], attachments: string[], errors: string[], identities: MentionIdentity[], template?: PublishTemplateConfig): string {
   const mention = mentionText(settings, marker, identities)
+  const templated = template?.marker?.trim() ? renderPublishTemplate(template.marker, manifest, marker) : ''
   const lines = [
     mention,
-    markerTitle(marker),
+    templated || markerTitle(marker),
     '',
-    ...sessionLines(manifest),
-    '',
-    marker.note.trim() || '(none)',
+    ...(templated ? [] : [...sessionLines(manifest), '', marker.note.trim() || '(none)']),
     '',
     ...attachments,
     ...(errors.length > 0 ? ['', `Upload errors:\n${errors.map(error => `- ${error}`).join('\n')}`] : []),
@@ -366,12 +366,14 @@ export async function publishManifestToGitLab(args: {
   manifestPaths: ManifestPaths
   settings: GitLabPublishSettings
   mentionIdentities?: MentionIdentity[]
+  template?: PublishTemplateConfig
   fetchImpl?: GitLabPublisherFetch
 }): Promise<GitLabPublishResult> {
   validateSettings(args.settings)
   const fetchImpl = args.fetchImpl ?? fetch
   const mode = args.manifest.publish.gitlabMode ?? args.settings.mode
   const mentionIdentities = args.mentionIdentities ?? []
+  const template = args.template
   const issueUrls: string[] = []
   const uploadErrors: string[] = []
   const reportMarkdown = await uploadFileCollectingErrors(uploadErrors, fetchImpl, args.settings, args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath)
@@ -380,14 +382,14 @@ export async function publishManifestToGitLab(args: {
     const issue = await createIssue(
       fetchImpl,
       args.settings,
-      `[Loupe QA] ${args.manifest.session.buildVersion || args.manifest.session.id} - ${args.manifest.markers.length} marker${args.manifest.markers.length === 1 ? '' : 's'}`,
-      rootDescription(args.manifest, args.manifestPaths.summaryTextPath, [reportMarkdown].filter(Boolean) as string[]),
+      template?.title?.trim() ? renderPublishTemplate(template.title, args.manifest) : `[Loupe QA] ${args.manifest.session.buildVersion || args.manifest.session.id} - ${args.manifest.markers.length} marker${args.manifest.markers.length === 1 ? '' : 's'}`,
+      rootDescription(args.manifest, args.manifestPaths.summaryTextPath, [reportMarkdown].filter(Boolean) as string[], template),
     )
     if (issue.web_url) issueUrls.push(issue.web_url)
     for (const marker of args.manifest.markers) {
       const markerErrors: string[] = []
       const videoMarkdown = await uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, marker.videoPath)
-      const body = markerBody(args.manifest, args.settings, marker, [videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities)
+      const body = markerBody(args.manifest, args.settings, marker, [videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities, template)
       await createIssueNote(fetchImpl, args.settings, issue.iid, body)
       uploadErrors.push(...markerErrors)
     }
@@ -398,8 +400,8 @@ export async function publishManifestToGitLab(args: {
       const issue = await createIssue(
         fetchImpl,
         args.settings,
-        `[Loupe QA] ${markerTitle(marker)}`,
-        markerBody(args.manifest, args.settings, marker, [reportMarkdown, videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities),
+        template?.title?.trim() ? renderPublishTemplate(template.title, args.manifest, marker) : `[Loupe QA] ${markerTitle(marker)}`,
+        markerBody(args.manifest, args.settings, marker, [reportMarkdown, videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities, template),
       )
       if (issue.web_url) issueUrls.push(issue.web_url)
       uploadErrors.push(...markerErrors)

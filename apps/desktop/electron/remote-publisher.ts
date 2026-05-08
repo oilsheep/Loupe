@@ -43,6 +43,7 @@ export async function publishManifestToRemote(args: {
           manifestPaths: args.manifestPaths,
           settings: args.settings.slack,
           mentionIdentities: args.settings.mentionIdentities,
+          template: args.settings.publishTemplates?.slack,
         })
         results.push({ target: 'slack', ...result })
       } else if (target === 'gitlab') {
@@ -51,6 +52,7 @@ export async function publishManifestToRemote(args: {
           manifestPaths: args.manifestPaths,
           settings: args.settings.gitlab,
           mentionIdentities: args.settings.mentionIdentities,
+          template: args.settings.publishTemplates?.gitlab,
         })
         results.push({ target: 'gitlab', ...result })
       } else {
@@ -59,6 +61,7 @@ export async function publishManifestToRemote(args: {
           manifestPaths: args.manifestPaths,
           settings: args.settings.google,
           mentionIdentities: args.settings.mentionIdentities,
+          template: args.settings.publishTemplates?.['google-drive'],
         })
         results.push({ target: 'google-drive', ...result })
       }

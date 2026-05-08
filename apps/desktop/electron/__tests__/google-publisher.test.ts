@@ -104,6 +104,7 @@ describe('Google Drive publisher', () => {
           sheetName: 'Sheet1',
         },
         mentionIdentities: [{ id: 'miki', displayName: 'Miki', email: 'miki@example.com' }],
+        template: { marker: '{{severity}}: {{note}}' },
         fetchImpl,
       })
 
@@ -114,7 +115,9 @@ describe('Google Drive publisher', () => {
         .map(([, init]) => JSON.parse(String(init?.body)))
       expect(batchBodies.some(body => body.requests?.[0]?.updateCells?.start?.rowIndex === 2 && body.requests?.[0]?.updateCells?.start?.columnIndex === 0)).toBe(true)
       const markerUpdate = batchBodies.find(body => body.requests?.[0]?.updateCells?.start?.rowIndex === 2)
-      const mentionCell = markerUpdate?.requests?.[0]?.updateCells?.rows?.[0]?.values?.[9]
+      const noteCell = markerUpdate?.requests?.[0]?.updateCells?.rows?.[0]?.values?.[9]
+      expect(noteCell).toEqual({ userEnteredValue: { stringValue: 'major: login crash' } })
+      const mentionCell = markerUpdate?.requests?.[0]?.updateCells?.rows?.[0]?.values?.[11]
       expect(mentionCell).toEqual({
         userEnteredValue: { stringValue: '@' },
         chipRuns: [{

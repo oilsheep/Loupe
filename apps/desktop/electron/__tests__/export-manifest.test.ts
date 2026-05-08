@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildExportManifest, manifestToCsv, slackSessionMessage, slackThreadPayload, writeExportManifests } from '../export-manifest'
+import { buildExportManifest, manifestToCsv, renderPublishTemplate, slackSessionMessage, slackThreadPayload, writeExportManifests } from '../export-manifest'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function session(over: Partial<Session> = {}): Session {
@@ -149,6 +149,20 @@ describe('export manifest', () => {
     expect(csv).toContain('"Avery"')
     expect(csv).toContain('"/exports/b1.logcat.txt"')
     expect(csv).toContain('"priority=high\ntargets=gitlab;slack"')
+  })
+
+  it('renders publish templates with custom marker fields', () => {
+    const manifest = buildExportManifest({
+      session: session({ project: 'Arcade' }),
+      bugs: [bug({ customFields: [{ key: 'priority', value: 'high' }, { key: 'targets', value: ['gitlab', 'slack'] }] })],
+      files: [file()],
+      outDir: '/exports',
+    })
+
+    expect(renderPublishTemplate('{{project}} / {{severityLabel}} / {{priority}} / {{custom.targets}}', manifest, manifest.markers[0]))
+      .toBe('Arcade / Critical / high / gitlab, slack')
+    expect(renderPublishTemplate('{{Priority}} / {{custom.TARGETS}}', manifest, manifest.markers[0]))
+      .toBe('high / gitlab, slack')
   })
 
   it('formats Slack session messages and thread payloads', () => {

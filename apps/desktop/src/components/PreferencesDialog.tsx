@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
@@ -154,6 +155,94 @@ function MentionIdentityBadges({ identity }: { identity: MentionIdentity }) {
   )
 }
 
+function PublishTemplateFields({
+  target,
+  zh,
+  templates,
+  saved,
+  showTitle = false,
+  showSession = true,
+  onChange,
+  onSave,
+}: {
+  target: PublishTemplateTarget
+  zh: boolean
+  templates: PublishTemplateSettings
+  saved: boolean
+  showTitle?: boolean
+  showSession?: boolean
+  onChange(target: PublishTemplateTarget, key: 'session' | 'marker' | 'title', value: string): void
+  onSave(value: PublishTemplateSettings): void
+}) {
+  const config = templates[target] ?? {}
+  const defaults = DEFAULT_PUBLISH_TEMPLATES[target]
+  const targetLabel = target === 'google-drive' ? 'Google Drive' : target === 'gitlab' ? 'GitLab' : target === 'slack' ? 'Slack' : 'Local'
+  function saveEffectiveTemplate(overrides: Partial<Record<'session' | 'marker' | 'title', string>> = {}) {
+    const current = { ...config, ...overrides }
+    onSave({
+      ...templates,
+      [target]: {
+        title: current.title ?? defaults.title,
+        session: showSession ? current.session ?? defaults.session : current.session ?? '',
+        marker: current.marker ?? defaults.marker,
+      },
+    })
+  }
+  return (
+    <details className="mt-3 rounded border border-zinc-800 bg-zinc-950/70 p-3">
+      <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">
+        {zh ? `${targetLabel} 文案 template` : `${targetLabel} templates`}
+      </summary>
+      <div className="mt-2 rounded bg-zinc-900/60 px-2 py-1.5 text-[11px] leading-5 text-zinc-500">
+        {zh
+          ? '可使用 {{buildVersion}}, {{project}}, {{tester}}, {{severityLabel}}, {{note}}，也可直接用 custom field key，例如 {{priority}} 或 {{custom.priority}}。'
+          : 'Use {{buildVersion}}, {{project}}, {{tester}}, {{severityLabel}}, {{note}}, or custom field keys such as {{priority}} / {{custom.priority}}.'}
+      </div>
+      <div className="mt-2 grid gap-2">
+        {showTitle && (
+          <label className="text-xs text-zinc-500">
+            {zh ? '標題 template' : 'Title template'}
+            <input
+              value={config.title ?? defaults.title}
+              onChange={(e) => onChange(target, 'title', e.target.value)}
+              onBlur={(e) => saveEffectiveTemplate({ title: e.target.value })}
+              className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </label>
+        )}
+        {showSession && (
+          <label className="text-xs text-zinc-500">
+            {zh ? 'Session / 總覽文案' : 'Session / summary text'}
+            <textarea
+              value={config.session ?? defaults.session}
+              rows={4}
+              onChange={(e) => onChange(target, 'session', e.target.value)}
+              onBlur={(e) => saveEffectiveTemplate({ session: e.target.value })}
+              className="mt-1 w-full resize-y rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+            />
+          </label>
+        )}
+        <label className="text-xs text-zinc-500">
+          {zh ? 'Marker 文案' : 'Marker text'}
+          <textarea
+            value={config.marker ?? defaults.marker}
+            rows={5}
+            onChange={(e) => onChange(target, 'marker', e.target.value)}
+            onBlur={(e) => saveEffectiveTemplate({ marker: e.target.value })}
+            className="mt-1 w-full resize-y rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+          />
+        </label>
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        {saved && <span className="self-center text-xs text-emerald-300">{zh ? '已儲存' : 'Saved'}</span>}
+        <button type="button" onClick={() => saveEffectiveTemplate()} className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">
+          {zh ? '儲存 template' : 'Save templates'}
+        </button>
+      </div>
+    </details>
+  )
+}
+
 interface PreferencesDialogProps {
   locale: AppLocale
   localeOptions: Array<{ value: AppLocale; label: string }>
@@ -201,6 +290,8 @@ interface PreferencesDialogProps {
   mentionIdentitiesStatus: string
   markerFieldPresets: MarkerFieldPreset[]
   markerFieldPresetsSaved: boolean
+  publishTemplates: PublishTemplateSettings
+  publishTemplatesSaved: boolean
   onLocaleChange(locale: AppLocale): void
   onExportRootChange(value: string): void
   onSaveExportRoot(): void
@@ -246,6 +337,8 @@ interface PreferencesDialogProps {
   onSaveMentionIdentities(): void
   onMarkerFieldPresetsChange(value: MarkerFieldPreset[]): void
   onSaveMarkerFieldPresets(value: MarkerFieldPreset[]): void
+  onPublishTemplatesChange(value: PublishTemplateSettings): void
+  onSavePublishTemplates(value: PublishTemplateSettings): void
   onClose(): void
 }
 
@@ -296,6 +389,8 @@ export function PreferencesDialog({
   mentionIdentitiesStatus,
   markerFieldPresets,
   markerFieldPresetsSaved,
+  publishTemplates,
+  publishTemplatesSaved,
   onLocaleChange,
   onExportRootChange,
   onSaveExportRoot,
@@ -341,6 +436,8 @@ export function PreferencesDialog({
   onSaveMentionIdentities,
   onMarkerFieldPresetsChange,
   onSaveMarkerFieldPresets,
+  onPublishTemplatesChange,
+  onSavePublishTemplates,
   onClose,
 }: PreferencesDialogProps) {
   const { t, resolvedLocale } = useI18n()
@@ -399,6 +496,16 @@ export function PreferencesDialog({
 
   function addMarkerFieldPreset() {
     onMarkerFieldPresetsChange([...markerFieldPresets, { key: '', defaultValue: '', options: [], multi: false }])
+  }
+
+  function updatePublishTemplate(target: PublishTemplateTarget, key: 'session' | 'marker' | 'title', value: string) {
+    onPublishTemplatesChange({
+      ...publishTemplates,
+      [target]: {
+        ...(publishTemplates[target] ?? {}),
+        [key]: value,
+      },
+    })
   }
 
   return (
@@ -732,6 +839,14 @@ export function PreferencesDialog({
             <div className="min-w-0 space-y-3">
               <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.slack')}</summary>
+                <PublishTemplateFields
+                  target="slack"
+                  zh={zh}
+                  templates={publishTemplates}
+                  saved={publishTemplatesSaved}
+                  onChange={updatePublishTemplate}
+                  onSave={onSavePublishTemplates}
+                />
                 <div className="mt-3 rounded border border-amber-900/60 bg-amber-950/20 p-3 text-xs leading-5 text-amber-100/80">
                   <div className="font-medium text-amber-100">{t('preferences.slackMultiCompanyTitle')}</div>
                   <div className="mt-1">{t('preferences.slackMultiCompanyHelp')}</div>
@@ -868,6 +983,15 @@ export function PreferencesDialog({
 
               <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.googleDrive')}</summary>
+                <PublishTemplateFields
+                  target="google-drive"
+                  zh={zh}
+                  templates={publishTemplates}
+                  saved={publishTemplatesSaved}
+                  onChange={updatePublishTemplate}
+                  onSave={onSavePublishTemplates}
+                  showSession={false}
+                />
                 <div className={`mt-3 break-words rounded border px-2 py-2 text-xs ${googleHasOAuthCredentials ? 'border-zinc-800 bg-zinc-950/60 text-zinc-500' : 'border-amber-800 bg-amber-950/30 text-amber-100'}`}>
                   {googleHasOAuthCredentials
                     ? t('preferences.googleOauthReady', { uri: google.oauthRedirectUri || 'http://127.0.0.1:38988/oauth/google/callback' })
@@ -1037,6 +1161,15 @@ export function PreferencesDialog({
 
               <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.gitlab')}</summary>
+                <PublishTemplateFields
+                  target="gitlab"
+                  zh={zh}
+                  templates={publishTemplates}
+                  saved={publishTemplatesSaved}
+                  onChange={updatePublishTemplate}
+                  onSave={onSavePublishTemplates}
+                  showTitle
+                />
                 <label className="mt-3 block min-w-0 text-xs text-zinc-500">
                   {t('preferences.gitlabBaseUrl')}
                   <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />

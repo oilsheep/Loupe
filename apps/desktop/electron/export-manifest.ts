@@ -223,6 +223,63 @@ function markerTitle(marker: ExportManifest['markers'][number]): string {
   return `[${marker.severityLabel || marker.severity}] ${note}`
 }
 
+function markerCustomValue(marker: ExportManifest['markers'][number], key: string): string {
+  const wanted = key.trim().toLocaleLowerCase()
+  const field = marker.customFields.find(item => item.key === key || item.key.trim().toLocaleLowerCase() === wanted)
+  if (!field) return ''
+  return Array.isArray(field.value) ? field.value.join(', ') : field.value
+}
+
+function templateContext(manifest: ExportManifest, marker?: ExportManifest['markers'][number]): Record<string, string> {
+  const session = manifest.session
+  const ctx: Record<string, string> = {
+    exportCreatedAt: manifest.createdAt,
+    markerCount: String(manifest.markers.length),
+    sessionId: session.id,
+    buildVersion: session.buildVersion,
+    platform: session.platform ?? '',
+    project: session.project ?? '',
+    testNote: session.testNote,
+    tester: session.tester,
+    deviceId: session.deviceId,
+    deviceModel: session.deviceModel,
+    androidVersion: session.androidVersion,
+    connectionMode: session.connectionMode,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt ?? '',
+  }
+  if (marker) {
+    Object.assign(ctx, {
+      markerId: marker.id,
+      offsetMs: String(marker.offsetMs),
+      offsetSeconds: String(Math.round(marker.offsetMs / 1000)),
+      severity: marker.severity,
+      severityLabel: marker.severityLabel,
+      note: marker.note,
+      markerCreatedAt: marker.createdAt,
+      videoPath: marker.videoPath,
+      previewPath: marker.previewPath,
+      logcatPath: marker.logcatPath ?? '',
+    })
+    for (const field of marker.customFields) {
+      const value = Array.isArray(field.value) ? field.value.join(', ') : field.value
+      ctx[field.key] = value
+      ctx[field.key.trim().toLocaleLowerCase()] = value
+      ctx[`custom.${field.key}`] = value
+      ctx[`custom.${field.key.trim().toLocaleLowerCase()}`] = value
+    }
+  }
+  return ctx
+}
+
+export function renderPublishTemplate(template: string, manifest: ExportManifest, marker?: ExportManifest['markers'][number]): string {
+  const context = templateContext(manifest, marker)
+  return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key: string) => {
+    if (key.startsWith('custom.') && marker) return markerCustomValue(marker, key.slice('custom.'.length))
+    return context[key] ?? context[key.trim().toLocaleLowerCase()] ?? ''
+  }).trim()
+}
+
 export function slackSessionMessage(manifest: ExportManifest): string {
   const lines = [
     'Loupe QA Export',

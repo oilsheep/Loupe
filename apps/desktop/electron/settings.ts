@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, PublishTemplateSettings, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -353,6 +353,25 @@ function normalizeMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
   return [...byKey.values()]
 }
 
+function normalizePublishTemplates(raw?: unknown): PublishTemplateSettings {
+  if (!raw || typeof raw !== 'object') return {}
+  const input = raw as Record<string, unknown>
+  const out: PublishTemplateSettings = {}
+  for (const target of ['slack', 'gitlab', 'google-drive', 'local'] as const) {
+    const value = input[target]
+    if (!value || typeof value !== 'object') continue
+    const config = value as Record<string, unknown>
+    const hasTemplateKey = ['session', 'marker', 'title'].some(key => Object.prototype.hasOwnProperty.call(config, key))
+    const next = {
+      session: typeof config.session === 'string' ? config.session : '',
+      marker: typeof config.marker === 'string' ? config.marker : '',
+      title: typeof config.title === 'string' ? config.title : '',
+    }
+    if (hasTemplateKey || next.session || next.marker || next.title) out[target] = next
+  }
+  return out
+}
+
 function normalizeCommonSession(raw?: Partial<CommonSessionSettings>): CommonSessionSettings {
   return {
     platforms: uniqueList(raw?.platforms, DEFAULT_COMMON_SESSION.platforms),
@@ -493,6 +512,7 @@ export class SettingsStore {
         google,
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
         markerFieldPresets: normalizeMarkerFieldPresets(raw.markerFieldPresets),
+        publishTemplates: normalizePublishTemplates(raw.publishTemplates),
       }
     } catch {
       return this.defaults
@@ -538,6 +558,12 @@ export class SettingsStore {
 
   setMarkerFieldPresets(markerFieldPresets: MarkerFieldPreset[]): AppSettings {
     const next = { ...this.get(), markerFieldPresets: normalizeMarkerFieldPresets(markerFieldPresets) }
+    this.write(next)
+    return next
+  }
+
+  setPublishTemplates(publishTemplates: PublishTemplateSettings): AppSettings {
+    const next = { ...this.get(), publishTemplates: normalizePublishTemplates(publishTemplates) }
     this.write(next)
     return next
   }

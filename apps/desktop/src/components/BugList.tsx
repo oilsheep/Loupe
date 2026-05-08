@@ -2245,9 +2245,9 @@ function MarkerCustomFieldsEditor({
     onChange(normalized)
   }
 
-  function updateField(index: number, patch: Partial<MarkerCustomField>) {
-    const next = draft.map((field, i) => i === index ? { ...field, ...patch } : field)
+  function persistDraft(next: MarkerCustomField[]) {
     setDraft(next)
+    onChange(normalizeCustomFields(next))
   }
 
   function presetFor(key: string): MarkerFieldPreset | undefined {
@@ -2282,7 +2282,7 @@ function MarkerCustomFieldsEditor({
               <input
                 value={field.key}
                 list="marker-custom-field-keys"
-                onChange={(e) => updateField(index, { key: e.target.value })}
+                onChange={(e) => persistDraft(draft.map((item, i) => i === index ? { ...item, key: e.target.value } : item))}
                 onBlur={() => commit()}
                 placeholder="key"
                 className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
@@ -2303,7 +2303,7 @@ function MarkerCustomFieldsEditor({
                     <input
                       value={fieldValueText(field.value)}
                       list={preset?.options?.length ? optionsId : undefined}
-                      onChange={(e) => updateField(index, { value: e.target.value })}
+                      onChange={(e) => persistDraft(draft.map((item, i) => i === index ? { ...item, value: e.target.value } : item))}
                       onBlur={() => commit()}
                       placeholder="value"
                       className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"

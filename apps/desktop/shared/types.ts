@@ -160,6 +160,16 @@ export interface MarkerFieldPreset {
   multi?: boolean
 }
 
+export type PublishTemplateTarget = 'slack' | 'gitlab' | 'google-drive' | 'local'
+
+export interface PublishTemplateConfig {
+  session?: string
+  marker?: string
+  title?: string
+}
+
+export type PublishTemplateSettings = Partial<Record<PublishTemplateTarget, PublishTemplateConfig>>
+
 export interface RecordingPreferences {
   recordMic: boolean
   iosLaunchApp: boolean
@@ -196,6 +206,7 @@ export interface AppSettings {
   google: GooglePublishSettings
   mentionIdentities: MentionIdentity[]
   markerFieldPresets?: MarkerFieldPreset[]
+  publishTemplates?: PublishTemplateSettings
 }
 
 export interface Session {
@@ -490,6 +501,7 @@ export interface DesktopApi {
     listGoogleSheetTabs(settings: GooglePublishSettings):             Promise<GoogleSheetTab[]>
     setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
     setMarkerFieldPresets(presets: MarkerFieldPreset[]):             Promise<AppSettings>
+    setPublishTemplates(templates: PublishTemplateSettings):          Promise<AppSettings>
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>
     refreshSlackUsers():                                            Promise<AppSettings>

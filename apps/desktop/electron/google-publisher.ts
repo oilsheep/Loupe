@@ -1,7 +1,7 @@
 import { basename, dirname, relative, sep } from 'node:path'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import type { GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, MentionIdentity } from '@shared/types'
-import type { ExportManifest } from './export-manifest'
+import type { GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, MentionIdentity, PublishTemplateConfig } from '@shared/types'
+import { renderPublishTemplate, type ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
   jsonPath: string
@@ -401,12 +401,13 @@ function peopleChipCell(emails: string[]): GoogleSheetCellData {
   }
 }
 
-function sheetRows(manifest: ExportManifest, identities: MentionIdentity[], folderUrl: string | null, uploaded: Array<{ path: string; id: string; url: string | null }>, warnings: string[]): GoogleSheetCellData[][] {
+function sheetRows(manifest: ExportManifest, identities: MentionIdentity[], folderUrl: string | null, uploaded: Array<{ path: string; id: string; url: string | null }>, warnings: string[], template?: PublishTemplateConfig): GoogleSheetCellData[][] {
   const links = markerLinkMap(manifest, uploaded)
   const report = uploaded.find(file => file.path === manifest.reportPdfPath)?.url ?? ''
   const manifestFile = uploaded.find(file => file.path.endsWith('export-manifest.json'))?.url ?? ''
   return manifest.markers.map((marker, index) => {
     const markerLinks = links.get(marker.id) ?? {}
+    const note = template?.marker?.trim() ? renderPublishTemplate(template.marker, manifest, marker) : marker.note
     return [
       cellData(manifest.createdAt),
       cellData(manifest.session.project ?? ''),
@@ -417,7 +418,7 @@ function sheetRows(manifest: ExportManifest, identities: MentionIdentity[], fold
       cellData(manifest.session.tester),
       cellData(index + 1),
       cellData(marker.severityLabel || marker.severity),
-      cellData(marker.note),
+      cellData(note),
       cellData(Math.round(marker.offsetMs / 1000)),
       peopleChipCell(mentionEmails(marker, identities, warnings)),
       cellData(folderUrl ?? ''),
@@ -521,6 +522,7 @@ export async function publishManifestToGoogleDrive(args: {
   manifestPaths: ManifestPaths
   settings: GooglePublishSettings
   mentionIdentities?: MentionIdentity[]
+  template?: PublishTemplateConfig
   fetchImpl?: GooglePublisherFetch
 }): Promise<GooglePublishResult> {
   validateSettings(args.settings)
@@ -549,7 +551,7 @@ export async function publishManifestToGoogleDrive(args: {
   let sheetUpdated = false
   let sheetRowsAppended = 0
   if (settings.updateSheet) {
-    const rows = sheetRows(args.manifest, args.mentionIdentities ?? [], rootFolder.webViewLink ?? null, uploadedFiles, warnings)
+    const rows = sheetRows(args.manifest, args.mentionIdentities ?? [], rootFolder.webViewLink ?? null, uploadedFiles, warnings, args.template)
     await appendSheetRows(fetchImpl, token, settings, rows)
     sheetUpdated = true
     sheetRowsAppended = rows.length
