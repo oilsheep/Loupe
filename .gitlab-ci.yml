@@ -6,6 +6,7 @@ default:
 stages:
   - verify
   - build
+  - release
 
 variables:
   PNPM_VERSION: "9.12.0"
@@ -118,3 +119,35 @@ build:win:
       - .pnpm-store/
     policy: pull
   interruptible: false
+
+release:gitlab:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]/
+  needs:
+    - job: build:mac
+      artifacts: false
+      optional: true
+    - job: build:win
+      artifacts: false
+      optional: true
+  script:
+    - echo "Creating GitLab release for $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Loupe $CI_COMMIT_TAG"
+    description: |
+      Internal Rayark release built from tag $CI_COMMIT_TAG (sha $CI_COMMIT_SHORT_SHA).
+
+      Download platform binaries from the linked job artifacts below.
+      Notarization / code signing is performed by the upstream GitHub
+      workflow on tagged releases; these GitLab artifacts are unsigned.
+    assets:
+      links:
+        - name: "macOS (arm64) — DMG + zip"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build:mac"
+          link_type: package
+        - name: "Windows (x64) — installer + zip"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build:win"
+          link_type: package
