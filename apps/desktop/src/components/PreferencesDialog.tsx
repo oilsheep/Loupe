@@ -1176,10 +1176,37 @@ export function PreferencesDialog({
                   onSave={onSavePublishTemplates}
                   showTitle
                 />
-                <label className="mt-3 block min-w-0 text-xs text-zinc-500">
-                  {t('preferences.gitlabBaseUrl')}
-                  <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                </label>
+                {bundledGitLabOAuthInstances.length > 0 ? (
+                  <div className="mt-3">
+                    <label className="block min-w-0 text-xs text-zinc-500">
+                      {t('preferences.gitlabInstance')}
+                      <select
+                        value={bundledGitLabMatch ? bundledGitLabMatch.url : '__custom__'}
+                        onChange={(e) => {
+                          const next = e.target.value === '__custom__' ? '' : e.target.value
+                          onGitLabChange({ ...gitlab, baseUrl: next })
+                        }}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      >
+                        {bundledGitLabOAuthInstances.map(inst => (
+                          <option key={inst.url} value={inst.url}>{inst.url}</option>
+                        ))}
+                        <option value="__custom__">{t('preferences.gitlabCustomInstance')}</option>
+                      </select>
+                    </label>
+                    {!bundledGitLabMatch && (
+                      <label className="mt-2 block min-w-0 text-xs text-zinc-500">
+                        {t('preferences.gitlabBaseUrl')}
+                        <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                      </label>
+                    )}
+                  </div>
+                ) : (
+                  <label className="mt-3 block min-w-0 text-xs text-zinc-500">
+                    {t('preferences.gitlabBaseUrl')}
+                    <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                  </label>
+                )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
                   <div className="min-w-0">
                     {gitlab.authType !== 'oauth' && (
