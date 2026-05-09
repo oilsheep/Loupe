@@ -282,3 +282,17 @@ describe('rewriteSessionAssetRoots', () => {
     db.close()
   })
 })
+
+describe('renameSessionProject', () => {
+  it('updates the project field on matching session rows', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession({ ...makeSession('s1', '/r'), project: 'OldName' } as Session)
+    db.insertSession({ ...makeSession('s2', '/r'), project: 'OtherName' } as Session)
+    const result = db.renameSessionProject('OldName', 'NewName')
+    expect(result.rowsChanged).toBe(1)
+    expect(db.getSession('s1')!.project).toBe('NewName')
+    expect(db.getSession('s2')!.project).toBe('OtherName')
+    db.close()
+  })
+})

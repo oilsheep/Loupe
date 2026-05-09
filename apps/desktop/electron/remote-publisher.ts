@@ -3,6 +3,7 @@ import type { ExportManifest } from './export-manifest'
 import { publishManifestToGitLab, type GitLabPublishResult } from './gitlab-publisher'
 import { publishManifestToGoogleDrive, type GooglePublishResult } from './google-publisher'
 import { publishManifestToSlack, type SlackPublishResult } from './slack-publisher'
+import { findProjectForSession } from './settings'
 
 interface ManifestPaths {
   jsonPath: string
@@ -34,6 +35,12 @@ export async function publishManifestToRemote(args: {
     return { target: 'local', skipped: true }
   }
 
+  const sessionProjectName = args.manifest.session.project
+  const { project, matched } = findProjectForSession(args.settings, sessionProjectName)
+  if (!matched) {
+    console.warn(`[publish] Session was recorded under project "${sessionProjectName ?? '(unknown)'}", which no longer exists. Falling back to active project "${project.name}".`)
+  }
+
   const results: RemotePublishResult[] = []
   for (const target of remoteTargets) {
     try {
@@ -41,27 +48,27 @@ export async function publishManifestToRemote(args: {
         const result = await publishManifestToSlack({
           manifest: args.manifest,
           manifestPaths: args.manifestPaths,
-          settings: args.settings.slack,
+          settings: project.slack,
           mentionIdentities: args.settings.mentionIdentities,
-          template: args.settings.publishTemplates?.slack,
+          template: project.publishTemplates?.slack,
         })
         results.push({ target: 'slack', ...result })
       } else if (target === 'gitlab') {
         const result = await publishManifestToGitLab({
           manifest: args.manifest,
           manifestPaths: args.manifestPaths,
-          settings: args.settings.gitlab,
+          settings: project.gitlab,
           mentionIdentities: args.settings.mentionIdentities,
-          template: args.settings.publishTemplates?.gitlab,
+          template: project.publishTemplates?.gitlab,
         })
         results.push({ target: 'gitlab', ...result })
       } else {
         const result = await publishManifestToGoogleDrive({
           manifest: args.manifest,
           manifestPaths: args.manifestPaths,
-          settings: args.settings.google,
+          settings: project.google,
           mentionIdentities: args.settings.mentionIdentities,
-          template: args.settings.publishTemplates?.['google-drive'],
+          template: project.publishTemplates?.['google-drive'],
         })
         results.push({ target: 'google-drive', ...result })
       }

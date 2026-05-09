@@ -238,6 +238,7 @@ describe('remote publisher', () => {
     })
     const appSettings = settings()
     appSettings.google = { ...appSettings.google, token: '', refreshToken: '', driveFolderId: '' }
+    appSettings.projects[0].google = { ...appSettings.projects[0].google, token: '', refreshToken: '', driveFolderId: '' }
 
     await expect(publishManifestToRemote({
       manifest,

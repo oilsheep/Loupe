@@ -507,33 +507,37 @@ export interface DesktopApi {
     get():                                                         Promise<AppSettings>
     setExportRoot(path: string):                                   Promise<AppSettings>
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
-    setSlack(settings: SlackPublishSettings):                       Promise<AppSettings>
-    setGitLab(settings: GitLabPublishSettings):                      Promise<AppSettings>
-    connectGitLabOAuth(settings: GitLabPublishSettings):              Promise<AppSettings>
+    setSlack(projectId: string, settings: SlackPublishSettings):    Promise<AppSettings>
+    setGitLab(projectId: string, settings: GitLabPublishSettings):  Promise<AppSettings>
+    connectGitLabOAuth(projectId: string, settings: GitLabPublishSettings): Promise<AppSettings>
     cancelGitLabOAuth():                                             Promise<void>
     getBundledGitLabOAuthInstances():                                Promise<Array<{ url: string; clientId: string }>>
-    listGitLabProjects(settings: GitLabPublishSettings):              Promise<GitLabProject[]>
-    setGoogle(settings: GooglePublishSettings):                       Promise<AppSettings>
-    connectGoogleOAuth(settings: GooglePublishSettings):              Promise<AppSettings>
+    listGitLabProjects(projectId: string, settings: GitLabPublishSettings): Promise<GitLabProject[]>
+    setGoogle(projectId: string, settings: GooglePublishSettings):  Promise<AppSettings>
+    connectGoogleOAuth(projectId: string, settings: GooglePublishSettings): Promise<AppSettings>
     cancelGoogleOAuth():                                             Promise<void>
-    listGoogleDriveFolders(settings: GooglePublishSettings):          Promise<GoogleDriveFolder[]>
-    createGoogleDriveFolder(settings: GooglePublishSettings, name: string): Promise<GoogleDriveFolder>
-    listGoogleSpreadsheets(settings: GooglePublishSettings):          Promise<GoogleSpreadsheet[]>
-    listGoogleSheetTabs(settings: GooglePublishSettings):             Promise<GoogleSheetTab[]>
+    listGoogleDriveFolders(projectId: string, settings: GooglePublishSettings): Promise<GoogleDriveFolder[]>
+    createGoogleDriveFolder(projectId: string, settings: GooglePublishSettings, name: string): Promise<GoogleDriveFolder>
+    listGoogleSpreadsheets(projectId: string, settings: GooglePublishSettings): Promise<GoogleSpreadsheet[]>
+    listGoogleSheetTabs(projectId: string, settings: GooglePublishSettings): Promise<GoogleSheetTab[]>
     setMentionIdentities(identities: MentionIdentity[]):             Promise<AppSettings>
-    setMarkerFieldPresets(presets: MarkerFieldPreset[]):             Promise<AppSettings>
-    setPublishTemplates(templates: PublishTemplateSettings):          Promise<AppSettings>
+    setMarkerFieldPresets(projectId: string, presets: MarkerFieldPreset[]): Promise<AppSettings>
+    setPublishTemplates(projectId: string, templates: PublishTemplateSettings): Promise<AppSettings>
     importMentionIdentities():                                       Promise<AppSettings | null>
     exportMentionIdentities():                                       Promise<string | null>
-    refreshSlackUsers():                                            Promise<AppSettings>
-    refreshSlackChannels():                                         Promise<AppSettings>
-    startSlackUserOAuth(settings: SlackPublishSettings):             Promise<AppSettings>
-    refreshGitLabUsers():                                           Promise<AppSettings>
+    refreshSlackUsers(projectId: string):                            Promise<AppSettings>
+    refreshSlackChannels(projectId: string):                         Promise<AppSettings>
+    startSlackUserOAuth(projectId: string, settings: SlackPublishSettings): Promise<AppSettings>
+    refreshGitLabUsers(projectId: string):                           Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>
     setCommonSession(settings: CommonSessionSettings):             Promise<AppSettings>
     setRecordingPreferences(settings: RecordingPreferences):       Promise<AppSettings>
+    addProject(args: { name: string; duplicateFromId?: string }):  Promise<AppSettings>
+    renameProject(id: string, newName: string):                    Promise<AppSettings>
+    deleteProject(id: string):                                     Promise<AppSettings>
+    setActiveProject(id: string):                                  Promise<AppSettings>
     chooseWhisperModel():                                          Promise<AppSettings | null>
     chooseExportRoot():                                            Promise<AppSettings | null>
   }

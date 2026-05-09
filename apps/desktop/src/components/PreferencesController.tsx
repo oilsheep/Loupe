@@ -170,6 +170,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [publishTemplates, setPublishTemplates] = useState<PublishTemplateSettings>({})
   const [publishTemplatesSaved, setPublishTemplatesSaved] = useState(false)
   const [bundledGitLabOAuthInstances, setBundledGitLabOAuthInstances] = useState<Array<{ url: string; clientId: string }>>([])
+  const [activeProjectId, setActiveProjectId] = useState<string>('')
 
   function applySettings(settings: AppSettings) {
     setExportRoot(settings.exportRoot)
@@ -190,6 +191,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setMarkerFieldPresetsSaved(false)
     setPublishTemplates(settings.publishTemplates ?? {})
     setPublishTemplatesSaved(false)
+    setActiveProjectId(settings.activeProjectId)
   }
 
   useEffect(() => {
@@ -279,7 +281,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.startSlackUserOAuth({
+      const settings = await api.settings.startSlackUserOAuth(activeProjectId, {
         ...slack,
         botToken: slack.botToken.trim(),
         userToken: slack.userToken?.trim() || '',
@@ -300,7 +302,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.setSlack({
+      const settings = await api.settings.setSlack(activeProjectId, {
         ...next,
         botToken: next.botToken.trim(),
         userToken: next.userToken?.trim() || '',
@@ -322,7 +324,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.refreshSlackUsers()
+      const settings = await api.settings.refreshSlackUsers(activeProjectId)
       applySettings(settings)
       setSlackSaved(true)
     } catch (err) {
@@ -355,7 +357,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.setGitLab(gitLabSettingsInput())
+      const settings = await api.settings.setGitLab(activeProjectId, gitLabSettingsInput())
       applySettings(settings)
       setGitLabSaved(true)
     } catch (err) {
@@ -370,7 +372,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.connectGitLabOAuth(gitLabSettingsInput())
+      const settings = await api.settings.connectGitLabOAuth(activeProjectId, gitLabSettingsInput())
       applySettings(settings)
       await loadGitLabProjects(settings.gitlab)
       setGitLabSaved(true)
@@ -393,7 +395,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setRefreshingGitLabProjects(true)
     setGitLabError('')
     try {
-      const projects = await api.settings.listGitLabProjects(input)
+      const projects = await api.settings.listGitLabProjects(activeProjectId, input)
       setGitLabProjects(projects)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
@@ -413,9 +415,9 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabError('')
     try {
       if (forceEmailLookup) setGitLab(prev => ({ ...prev, emailLookup: 'admin-users-api' }))
-      const savedSettings = await api.settings.setGitLab(gitLabSettingsInput(forceEmailLookup ? { emailLookup: 'admin-users-api' } : {}))
+      const savedSettings = await api.settings.setGitLab(activeProjectId, gitLabSettingsInput(forceEmailLookup ? { emailLookup: 'admin-users-api' } : {}))
       applySettings(savedSettings)
-      const settings = await api.settings.refreshGitLabUsers()
+      const settings = await api.settings.refreshGitLabUsers(activeProjectId)
       applySettings(settings)
       setGitLabSaved(true)
     } catch (err) {
@@ -446,7 +448,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const settings = await api.settings.setGoogle(googleSettingsInput())
+      const settings = await api.settings.setGoogle(activeProjectId, googleSettingsInput())
       applySettings(settings)
       setGoogleSaved(true)
     } catch (err) {
@@ -462,7 +464,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const settings = await api.settings.connectGoogleOAuth(googleSettingsInput())
+      const settings = await api.settings.connectGoogleOAuth(activeProjectId, googleSettingsInput())
       applySettings(settings)
       setGoogleStatus(t('preferences.googleConnectedRefreshHint'))
       setGoogleSaved(true)
@@ -486,7 +488,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const folders = await api.settings.listGoogleDriveFolders(input)
+      const folders = await api.settings.listGoogleDriveFolders(activeProjectId, input)
       setGoogleFolders(folders)
       setGoogle(prev => {
         const driveFolderId = parseGoogleDriveFolderInput(prev.driveFolderId)
@@ -512,7 +514,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const folder = await api.settings.createGoogleDriveFolder(googleSettingsInput(), name)
+      const folder = await api.settings.createGoogleDriveFolder(activeProjectId, googleSettingsInput(), name)
       setGoogle(prev => ({ ...prev, driveFolderId: folder.id, driveFolderName: folder.name }))
       setGoogleFolders(prev => sortGoogleFolders([...prev.filter(item => item.id !== folder.id), folder]))
       setNewGoogleFolderName('')
@@ -529,7 +531,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const sheets = await api.settings.listGoogleSpreadsheets(input)
+      const sheets = await api.settings.listGoogleSpreadsheets(activeProjectId, input)
       setGoogleSpreadsheets(sheets)
       setGoogle(prev => {
         const spreadsheetId = parseGoogleSpreadsheetInput(prev.spreadsheetId)
@@ -549,7 +551,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const tabs = await api.settings.listGoogleSheetTabs(input)
+      const tabs = await api.settings.listGoogleSheetTabs(activeProjectId, input)
       setGoogleSheetTabs(tabs)
       setGoogle(prev => ({ ...prev, spreadsheetId: parseGoogleSpreadsheetInput(prev.spreadsheetId) }))
       setGoogleStatus(tabs.length === 0 ? 'No sheet tabs found.' : `Loaded ${tabs.length} sheet tab${tabs.length === 1 ? '' : 's'}.`)
@@ -642,13 +644,13 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   }
 
   async function saveMarkerFieldPresets(next = markerFieldPresets) {
-    const settings = await api.settings.setMarkerFieldPresets(next)
+    const settings = await api.settings.setMarkerFieldPresets(activeProjectId, next)
     setMarkerFieldPresets(settings.markerFieldPresets ?? [])
     setMarkerFieldPresetsSaved(true)
   }
 
   async function savePublishTemplates(next = publishTemplates) {
-    const settings = await api.settings.setPublishTemplates(next)
+    const settings = await api.settings.setPublishTemplates(activeProjectId, next)
     setPublishTemplates(settings.publishTemplates ?? {})
     setPublishTemplatesSaved(true)
   }

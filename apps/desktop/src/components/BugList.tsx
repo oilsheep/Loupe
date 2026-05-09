@@ -1682,8 +1682,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setSlackDirectoryRefreshing(true)
     setSlackDirectoryError('')
     const refreshPromise = (async () => {
+      const current = await api.settings.get()
       const settings = await withTimeout(
-        api.settings.refreshSlackChannels(),
+        api.settings.refreshSlackChannels(current.activeProjectId),
         15000,
         'Slack channel loading timed out. Try Refresh again in a minute.',
       )
@@ -1763,7 +1764,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       const settings = await api.settings.get()
       const oauthSlack = { ...settings.slack, publishIdentity: 'user' as const }
       setSlackSettings(oauthSlack)
-      const nextSettings = await api.settings.startSlackUserOAuth(oauthSlack)
+      const nextSettings = await api.settings.startSlackUserOAuth(settings.activeProjectId, oauthSlack)
       setSlackSettings(nextSettings.slack)
       applySlackDirectory(nextSettings)
       setSlackChannelId(channelIdFromSettings(nextSettings.slack))
@@ -1785,7 +1786,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   }
 
   async function refreshGitLabProjectsForExport() {
-    const sourceSettings = gitlabSettings ?? (await api.settings.get()).gitlab
+    const current = await api.settings.get()
+    const sourceSettings = gitlabSettings ?? current.gitlab
     const nextGitLab = {
       ...sourceSettings,
       projectId: gitlabProjectId.trim() || sourceSettings.projectId,
@@ -1795,7 +1797,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setGitLabProjectsError('')
     try {
       const projects = await withTimeout(
-        api.settings.listGitLabProjects(nextGitLab),
+        api.settings.listGitLabProjects(current.activeProjectId, nextGitLab),
         15000,
         'GitLab project loading timed out. Try Refresh again in a minute.',
       )
@@ -1892,7 +1894,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           mentionUserIds: nextMentionIds,
           mentionAliases: slackAliases,
         }
-        currentSettings = await api.settings.setSlack(nextSlack)
+        currentSettings = await api.settings.setSlack(currentSettings.activeProjectId, nextSlack)
         setSlackMentionIds(currentSettings.slack.mentionUserIds ?? [])
         setSlackManualMentionInput(formatManualSlackMentions(currentSettings.slack.mentionUserIds ?? []))
       }
@@ -1902,7 +1904,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           projectId: gitlabProjectId.trim(),
           mode: gitlabMode,
         }
-        currentSettings = await api.settings.setGitLab(nextGitLab)
+        currentSettings = await api.settings.setGitLab(currentSettings.activeProjectId, nextGitLab)
         setGitLabSettings(currentSettings.gitlab)
         setGitLabProjectId(currentSettings.gitlab.projectId)
         setGitLabMode(currentSettings.gitlab.mode)

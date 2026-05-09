@@ -536,6 +536,30 @@ function buildDefaultProjectFromLegacy(raw: Partial<AppSettings>): ProjectSettin
   }
 }
 
+export function findProjectById(settings: AppSettings, id: string): ProjectSettings | undefined {
+  return settings.projects.find(p => p.id === id)
+}
+
+export function findActiveProject(settings: AppSettings): ProjectSettings {
+  return findProjectById(settings, settings.activeProjectId) ?? settings.projects[0]
+}
+
+export function findProjectByName(settings: AppSettings, name: string): ProjectSettings | undefined {
+  return settings.projects.find(p => p.name === name)
+}
+
+// For session resolution: find the project named in the session, or fall back to active.
+export function findProjectForSession(
+  settings: AppSettings,
+  sessionProjectName: string | undefined | null,
+): { project: ProjectSettings; matched: boolean } {
+  if (sessionProjectName) {
+    const direct = findProjectByName(settings, sessionProjectName)
+    if (direct) return { project: direct, matched: true }
+  }
+  return { project: findActiveProject(settings), matched: false }
+}
+
 function normalizeProjects(raw: Partial<AppSettings>): { projects: ProjectSettings[]; activeProjectId: string } {
   const incoming = Array.isArray(raw.projects) ? raw.projects : []
   if (incoming.length > 0) {

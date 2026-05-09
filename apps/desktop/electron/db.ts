@@ -363,6 +363,7 @@ export function openDb(file: string) {
   const updateSessionMicAudioOffsetStmt = db.prepare(`
     UPDATE sessions SET mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
   `)
+  const renameSessionProjectStmt = db.prepare(`UPDATE sessions SET project = @newName WHERE project = @oldName`)
   const rewriteSessionPathsStmt = db.prepare(`
     UPDATE sessions SET
       video_path     = CASE WHEN video_path     LIKE @oldPrefix THEN @newRoot || SUBSTR(video_path,     LENGTH(@oldRoot) + 1) ELSE video_path     END,
@@ -466,6 +467,10 @@ export function openDb(file: string) {
     },
     updateSessionMicAudioOffset(id: string, startOffsetMs: number) {
       updateSessionMicAudioOffsetStmt.run({ id, micAudioStartOffsetMs: Math.round(startOffsetMs) })
+    },
+    renameSessionProject(oldName: string, newName: string): { rowsChanged: number } {
+      const result = renameSessionProjectStmt.run({ oldName, newName })
+      return { rowsChanged: Number(result.changes ?? 0) }
     },
     rewriteSessionAssetRoots(oldRoot: string, newRoot: string): { rowsChanged: number } {
       // Use LIKE with an escaped prefix so we match `<oldRoot>/...` exactly.

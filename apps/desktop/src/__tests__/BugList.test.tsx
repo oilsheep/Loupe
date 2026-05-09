@@ -43,8 +43,8 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
   const slack = options.slack ?? { botToken: '', channelId: '' }
   const gitlabSettings = options.gitlab ?? gitlab
   const googleSettings = options.google ?? google
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, google, mentionIdentities, markerFieldPresets: [] }
-  const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings, google: googleSettings }
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, slack, gitlab, google, mentionIdentities, markerFieldPresets: [], activeProjectId: 'p1', projects: [{ id: 'p1', name: 'Default', slack, gitlab, google }] }
+  const settingsWithOptions = { ...settings, slack, gitlab: gitlabSettings, google: googleSettings, projects: [{ id: 'p1', name: 'Default', slack, gitlab: gitlabSettings, google: googleSettings }] }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -87,8 +87,8 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       setCommonSession: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setRecordingPreferences: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseWhisperModel: vi.fn().mockResolvedValue('') as any,
-      setSlack: vi.fn().mockImplementation((nextSlack) => Promise.resolve({ ...settingsWithOptions, slack: nextSlack })) as any,
-      setGitLab: vi.fn().mockImplementation((nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,
+      setSlack: vi.fn().mockImplementation((_projectId, nextSlack) => Promise.resolve({ ...settingsWithOptions, slack: nextSlack })) as any,
+      setGitLab: vi.fn().mockImplementation((_projectId, nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,
       connectGitLabOAuth: vi.fn() as any,
       cancelGitLabOAuth: vi.fn() as any,
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]) as any,
@@ -111,6 +111,10 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       refreshGitLabUsers: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
+      addProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      renameProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      deleteProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setActiveProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseExportRoot: vi.fn() as any,
     },
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -380,7 +384,7 @@ describe('BugList', () => {
     fireEvent.click(screen.getByText('Issue per marker'))
     fireEvent.click(screen.getByTestId('confirm-export'))
 
-    await waitFor(() => expect(api.settings.setGitLab).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(api.settings.setGitLab).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       projectId: 'qa/app',
       mode: 'per-marker-issue',
     })))
