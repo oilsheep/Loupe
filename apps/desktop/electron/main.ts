@@ -363,14 +363,13 @@ app.whenReady().then(async () => {
     refreshGoogle: async ({ refreshToken, accountEmail }) => {
       const target = settings.get().projects.find(p => p.google.accountEmail === accountEmail)
       if (!target) throw new Error(`No project found for accountEmail: ${accountEmail}`)
-      const refreshed = await refreshGoogleAccessToken({
-        ...target.google,
-        refreshToken,
-        // Force a refresh by zeroing the cached expiry; otherwise the helper
-        // returns early when the access token still has time left, but the
-        // sweep's whole point is to roll forward before that happens.
-        tokenExpiresAt: 0,
-      })
+      const refreshed = await refreshGoogleAccessToken(
+        { ...target.google, refreshToken },
+        undefined,
+        // Proactive sweep — refresh even when the cached token is still
+        // valid, so the refresh-token's 6-month inactivity timer never fires.
+        { forceRefresh: true },
+      )
       return {
         token: refreshed.token,
         tokenExpiresAt: refreshed.tokenExpiresAt ?? Date.now() + 3600_000,

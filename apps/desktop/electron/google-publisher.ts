@@ -108,13 +108,17 @@ function tokenExpired(settings: GooglePublishSettings): boolean {
   return Boolean(settings.tokenExpiresAt && settings.tokenExpiresAt <= Date.now() + 60_000)
 }
 
-export async function refreshGoogleAccessToken(settings: GooglePublishSettings, fetchImpl: GooglePublisherFetch = fetch): Promise<GooglePublishSettings> {
+export async function refreshGoogleAccessToken(
+  settings: GooglePublishSettings,
+  fetchImpl: GooglePublisherFetch = fetch,
+  options: { forceRefresh?: boolean } = {},
+): Promise<GooglePublishSettings> {
   validateOAuthSettings(settings)
   if (!settings.refreshToken?.trim()) {
     if (settings.token.trim()) return settings
     throw new Error('Google refresh token is missing')
   }
-  if (settings.token.trim() && !tokenExpired(settings)) return settings
+  if (!options.forceRefresh && settings.token.trim() && !tokenExpired(settings)) return settings
 
   const body = new URLSearchParams({
     client_id: settings.oauthClientId?.trim() ?? '',

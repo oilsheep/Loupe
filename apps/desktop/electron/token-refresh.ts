@@ -28,14 +28,18 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
     let task = inFlight.get(flightKey)
     if (!task) {
       const projectId = project.id
-      const projectGoogle = project.google
       task = (async () => {
         try {
           const result = await deps.refreshGoogle({ refreshToken, accountEmail: account })
+          // Re-read the latest project shape so concurrent edits to other
+          // google fields (e.g. driveFolderId) aren't clobbered by a stale
+          // snapshot. Mirrors the failure branch.
+          const latest = store.get().projects.find(p => p.id === projectId)
+          if (!latest) return
           // setProject triggers syncProjectToken → propagates to siblings sharing accountEmail.
           store.setProject(projectId, {
             google: {
-              ...projectGoogle,
+              ...latest.google,
               token: result.token,
               tokenExpiresAt: result.tokenExpiresAt,
               ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),

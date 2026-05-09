@@ -97,3 +97,46 @@ describe('refreshAllExpiringTokens', () => {
     expect(refreshFn).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('refreshAllExpiringTokens — integration with real refreshGoogleAccessToken', () => {
+  it('actually calls fetch even when the cached token is not yet expired (force-refresh)', async () => {
+    const { store } = makeStore()
+    const defId = store.get().projects[0].id
+    // Set up a project with a NON-EXPIRED token (1 hour from now). Without
+    // forceRefresh, refreshGoogleAccessToken would short-circuit and never
+    // call fetch. The proactive sweep needs forceRefresh: true to roll the
+    // refresh-token's inactivity timer forward.
+    store.setProject(defId, {
+      google: {
+        ...store.get().projects[0].google,
+        accountEmail: 'a@b.com',
+        refreshToken: 'r1',
+        token: 'still-valid',
+        tokenExpiresAt: Date.now() + 3600_000,
+        oauthClientId: 'cid',
+        oauthClientSecret: 'csec',
+      },
+    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ access_token: 'NEW', expires_in: 3600 }),
+      { status: 200 },
+    ))
+    const { refreshGoogleAccessToken } = await import('../google-publisher')
+    const refreshGoogle: import('../token-refresh').RefreshDeps['refreshGoogle'] = async ({ refreshToken, accountEmail }) => {
+      const active = store.get().projects.find(p => p.google.accountEmail === accountEmail)!
+      const refreshed = await refreshGoogleAccessToken(
+        { ...active.google, refreshToken },
+        fetchMock as any,
+        { forceRefresh: true },
+      )
+      return {
+        token: refreshed.token,
+        tokenExpiresAt: refreshed.tokenExpiresAt!,
+        refreshToken: refreshed.refreshToken,
+      }
+    }
+    await refreshAllExpiringTokens(store, { refreshGoogle })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.get().projects[0].google.token).toBe('NEW')
+  })
+})
