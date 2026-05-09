@@ -18,11 +18,14 @@ upload() {
   f="$1"
   [ -f "$f" ] || return 0
   name=$(basename "$f")
+  # electron-builder filenames contain spaces (e.g. "Loupe QA Recorder...");
+  # percent-encode them for the URL path component.
+  name_enc=$(printf '%s' "$name" | sed 's/ /%20/g')
   echo "[publish-update] PUT $name"
   curl --silent --show-error --fail \
     --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
     --upload-file "$f" \
-    "${BASE}/${name}?select=package_file" >/dev/null
+    "${BASE}/${name_enc}?select=package_file" >/dev/null
 }
 
 cd apps/desktop/dist
