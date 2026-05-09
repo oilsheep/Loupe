@@ -169,6 +169,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [markerFieldPresetsSaved, setMarkerFieldPresetsSaved] = useState(false)
   const [publishTemplates, setPublishTemplates] = useState<PublishTemplateSettings>({})
   const [publishTemplatesSaved, setPublishTemplatesSaved] = useState(false)
+  const [bundledGitLabOAuthInstances, setBundledGitLabOAuthInstances] = useState<Array<{ url: string; clientId: string }>>([])
 
   function applySettings(settings: AppSettings) {
     setExportRoot(settings.exportRoot)
@@ -193,6 +194,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   useEffect(() => {
     api.settings.get().then(applySettings)
+    api.settings.getBundledGitLabOAuthInstances().then(setBundledGitLabOAuthInstances).catch(() => {})
     return api.onAppSettingsUpdated(applySettings)
   }, [])
 
@@ -670,6 +672,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       slackError={slackError}
       activeSlackUsers={activeSlackUsers}
       gitlab={gitlab}
+      bundledGitLabOAuthInstances={bundledGitLabOAuthInstances}
       gitlabLabelsInput={gitlabLabelsInput}
       gitlabMentionsInput={gitlabMentionsInput}
       savingGitLab={savingGitLab}

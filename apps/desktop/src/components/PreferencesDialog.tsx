@@ -259,6 +259,7 @@ interface PreferencesDialogProps {
   slackError: string
   activeSlackUsers: SlackMentionUser[]
   gitlab: GitLabPublishSettings
+  bundledGitLabOAuthInstances: Array<{ url: string; clientId: string }>
   gitlabLabelsInput: string
   gitlabMentionsInput: string
   savingGitLab: boolean
@@ -358,6 +359,7 @@ export function PreferencesDialog({
   slackError,
   activeSlackUsers,
   gitlab,
+  bundledGitLabOAuthInstances,
   gitlabLabelsInput,
   gitlabMentionsInput,
   savingGitLab,
@@ -443,6 +445,10 @@ export function PreferencesDialog({
   const { t, resolvedLocale } = useI18n()
   const zh = resolvedLocale.startsWith('zh')
   const googleHasOAuthCredentials = Boolean(google.oauthClientId?.trim())
+  const normalizedGitLabBaseUrl = gitlab.baseUrl.trim().replace(/\/+$/, '')
+  const bundledGitLabMatch = normalizedGitLabBaseUrl
+    ? bundledGitLabOAuthInstances.find(i => i.url === normalizedGitLabBaseUrl)
+    : undefined
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
 
   useEffect(() => {
@@ -1193,17 +1199,24 @@ export function PreferencesDialog({
                 </div>
                 {gitlab.authType === 'oauth' && (
                   <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                      <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                      <div className="min-w-0 text-xs text-zinc-500">
-                        {t('preferences.redirectUri')}
-                        <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
+                    {bundledGitLabMatch ? (
+                      <div className="flex items-start gap-2 text-xs text-emerald-300">
+                        <span aria-hidden>✓</span>
+                        <span>{t('preferences.gitlabBundledHint')}</span>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <div className="min-w-0 text-xs text-zinc-500">
+                          {t('preferences.redirectUri')}
+                          <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                       {gitlab.token.trim() && <span className="text-xs text-emerald-300">{t('common.connected')}</span>}
-                      <button type="button" onClick={onConnectGitLabOAuth} disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || !gitlab.oauthClientId?.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                      <button type="button" onClick={onConnectGitLabOAuth} disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
                         {connectingGitLabOAuth ? t('preferences.connecting') : t('preferences.connectOAuth')}
                       </button>
                       {connectingGitLabOAuth && <button type="button" onClick={onCancelGitLabOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('preferences.cancelOAuth')}</button>}

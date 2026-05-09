@@ -74,6 +74,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
     settings: {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async (next) => ({ ...settings, audioAnalysis: next })),
+      getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
     onBugMarkRequested: () => () => {},

@@ -364,6 +364,7 @@ const dictionaries: Record<ResolvedLocale, Dict> = {
     'preferences.applicationIdPlaceholder': 'Application ID',
     'preferences.optionalConfidentialPlaceholder': 'Optional for confidential apps',
     'preferences.connectOAuth': 'Connect OAuth',
+    'preferences.gitlabBundledHint': 'Loupe-managed credentials — no setup needed for this GitLab instance.',
     'preferences.project': 'Project',
     'preferences.selectProject': 'Select a project',
     'preferences.gitlabProjectPlaceholder': 'group/project',
@@ -745,6 +746,7 @@ dictionaries['zh-TW'] = {
   'preferences.applicationIdPlaceholder': '應用程式 ID',
   'preferences.optionalConfidentialPlaceholder': '機密應用程式可選填',
   'preferences.connectOAuth': '連接 OAuth',
+  'preferences.gitlabBundledHint': 'Loupe 內建憑證 — 此 GitLab instance 不需要額外設定。',
   'preferences.project': '專案',
   'preferences.selectProject': '選擇專案',
   'preferences.gitlabProjectPlaceholder': 'group/project',
@@ -931,6 +933,7 @@ dictionaries['zh-TW'] = {
 
 dictionaries['zh-CN'] = {
   ...dictionaries['zh-TW'],
+  'preferences.gitlabBundledHint': 'Loupe 内置凭证 — 此 GitLab 实例无需额外设置。',
   'language.system': '跟随系统语言',
   'common.browse': '浏览',
   'common.cancel': '取消',

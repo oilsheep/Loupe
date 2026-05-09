@@ -86,6 +86,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async audioAnalysis => ({ ...settings, audioAnalysis })),
       setRecordingPreferences: vi.fn().mockImplementation(async recordingPreferences => ({ ...settings, recordingPreferences })),
+      getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
     onBugMarkRequested: () => () => {},
