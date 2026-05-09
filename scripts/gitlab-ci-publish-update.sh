@@ -30,14 +30,16 @@ upload() {
 
 cd apps/desktop/dist
 
-for pat in '*.dmg' '*.exe' '*.zip' 'latest-mac.yml' 'latest.yml' '*.blockmap'; do
-  for f in $pat; do
-    case "$(basename "$f")" in
-      __uninstaller-*) continue ;;
-      "$pat") continue ;;  # unmatched glob expanded to literal pattern
-    esac
-    upload "$f"
-  done
+# Iterate the actual files in dist/ and filter by basename. Avoids the
+# unmatched-glob-equals-literal-filename trap that previously skipped
+# latest-mac.yml / latest.yml.
+for f in *; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    __uninstaller-*) continue ;;
+    *.dmg|*.exe|*.zip|latest-mac.yml|latest.yml|*.blockmap)
+      upload "$f" ;;
+  esac
 done
 
 echo "[publish-update] done"
