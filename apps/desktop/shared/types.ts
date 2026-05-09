@@ -27,6 +27,11 @@ export interface HotkeySettings {
   major: string
 }
 
+export interface RefreshError {
+  at: number    // epoch ms when failure was observed
+  code: string  // e.g. 'invalid_grant', 'invalid_client'
+}
+
 export interface SlackPublishSettings {
   botToken: string
   userToken?: string
@@ -46,6 +51,7 @@ export interface SlackPublishSettings {
   mentionAliases?: Record<string, string>
   mentionUsers?: SlackMentionUser[]
   usersFetchedAt?: string | null
+  refreshError?: RefreshError
 }
 
 export interface SlackMentionUser {
@@ -93,6 +99,7 @@ export interface GitLabPublishSettings {
   mentionUsers?: GitLabMentionUser[]
   usersFetchedAt?: string | null
   lastUserSyncWarning?: string | null
+  refreshError?: RefreshError
 }
 
 export interface GitLabProject {
@@ -127,6 +134,7 @@ export interface GooglePublishSettings {
   spreadsheetId?: string
   spreadsheetName?: string
   sheetName?: string
+  refreshError?: RefreshError
 }
 
 export interface AudioAnalysisSettings {
@@ -170,6 +178,16 @@ export interface PublishTemplateConfig {
 
 export type PublishTemplateSettings = Partial<Record<PublishTemplateTarget, PublishTemplateConfig>>
 
+export interface ProjectSettings {
+  id: string                                // immutable; uuid
+  name: string                              // user-visible; unique within app
+  slack: SlackPublishSettings
+  gitlab: GitLabPublishSettings
+  google: GooglePublishSettings
+  publishTemplates?: PublishTemplateSettings
+  markerFieldPresets?: MarkerFieldPreset[]
+}
+
 export interface RecordingPreferences {
   recordMic: boolean
   iosLaunchApp: boolean
@@ -201,12 +219,14 @@ export interface AppSettings {
   audioAnalysis: AudioAnalysisSettings
   commonSession?: CommonSessionSettings
   recordingPreferences?: RecordingPreferences
-  slack: SlackPublishSettings
-  gitlab: GitLabPublishSettings
-  google: GooglePublishSettings
+  slack: SlackPublishSettings              // legacy; kept for compat during Tasks 1-4
+  gitlab: GitLabPublishSettings            // legacy
+  google: GooglePublishSettings            // legacy
   mentionIdentities: MentionIdentity[]
-  markerFieldPresets?: MarkerFieldPreset[]
-  publishTemplates?: PublishTemplateSettings
+  markerFieldPresets?: MarkerFieldPreset[] // legacy
+  publishTemplates?: PublishTemplateSettings // legacy
+  projects: ProjectSettings[]              // NEW; non-empty by invariant
+  activeProjectId: string                  // NEW; references projects[].id
 }
 
 export interface Session {

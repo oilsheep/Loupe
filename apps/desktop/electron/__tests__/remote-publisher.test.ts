@@ -31,6 +31,14 @@ function settings(): AppSettings {
     gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
     google: { token: 'ya29-test', refreshToken: '', tokenExpiresAt: Date.now() + 3600_000, accountEmail: 'qa@example.com', oauthClientId: 'google-client', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: 'folder-root', driveFolderName: 'Loupe', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     mentionIdentities: [],
+    projects: [{
+      id: 'test-project',
+      name: 'Default',
+      slack: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+      gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
+      google: { token: 'ya29-test', refreshToken: '', tokenExpiresAt: Date.now() + 3600_000, accountEmail: 'qa@example.com', oauthClientId: 'google-client', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: 'folder-root', driveFolderName: 'Loupe', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+    }],
+    activeProjectId: 'test-project',
   }
 }
 

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, globalShortcut, nativeImage, protocol, session as electronSession } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import { RealProcessRunner } from './process-runner'
 import { Adb } from './adb'
@@ -13,7 +14,7 @@ import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from '.
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
-import type { HotkeySettings } from '@shared/types'
+import type { HotkeySettings, ProjectSettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let win: BrowserWindow | null = null
@@ -228,6 +229,15 @@ app.whenReady().then(async () => {
   })
   console.log(`Loupe: configRoot=${roots.configRoot} sessionsRoot=${roots.sessionsRoot}`)
   const paths = createPaths(roots); paths.ensureRoot()
+  const defaultProject: ProjectSettings = {
+    id: randomUUID(),
+    name: 'Default',
+    slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
+    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+    markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
+    publishTemplates: {},
+  }
   const settings = new SettingsStore(paths.settingsFile(), {
     exportRoot: join(app.getPath('videos'), 'Loupe'),
     hotkeys: DEFAULT_HOTKEYS,
@@ -236,12 +246,14 @@ app.whenReady().then(async () => {
     audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
     commonSession: DEFAULT_COMMON_SESSION,
     recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
-    slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
-    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
-    google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+    slack: defaultProject.slack,                  // legacy mirror
+    gitlab: defaultProject.gitlab,                // legacy mirror
+    google: defaultProject.google,                // legacy mirror
     mentionIdentities: [],
-    markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
-    publishTemplates: {},
+    markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,  // legacy mirror
+    publishTemplates: {},                         // legacy mirror
+    projects: [defaultProject],
+    activeProjectId: defaultProject.id,
   })
   const db = openDb(paths.dbFile())
   const runner = new RealProcessRunner()

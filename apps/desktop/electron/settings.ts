@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, PublishTemplateSettings, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -489,6 +490,65 @@ function normalizeSeverities(raw?: Partial<SeveritySettings>): SeveritySettings 
   return out
 }
 
+function normalizeProjectId(raw: unknown): string {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : randomUUID()
+}
+
+function normalizeProjectName(raw: unknown, fallback: string): string {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 50)
+  return fallback
+}
+
+function normalizeProject(raw: Partial<ProjectSettings> | undefined, fallbackName: string): ProjectSettings {
+  return {
+    id: normalizeProjectId(raw?.id),
+    name: normalizeProjectName(raw?.name, fallbackName),
+    slack: normalizeSlack(raw?.slack),
+    gitlab: normalizeGitLab(raw?.gitlab),
+    google: normalizeGoogle(raw?.google),
+    publishTemplates: raw?.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
+    markerFieldPresets: raw?.markerFieldPresets ? normalizeMarkerFieldPresets(raw.markerFieldPresets) : undefined,
+  }
+}
+
+// Used during read of an old settings.json that has top-level slack/gitlab/google but no projects.
+function buildDefaultProjectFromLegacy(raw: Partial<AppSettings>): ProjectSettings {
+  return {
+    id: randomUUID(),
+    name: 'Default',
+    slack: normalizeSlack(raw.slack),
+    gitlab: normalizeGitLab(raw.gitlab),
+    google: normalizeGoogle(raw.google),
+    publishTemplates: raw.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
+    markerFieldPresets: raw.markerFieldPresets ? normalizeMarkerFieldPresets(raw.markerFieldPresets) : undefined,
+  }
+}
+
+function normalizeProjects(raw: Partial<AppSettings>): { projects: ProjectSettings[]; activeProjectId: string } {
+  const incoming = Array.isArray(raw.projects) ? raw.projects : []
+  if (incoming.length > 0) {
+    const projects = incoming.map((p, i) => normalizeProject(p as Partial<ProjectSettings>, `Project ${i + 1}`))
+    // Enforce uniqueness of name (rename duplicates with suffix)
+    const seen = new Set<string>()
+    for (const p of projects) {
+      let candidate = p.name
+      let suffix = 2
+      while (seen.has(candidate)) {
+        candidate = `${p.name} (${suffix++})`
+      }
+      p.name = candidate
+      seen.add(candidate)
+    }
+    const activeId = typeof raw.activeProjectId === 'string' && projects.some(p => p.id === raw.activeProjectId)
+      ? raw.activeProjectId
+      : projects[0].id
+    return { projects, activeProjectId: activeId }
+  }
+  // Legacy migration: build single Default project from top-level fields.
+  const defaultProject = buildDefaultProjectFromLegacy(raw)
+  return { projects: [defaultProject], activeProjectId: defaultProject.id }
+}
+
 export class SettingsStore {
   constructor(private filePath: string, private defaults: AppSettings) {}
 
@@ -499,6 +559,7 @@ export class SettingsStore {
       const slack = normalizeSlack(raw.slack)
       const gitlab = normalizeGitLab(raw.gitlab)
       const google = normalizeGoogle(raw.google)
+      const { projects, activeProjectId } = normalizeProjects(raw)
       return {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
@@ -513,6 +574,8 @@ export class SettingsStore {
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
         markerFieldPresets: normalizeMarkerFieldPresets(raw.markerFieldPresets),
         publishTemplates: normalizePublishTemplates(raw.publishTemplates),
+        projects,
+        activeProjectId,
       }
     } catch {
       return this.defaults

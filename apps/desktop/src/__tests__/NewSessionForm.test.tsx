@@ -50,6 +50,14 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       sheetName: '',
     },
     mentionIdentities: [],
+    projects: [{
+      id: 'test-project',
+      name: 'Default',
+      slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
+      gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+      google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+    }],
+    activeProjectId: 'test-project',
   }
   const session: Session = {
     id: 's1',
