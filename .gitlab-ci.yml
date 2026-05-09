@@ -74,10 +74,17 @@ build:mac:
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
   script:
+    # Tag-driven version bump + switch publish provider to GitLab generic
+    # package (with deploy token in URL) before electron-builder runs.
+    - node scripts/gitlab-ci-prepare-build.mjs
     - ./start-dev.sh build
     # Stable filename for the GitLab Release direct-download link. Original
     # version-suffixed file is kept for auto-updater consumers.
     - cp "apps/desktop/dist/"*"-arm64.dmg" apps/desktop/dist/loupe-macos-arm64.dmg
+    # Upload latest-mac.yml + binaries to the Generic Package registry so
+    # installed apps' Check-for-Updates can resolve via the generic URL.
+    # Tag pipelines only (script no-ops on release-branch verifications).
+    - bash scripts/gitlab-ci-publish-update.sh
   artifacts:
     name: "loupe-macos-$CI_COMMIT_SHORT_SHA"
     paths:
@@ -105,10 +112,12 @@ build:win:
     - pnpm config set store-dir "${PNPM_STORE_DIR}"
     - pnpm install --frozen-lockfile
   script:
+    - node scripts/gitlab-ci-prepare-build.mjs
     - pnpm --dir apps/desktop dist:win
     # Stable filename for the GitLab Release direct-download link. Matches
     # `Loupe QA Recorder-X.Y.Z.exe` while excluding `__uninstaller-*.exe`.
     - cp apps/desktop/dist/[!_]*.exe apps/desktop/dist/loupe-windows-x64.exe
+    - sh scripts/gitlab-ci-publish-update.sh
   artifacts:
     name: "loupe-windows-$CI_COMMIT_SHORT_SHA"
     paths:
