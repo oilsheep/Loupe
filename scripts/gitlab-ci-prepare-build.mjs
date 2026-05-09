@@ -38,4 +38,14 @@ if (user && token && projectId) {
   console.log(`[ci-prepare] publish -> generic @ ${host} project=${projectId}`)
 }
 
+// GitLab Generic Package filenames must match /^[\w\.-]+$/ — no spaces. Override
+// electron-builder's default artifactName (which inherits productName "Loupe QA
+// Recorder" with spaces) to a hyphenated form so uploaded files + the yml's
+// embedded filenames stay valid for the registry.
+pkg.build = pkg.build || {}
+pkg.build.mac = { ...(pkg.build.mac || {}), artifactName: 'Loupe-QA-Recorder-${version}-${arch}.${ext}' }
+pkg.build.win = { ...(pkg.build.win || {}), artifactName: 'Loupe-QA-Recorder-${version}.${ext}' }
+pkg.build.nsis = { ...(pkg.build.nsis || {}), artifactName: 'Loupe-QA-Recorder-${version}.${ext}' }
+console.log('[ci-prepare] artifactName -> Loupe-QA-Recorder-... (space-free)')
+
 fs.writeFileSync(PACKAGE_PATH, JSON.stringify(pkg, null, 2) + '\n')
