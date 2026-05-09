@@ -23,6 +23,24 @@ function readLoupeEnv(mode: string): Record<string, string> {
 export default defineConfig(({ mode }) => {
   const env = { ...readLoupeEnv(mode), ...process.env }
 
+  // Update-channel selection: when LOUPE_INTERNAL_UPDATE_TOKEN is set (GitLab
+  // CI), bake GitLab API endpoints into the binary so the in-app
+  // "Check for Updates" custom checker queries Rayark's internal channel
+  // instead of upstream GitHub Releases.
+  const updateUser = env.LOUPE_INTERNAL_UPDATE_USER ?? ''
+  const updateToken = env.LOUPE_INTERNAL_UPDATE_TOKEN ?? ''
+  const isGitlabUpdate = Boolean(updateUser && updateToken)
+  const gitlabHost = env.CI_SERVER_HOST || 'gitlab.rayark.com'
+  const gitlabProjectId = env.CI_PROJECT_ID || ''
+  const gitlabProjectPath = env.CI_PROJECT_PATH || 'tech-center/toolbox/loupe-qa-recorder'
+  const updateProvider = isGitlabUpdate ? 'gitlab' : 'github'
+  const updateApiUrl = isGitlabUpdate
+    ? `https://${updateUser}:${updateToken}@${gitlabHost}/api/v4/projects/${gitlabProjectId}/packages/generic/loupe/latest/latest-mac.yml`
+    : 'https://api.github.com/repos/oilsheep/Loupe/releases/latest'
+  const updatePageTemplate = isGitlabUpdate
+    ? `https://${gitlabHost}/${gitlabProjectPath}/-/releases/v{version}`
+    : 'https://github.com/oilsheep/Loupe/releases/latest'
+
   return {
     main: {
       plugins: [externalizeDepsPlugin()],
@@ -30,6 +48,9 @@ export default defineConfig(({ mode }) => {
         __LOUPE_SLACK_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_ID ?? ''),
         __LOUPE_SLACK_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? ''),
+        __LOUPE_UPDATE_PROVIDER__: JSON.stringify(updateProvider),
+        __LOUPE_UPDATE_API_URL__: JSON.stringify(updateApiUrl),
+        __LOUPE_UPDATE_PAGE_URL_TEMPLATE__: JSON.stringify(updatePageTemplate),
       },
       build: {
         outDir: 'out/main',

@@ -1,8 +1,19 @@
 import { app } from 'electron'
 import type { AppUpdateCheckResult } from '@shared/types'
 
-const RELEASE_API_URL = 'https://api.github.com/repos/oilsheep/Loupe/releases/latest'
-const RELEASE_PAGE_URL = 'https://github.com/oilsheep/Loupe/releases/latest'
+// Build-time defines (electron.vite.config.ts) point at GitHub by default,
+// or at a Rayark GitLab generic-package endpoint when LOUPE_INTERNAL_UPDATE_*
+// CI variables are set. Falls back to upstream GitHub when defines absent
+// (e.g. running unbundled in dev).
+const PROVIDER = typeof __LOUPE_UPDATE_PROVIDER__ === 'string' && __LOUPE_UPDATE_PROVIDER__
+  ? __LOUPE_UPDATE_PROVIDER__
+  : 'github'
+const API_URL = typeof __LOUPE_UPDATE_API_URL__ === 'string' && __LOUPE_UPDATE_API_URL__
+  ? __LOUPE_UPDATE_API_URL__
+  : 'https://api.github.com/repos/oilsheep/Loupe/releases/latest'
+const PAGE_URL_TEMPLATE = typeof __LOUPE_UPDATE_PAGE_URL_TEMPLATE__ === 'string' && __LOUPE_UPDATE_PAGE_URL_TEMPLATE__
+  ? __LOUPE_UPDATE_PAGE_URL_TEMPLATE__
+  : 'https://github.com/oilsheep/Loupe/releases/latest'
 
 interface GithubReleaseAsset {
   name?: string
@@ -20,7 +31,12 @@ interface GithubRelease {
 }
 
 export async function checkForAppUpdates(currentVersion = app.getVersion(), platform = process.platform, arch = process.arch): Promise<AppUpdateCheckResult> {
-  const response = await fetch(RELEASE_API_URL, {
+  if (PROVIDER === 'gitlab') return checkGitLabUpdate(currentVersion)
+  return checkGithubUpdate(currentVersion, platform, arch)
+}
+
+async function checkGithubUpdate(currentVersion: string, platform: NodeJS.Platform, arch: NodeJS.Architecture): Promise<AppUpdateCheckResult> {
+  const response = await fetch(API_URL, {
     headers: {
       Accept: 'application/vnd.github+json',
       'User-Agent': `Loupe/${currentVersion}`,
@@ -30,7 +46,7 @@ export async function checkForAppUpdates(currentVersion = app.getVersion(), plat
     return {
       currentVersion,
       updateAvailable: false,
-      releaseUrl: RELEASE_PAGE_URL,
+      releaseUrl: PAGE_URL_TEMPLATE,
       error: 'No GitHub release is available yet.',
     }
   }
@@ -42,7 +58,7 @@ export async function checkForAppUpdates(currentVersion = app.getVersion(), plat
     return {
       currentVersion,
       updateAvailable: false,
-      releaseUrl: release.html_url || RELEASE_PAGE_URL,
+      releaseUrl: release.html_url || PAGE_URL_TEMPLATE,
       error: 'Latest GitHub release does not have a version tag.',
     }
   }
@@ -52,10 +68,38 @@ export async function checkForAppUpdates(currentVersion = app.getVersion(), plat
     currentVersion,
     latestVersion,
     updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
-    releaseUrl: release.html_url || RELEASE_PAGE_URL,
+    releaseUrl: release.html_url || PAGE_URL_TEMPLATE,
     publishedAt: release.published_at,
     downloadUrl: asset?.browser_download_url,
     assetName: asset?.name,
+  }
+}
+
+async function checkGitLabUpdate(currentVersion: string): Promise<AppUpdateCheckResult> {
+  const response = await fetch(API_URL, {
+    headers: { 'User-Agent': `Loupe/${currentVersion}` },
+  })
+  if (!response.ok) throw new Error(`GitLab update check failed: HTTP ${response.status}`)
+  const text = await response.text()
+
+  // latest-mac.yml format: top-level `version: <semver>`. We don't need
+  // the rest (files/path/sha) — just the version string for the prompt.
+  const versionMatch = text.match(/^version:\s*(.+)$/m)
+  const versionRaw = versionMatch?.[1]?.trim() ?? ''
+  if (!versionRaw) {
+    return {
+      currentVersion,
+      updateAvailable: false,
+      releaseUrl: PAGE_URL_TEMPLATE.replace('{version}', ''),
+      error: 'GitLab latest-mac.yml has no version field.',
+    }
+  }
+  const releaseUrl = PAGE_URL_TEMPLATE.replace('{version}', `v${versionRaw}`)
+  return {
+    currentVersion,
+    latestVersion: versionRaw,
+    updateAvailable: compareVersions(versionRaw, currentVersion) > 0,
+    releaseUrl,
   }
 }
 
