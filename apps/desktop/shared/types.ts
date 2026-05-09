@@ -119,6 +119,7 @@ export interface GooglePublishSettings {
   tokenExpiresAt?: number | null
   accountEmail?: string
   oauthClientId?: string
+  oauthClientSecret?: string
   oauthRedirectUri?: string
   driveFolderId?: string
   driveFolderName?: string

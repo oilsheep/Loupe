@@ -121,6 +121,8 @@ export async function refreshGoogleAccessToken(settings: GooglePublishSettings, 
     refresh_token: settings.refreshToken.trim(),
     grant_type: 'refresh_token',
   })
+  // Google's loopback Desktop OAuth requires client_secret on refresh too.
+  if (settings.oauthClientSecret?.trim()) body.set('client_secret', settings.oauthClientSecret.trim())
   const response = await fetchImpl(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

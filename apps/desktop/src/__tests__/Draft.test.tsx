@@ -28,6 +28,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
       tokenExpiresAt: null,
       accountEmail: '',
       oauthClientId: '',
+      oauthClientSecret: '',
       oauthRedirectUri: '',
       driveFolderId: '',
       driveFolderName: '',

@@ -999,15 +999,27 @@ export function PreferencesDialog({
                 </div>
                 <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
                   <div className="text-xs font-medium text-zinc-300">{t('preferences.googleOauthCredentials')}</div>
-                  <label className="mt-2 block min-w-0 text-xs text-zinc-500">
-                    {t('preferences.oauthClientId')}
-                    <input
-                      value={google.oauthClientId ?? ''}
-                      onChange={(e) => onGoogleChange({ ...google, oauthClientId: e.target.value })}
-                      placeholder={t('preferences.googleClientIdPlaceholder')}
-                      className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                    />
-                  </label>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className="min-w-0 text-xs text-zinc-500">
+                      {t('preferences.oauthClientId')}
+                      <input
+                        value={google.oauthClientId ?? ''}
+                        onChange={(e) => onGoogleChange({ ...google, oauthClientId: e.target.value })}
+                        placeholder={t('preferences.googleClientIdPlaceholder')}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                    <label className="min-w-0 text-xs text-zinc-500">
+                      {t('preferences.oauthClientSecret')}
+                      <input
+                        value={google.oauthClientSecret ?? ''}
+                        onChange={(e) => onGoogleChange({ ...google, oauthClientSecret: e.target.value })}
+                        type="password"
+                        placeholder={t('preferences.googleClientSecretPlaceholder')}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    </label>
+                  </div>
                   <div className="mt-2 text-[11px] leading-5 text-zinc-500">{t('preferences.googleOauthCredentialHelp')}</div>
                 </div>
                 <div className="mt-2 break-all rounded bg-zinc-950 px-2 py-1.5 text-[11px] text-zinc-500">

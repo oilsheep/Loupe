@@ -76,6 +76,7 @@ const DEFAULT_GOOGLE_SETTINGS: GooglePublishSettings = {
   tokenExpiresAt: null,
   accountEmail: '',
   oauthClientId: '',
+  oauthClientSecret: '',
   oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback',
   driveFolderId: '',
   driveFolderName: '',
@@ -425,6 +426,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     return {
       ...google,
       oauthClientId: google.oauthClientId?.trim() ?? '',
+      oauthClientSecret: google.oauthClientSecret?.trim() ?? '',
       oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback',
       driveFolderId: parseGoogleDriveFolderInput(google.driveFolderId),
       driveFolderName: google.driveFolderName?.trim() ?? '',

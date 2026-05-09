@@ -242,19 +242,20 @@ OAuth 使用 authorization code + PKCE：
 - `drive.file` 讓 Loupe 管理自己建立或由使用者透過 app 選到的檔案。
 - `drive.metadata.readonly` 用來列出既有 Drive folders/spreadsheets 給 UI picker。若 token 是舊 scope 登入取得，新增這個 scope 後需要重新 Connect Google。
 
-Google OAuth 採 Desktop Application client + PKCE，**不使用 client secret**：
+Google OAuth 採 Desktop Application client，loopback IP redirect + PKCE + client_secret 同時送（Google 要求即使有 PKCE 也要 secret）：
 
 - 檔案：`apps/desktop/electron/google-oauth-config.ts`
 - `electron.vite.config.ts` 只把下列環境變數編進 main process bundle：
   - `LOUPE_GOOGLE_OAUTH_CLIENT_ID`
+  - `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET`
 - Google redirect URI 寫死為 `http://127.0.0.1:38988/oauth/google/callback`。
 - local 打包可建立 `apps/desktop/.env.local`，格式可參考 `apps/desktop/.env.example`。`.env.local` / `.env.*.local` 已被 `.gitignore` 排除。
-- CI 打包時把 `LOUPE_GOOGLE_OAUTH_CLIENT_ID` 放在 build variables，再執行 `pnpm --dir apps/desktop build`。
+- CI 打包時把 `LOUPE_GOOGLE_OAUTH_CLIENT_ID` 跟 `LOUPE_GOOGLE_OAUTH_CLIENT_SECRET` 都放在 build variables，再執行 `pnpm --dir apps/desktop build`。
 - `SettingsStore` 會在 `normalizeGoogle()` 時自動補上 bundled `clientId` 與 `redirectUri`。
 - `main.ts` 的 default settings 也使用同一份 config。
-- Build 有提供 `LOUPE_GOOGLE_OAUTH_CLIENT_ID` 時，Preferences UI 顯示「OAuth credentials are bundled with Loupe」；沒有 bundled client ID（例如 self-build）時才顯示 Client ID 輸入欄位。Client Secret 欄位已移除，不論哪種情境都不再出現。
-- Token exchange 與 refresh 都只送 `client_id` + PKCE `code_verifier`，不送 `client_secret`，符合 RFC 8252（OAuth 2.0 for Native Apps）。Google Cloud Console 建立的 OAuth client 必須是「Desktop app」類型；Web client 會在沒有 secret 時被拒絕。
-- Client ID 在 native app 不視為機密；client secret 完全不存在 source repo 也不在打包後的 app bundle 中。
+- Build 有提供兩個 env 時，Preferences UI 顯示「OAuth credentials are bundled with Loupe」；沒有 bundled credentials（例如 self-build）才顯示 Client ID + Secret 輸入欄位。
+- Token exchange 與 refresh 都送 `client_id` + `client_secret` + PKCE `code_verifier`。Google 的 loopback Desktop OAuth flow 強制要求 client_secret 即使有 PKCE（[Google docs](https://developers.google.com/identity/protocols/oauth2/native-app)）。RFC 8252 spec 上 native app 不該有 client_secret，但 Google 的實作偏離 spec、Google 文件明說 Desktop binary 可以 embed secret。
+- Source repo 不存 secret；打包後的 app bundle 含 secret，視為「公開但仍要送的字串」、適合內部分發。
 
 Home 的 Publish settings 新增 Google Drive 區塊：
 
