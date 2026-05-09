@@ -363,6 +363,16 @@ export function openDb(file: string) {
   const updateSessionMicAudioOffsetStmt = db.prepare(`
     UPDATE sessions SET mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
   `)
+  const rewriteSessionPathsStmt = db.prepare(`
+    UPDATE sessions SET
+      video_path     = CASE WHEN video_path     LIKE @oldPrefix THEN @newRoot || SUBSTR(video_path,     LENGTH(@oldRoot) + 1) ELSE video_path     END,
+      pc_video_path  = CASE WHEN pc_video_path  LIKE @oldPrefix THEN @newRoot || SUBSTR(pc_video_path,  LENGTH(@oldRoot) + 1) ELSE pc_video_path  END,
+      mic_audio_path = CASE WHEN mic_audio_path LIKE @oldPrefix THEN @newRoot || SUBSTR(mic_audio_path, LENGTH(@oldRoot) + 1) ELSE mic_audio_path END
+    WHERE
+      video_path     LIKE @oldPrefix OR
+      pc_video_path  LIKE @oldPrefix OR
+      mic_audio_path LIKE @oldPrefix
+  `)
   const getSessionStmt   = db.prepare(`SELECT * FROM sessions WHERE id = ?`)
   const listSessionsStmt = db.prepare(`SELECT * FROM sessions ORDER BY started_at DESC`)
   const deleteSessionStmt= db.prepare(`DELETE FROM sessions WHERE id = ?`)
@@ -456,6 +466,16 @@ export function openDb(file: string) {
     },
     updateSessionMicAudioOffset(id: string, startOffsetMs: number) {
       updateSessionMicAudioOffsetStmt.run({ id, micAudioStartOffsetMs: Math.round(startOffsetMs) })
+    },
+    rewriteSessionAssetRoots(oldRoot: string, newRoot: string): { rowsChanged: number } {
+      // Use LIKE with an escaped prefix so we match `<oldRoot>/...` exactly.
+      // SQLite LIKE has no `%` escape by default; we rely on the fact that
+      // legitimate filesystem paths don't contain `%` or `_` (LIKE wildcards).
+      // If they do, this method is unsafe — but on macOS userData / Movies
+      // paths this is not a concern.
+      const oldPrefix = `${oldRoot}/%`
+      const result = rewriteSessionPathsStmt.run({ oldRoot, oldPrefix, newRoot })
+      return { rowsChanged: Number(result.changes ?? 0) }
     },
     getSession(id: string): Session | undefined {
       const r = getSessionStmt.get(id) as any

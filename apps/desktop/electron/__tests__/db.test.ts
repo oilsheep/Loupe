@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { openDb } from '../db'
 import type { Session, Bug } from '@shared/types'
 
@@ -188,5 +191,94 @@ describe('Db', () => {
     db.deleteSession('sess-1')
     expect(db.getSession('sess-1')).toBeUndefined()
     expect(db.listBugs('sess-1')).toEqual([])
+  })
+})
+
+const TMP_DIRS: string[] = []
+function makeTmp(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'loupe-db-'))
+  TMP_DIRS.push(dir)
+  return dir
+}
+afterEach(() => {
+  while (TMP_DIRS.length) rmSync(TMP_DIRS.pop()!, { recursive: true, force: true })
+})
+
+function makeSession(id: string, oldRoot: string): Session {
+  return {
+    id,
+    deviceId: 'dev',
+    deviceModel: 'Pixel',
+    androidVersion: 'Android 14',
+    connectionMode: 'usb',
+    status: 'draft',
+    buildVersion: 'MR',
+    testNote: '',
+    tester: '',
+    startedAt: 1,
+    endedAt: 2,
+    durationMs: 1000,
+    videoPath: `${oldRoot}/sessions/${id}/video.mp4`,
+    pcRecordingEnabled: false,
+    pcVideoPath: null,
+    micAudioPath: `${oldRoot}/sessions/${id}/session-mic.webm`,
+    micAudioDurationMs: 1000,
+    micAudioStartOffsetMs: 0,
+  } as Session
+}
+
+describe('rewriteSessionAssetRoots', () => {
+  it('replaces oldRoot prefix in video, pc_video, mic_audio paths', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession(makeSession('s1', '/old/root'))
+    const result = db.rewriteSessionAssetRoots('/old/root', '/new/root')
+    expect(result.rowsChanged).toBe(1)
+    const s = db.getSession('s1')!
+    expect(s.videoPath).toBe('/new/root/sessions/s1/video.mp4')
+    expect(s.micAudioPath).toBe('/new/root/sessions/s1/session-mic.webm')
+    db.close()
+  })
+
+  it('leaves NULL path columns as NULL', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession({ ...makeSession('s1', '/old'), micAudioPath: null })
+    db.rewriteSessionAssetRoots('/old', '/new')
+    const s = db.getSession('s1')!
+    expect(s.micAudioPath).toBeNull()
+    db.close()
+  })
+
+  it('only rewrites paths matching the old prefix', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession({ ...makeSession('s1', '/old'), videoPath: '/somewhere-else/video.mp4' })
+    db.rewriteSessionAssetRoots('/old', '/new')
+    const s = db.getSession('s1')!
+    expect(s.videoPath).toBe('/somewhere-else/video.mp4')
+    db.close()
+  })
+
+  it('handles multiple sessions in one call', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession(makeSession('s1', '/old'))
+    db.insertSession(makeSession('s2', '/old'))
+    const result = db.rewriteSessionAssetRoots('/old', '/new')
+    expect(result.rowsChanged).toBe(2)
+    db.close()
+  })
+
+  it('is idempotent: re-running on already-rewritten rows is a no-op', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    db.insertSession(makeSession('s1', '/old'))
+    db.rewriteSessionAssetRoots('/old', '/new')
+    const r2 = db.rewriteSessionAssetRoots('/old', '/new')
+    expect(r2.rowsChanged).toBe(0)
+    const s = db.getSession('s1')!
+    expect(s.videoPath).toBe('/new/sessions/s1/video.mp4')
+    db.close()
   })
 })
