@@ -38,7 +38,11 @@ export async function publishManifestToRemote(args: {
   const sessionProjectName = args.manifest.session.project
   const { project, matched } = findProjectForSession(args.settings, sessionProjectName)
   if (!matched) {
-    console.warn(`[publish] Session was recorded under project "${sessionProjectName ?? '(unknown)'}", which no longer exists. Falling back to active project "${project.name}".`)
+    if (sessionProjectName) {
+      console.warn(`[publish] Session's project "${sessionProjectName}" no longer exists. Falling back to active project "${project.name}".`)
+    }
+    // Else: session was recorded without a project name (legacy session, or
+    // fresh session before multi-project field existed). Silent fallback to active.
   }
 
   const results: RemotePublishResult[] = []

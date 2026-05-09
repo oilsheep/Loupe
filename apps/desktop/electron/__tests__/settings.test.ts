@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore, findProjectByIdOrActive } from '../settings'
 import type { AppSettings } from '@shared/types'
 
 const FALLBACK_DEFAULTS: AppSettings = {
@@ -512,6 +512,49 @@ describe('SettingsStore.renameProject', () => {
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
       expect(() => store.renameProject('nonexistent', 'X')).toThrow(/not found|unknown/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('returns the truncated canonical name; renames are based on the canonical name', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const id = store.get().projects[0].id
+      const longName = 'A'.repeat(80)
+      const after = store.renameProject(id, longName)
+      const canonical = after.projects.find(p => p.id === id)!.name
+      expect(canonical.length).toBe(50)
+      expect(canonical).toBe('A'.repeat(50))
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('findProjectByIdOrActive', () => {
+  it('returns the project with the given id', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      store.addProject({ name: 'Cytus' })
+      const settings = store.get()
+      // Pick a non-active project to make the difference observable.
+      const inactive = settings.projects.find(p => p.id !== settings.activeProjectId)!
+      expect(findProjectByIdOrActive(settings, inactive.id).id).toBe(inactive.id)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to active when id is unknown', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      store.addProject({ name: 'Cytus' })
+      const settings = store.get()
+      expect(findProjectByIdOrActive(settings, 'nonexistent').id).toBe(settings.activeProjectId)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }

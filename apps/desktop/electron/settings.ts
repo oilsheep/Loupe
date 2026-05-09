@@ -544,6 +544,12 @@ export function findActiveProject(settings: AppSettings): ProjectSettings {
   return findProjectById(settings, settings.activeProjectId) ?? settings.projects[0]
 }
 
+// For IPC handlers writing to a project: find by id, fall back to active if the
+// id is somehow stale (deleted between write and read). Defensively safe.
+export function findProjectByIdOrActive(settings: AppSettings, id: string): ProjectSettings {
+  return findProjectById(settings, id) ?? findActiveProject(settings)
+}
+
 export function findProjectByName(settings: AppSettings, name: string): ProjectSettings | undefined {
   return settings.projects.find(p => p.name === name)
 }

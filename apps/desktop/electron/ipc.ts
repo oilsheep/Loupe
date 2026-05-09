@@ -22,7 +22,7 @@ import { publishManifestToRemote, type RemotePublishResult } from './remote-publ
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
 import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
-import { findActiveProject, type SettingsStore } from './settings'
+import { findActiveProject, findProjectByIdOrActive, type SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
@@ -2370,7 +2370,7 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, projectId: string, slack: SlackPublishSettings) => {
     let settings = deps.settings.setProject(projectId, { slack })
-    const project = findActiveProject(settings)
+    const project = findProjectByIdOrActive(settings, projectId)
     const token = slackApiTokenForUsers(project.slack)
     if (token && (project.slack.mentionUsers ?? []).length === 0 && (project.slack.channels ?? []).length === 0) {
       try {
@@ -2388,7 +2388,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, projectId: string, gitlab: GitLabPublishSettings) => deps.settings.setProject(projectId, { gitlab }))
   ipcMain.handle(CHANNEL.settingsConnectGitLabOAuth, async (_e, projectId: string, gitlab: GitLabPublishSettings) => {
     const saved = deps.settings.setProject(projectId, { gitlab })
-    const savedProject = findActiveProject(saved)
+    const savedProject = findProjectByIdOrActive(saved, projectId)
     const token = await connectGitLabOAuth(savedProject.gitlab)
     return deps.settings.setProject(projectId, { gitlab: { ...savedProject.gitlab, token, authType: 'oauth' } })
   })
@@ -2405,7 +2405,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetGoogle, async (_e, projectId: string, google: GooglePublishSettings) => deps.settings.setProject(projectId, { google }))
   ipcMain.handle(CHANNEL.settingsConnectGoogleOAuth, async (_e, projectId: string, google: GooglePublishSettings) => {
     const saved = deps.settings.setProject(projectId, { google })
-    const savedProject = findActiveProject(saved)
+    const savedProject = findProjectByIdOrActive(saved, projectId)
     const connected = await connectGoogleOAuth(savedProject.google)
     return deps.settings.setProject(projectId, { google: connected })
   })
@@ -2551,8 +2551,10 @@ export function registerIpc(deps: IpcDeps): void {
     if (!before) throw new Error(`Project not found: ${id}`)
     const oldName = before.name
     const after = deps.settings.renameProject(id, newName)
-    if (oldName !== newName.trim()) {
-      deps.db.renameSessionProject(oldName, newName.trim())
+    // Read the canonical post-rename name (settings applies trim + 50-char truncation).
+    const newCanonicalName = after.projects.find(p => p.id === id)!.name
+    if (oldName !== newCanonicalName) {
+      deps.db.renameSessionProject(oldName, newCanonicalName)
     }
     return after
   })
