@@ -12,9 +12,6 @@ const FALLBACK_DEFAULTS: AppSettings = {
   severities: DEFAULT_SEVERITIES,
   audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
   recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
-  slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-  gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-  google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
   mentionIdentities: [],
   projects: [{
     id: 'default-fallback',
@@ -38,17 +35,14 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      expect(store.get().slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
-      expect(store.get().slack.channels).toEqual([])
-      expect(store.get().gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
+      expect(store.get().projects[0].slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+      expect(store.get().projects[0].slack.channels).toEqual([])
+      expect(store.get().projects[0].gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -67,9 +61,6 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
@@ -93,23 +84,23 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      const settings = store.setSlack({
-        botToken: ' xoxb-test ',
-        channelId: ' C123 ',
-        mentionUserIds: [' <@U123> ', '@U456', 'U123'],
-        mentionAliases: { U123: 'Miki', U456: 'QA Lead', U789: 'Unused' },
+      const projectId = store.get().projects[0].id
+      const settings = store.setProject(projectId, {
+        slack: {
+          botToken: ' xoxb-test ',
+          channelId: ' C123 ',
+          mentionUserIds: [' <@U123> ', '@U456', 'U123'],
+          mentionAliases: { U123: 'Miki', U456: 'QA Lead', U789: 'Unused' },
+        },
       })
 
       expect(settings.exportRoot).toBe('/default')
-      expect(settings.slack).toMatchObject({
+      expect(settings.projects[0].slack).toMatchObject({
         botToken: ' xoxb-test ',
         userToken: '',
         publishIdentity: 'bot',
@@ -119,8 +110,8 @@ describe('SettingsStore', () => {
         mentionUsers: [],
         usersFetchedAt: null,
       })
-      expect(settings.slack.channels).toEqual([])
-      expect(store.get().slack.channelId).toBe(' C123 ')
+      expect(settings.projects[0].slack.channels).toEqual([])
+      expect(store.get().projects[0].slack.channelId).toBe(' C123 ')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -136,26 +127,26 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      const settings = store.setGitLab({
-        baseUrl: ' https://gitlab.example.com/ ',
-        token: ' glpat-test ',
-        projectId: ' group/project ',
-        mode: 'per-marker-issue',
-        labels: ['loupe, qa', 'qa'],
-        confidential: true,
-        mentionUsernames: ['@miki', 'qa'],
+      const projectId = store.get().projects[0].id
+      const settings = store.setProject(projectId, {
+        gitlab: {
+          baseUrl: ' https://gitlab.example.com/ ',
+          token: ' glpat-test ',
+          projectId: ' group/project ',
+          mode: 'per-marker-issue',
+          labels: ['loupe, qa', 'qa'],
+          confidential: true,
+          mentionUsernames: ['@miki', 'qa'],
+        },
       })
 
-      expect(settings.slack.channelId).toBe('')
-      expect(settings.gitlab).toEqual({
+      expect(settings.projects[0].slack.channelId).toBe('')
+      expect(settings.projects[0].gitlab).toEqual({
         baseUrl: 'https://gitlab.example.com',
         token: ' glpat-test ',
         authType: 'pat',
@@ -187,18 +178,18 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      const withSlackUsers = store.setSlack({
-        botToken: '',
-        channelId: '',
-        mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: 'Miki Chen', email: 'MIKI@example.com' }],
+      const projectId = store.get().projects[0].id
+      store.setProject(projectId, {
+        slack: {
+          botToken: '',
+          channelId: '',
+          mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: 'Miki Chen', email: 'MIKI@example.com' }],
+        },
       })
       const refreshed = store.refreshMentionIdentities()
       const settings = store.setMentionIdentities([
@@ -225,24 +216,24 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [{ id: 'miki-slack', displayName: 'Miki Slack', email: 'miki@example.com', slackUserId: 'U123' }],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      const withGitLabUsers = store.setGitLab({
-        baseUrl: 'https://gitlab.example.com',
-        token: 'glpat-test',
-        projectId: 'group/project',
-        mode: 'single-issue',
-        mentionUsers: [
-          { id: 7, username: 'miki', name: 'Different GitLab Name', email: 'MIKI@example.com', state: 'active' },
-          { id: 8, username: 'qa', name: 'QA Lead', state: 'active' },
-        ],
-        usersFetchedAt: '2026-04-30T00:00:00.000Z',
+      const projectId = store.get().projects[0].id
+      store.setProject(projectId, {
+        gitlab: {
+          baseUrl: 'https://gitlab.example.com',
+          token: 'glpat-test',
+          projectId: 'group/project',
+          mode: 'single-issue',
+          mentionUsers: [
+            { id: 7, username: 'miki', name: 'Different GitLab Name', email: 'MIKI@example.com', state: 'active' },
+            { id: 8, username: 'qa', name: 'QA Lead', state: 'active' },
+          ],
+          usersFetchedAt: '2026-04-30T00:00:00.000Z',
+        },
       })
       const settings = store.refreshMentionIdentities()
 
@@ -265,9 +256,6 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [
           { id: 'miki-gitlab', displayName: 'Miki GitLab', gitlabUsername: 'miki' },
           { id: 'miki-slack', displayName: 'Miki Slack', slackUserId: 'U123' },
@@ -276,17 +264,22 @@ describe('SettingsStore', () => {
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      store.setSlack({
-        botToken: '',
-        channelId: '',
-        mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki Slack', realName: '', email: 'miki@example.com' }],
+      const projectId = store.get().projects[0].id
+      store.setProject(projectId, {
+        slack: {
+          botToken: '',
+          channelId: '',
+          mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki Slack', realName: '', email: 'miki@example.com' }],
+        },
       })
-      store.setGitLab({
-        baseUrl: 'https://gitlab.example.com',
-        token: 'glpat-test',
-        projectId: 'group/project',
-        mode: 'single-issue',
-        mentionUsers: [{ id: 7, username: 'miki', name: 'Miki GitLab', email: 'MIKI@example.com', state: 'active' }],
+      store.setProject(projectId, {
+        gitlab: {
+          baseUrl: 'https://gitlab.example.com',
+          token: 'glpat-test',
+          projectId: 'group/project',
+          mode: 'single-issue',
+          mentionUsers: [{ id: 7, username: 'miki', name: 'Miki GitLab', email: 'MIKI@example.com', state: 'active' }],
+        },
       })
 
       expect(store.refreshMentionIdentities().mentionIdentities).toEqual([
@@ -307,18 +300,18 @@ describe('SettingsStore', () => {
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
-        slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
         mentionIdentities: [],
         projects: FALLBACK_DEFAULTS.projects,
         activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
       })
 
-      store.setSlack({
-        botToken: '',
-        channelId: '',
-        mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: '', email: 'miki@example.com' }],
+      const projectId = store.get().projects[0].id
+      store.setProject(projectId, {
+        slack: {
+          botToken: '',
+          channelId: '',
+          mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: '', email: 'miki@example.com' }],
+        },
       })
       expect(store.refreshMentionIdentities().mentionIdentities).toEqual([
         { id: 'miki', displayName: 'Miki', email: 'miki@example.com', slackUserId: 'U123' },

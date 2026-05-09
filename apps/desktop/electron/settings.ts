@@ -524,7 +524,15 @@ function normalizeProject(raw: Partial<ProjectSettings> | undefined, fallbackNam
 }
 
 // Used during read of an old settings.json that has top-level slack/gitlab/google but no projects.
-function buildDefaultProjectFromLegacy(raw: Partial<AppSettings>): ProjectSettings {
+type LegacyTopLevel = {
+  slack?: Partial<SlackPublishSettings>
+  gitlab?: Partial<GitLabPublishSettings>
+  google?: Partial<GooglePublishSettings>
+  publishTemplates?: PublishTemplateSettings
+  markerFieldPresets?: MarkerFieldPreset[]
+}
+
+function buildDefaultProjectFromLegacy(raw: Partial<AppSettings> & LegacyTopLevel): ProjectSettings {
   return {
     id: randomUUID(),
     name: 'Default',
@@ -566,7 +574,7 @@ export function findProjectForSession(
   return { project: findActiveProject(settings), matched: false }
 }
 
-function normalizeProjects(raw: Partial<AppSettings>): { projects: ProjectSettings[]; activeProjectId: string } {
+function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projects: ProjectSettings[]; activeProjectId: string } {
   const incoming = Array.isArray(raw.projects) ? raw.projects : []
   if (incoming.length > 0) {
     const projects = incoming.map((p, i) => normalizeProject(p as Partial<ProjectSettings>, `Project ${i + 1}`))
@@ -668,11 +676,8 @@ export class SettingsStore {
   get(): AppSettings {
     if (!existsSync(this.filePath)) return this.defaults
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings>
+      const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings> & LegacyTopLevel
       const wasLegacy = !Array.isArray(raw.projects)
-      const slack = normalizeSlack(raw.slack)
-      const gitlab = normalizeGitLab(raw.gitlab)
-      const google = normalizeGoogle(raw.google)
       const { projects, activeProjectId } = normalizeProjects(raw)
       const next: AppSettings = {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
@@ -682,12 +687,7 @@ export class SettingsStore {
         audioAnalysis: normalizeAudioAnalysis(raw.audioAnalysis),
         commonSession: normalizeCommonSession(raw.commonSession),
         recordingPreferences: normalizeRecordingPreferences(raw.recordingPreferences),
-        slack,
-        gitlab,
-        google,
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
-        markerFieldPresets: normalizeMarkerFieldPresets(raw.markerFieldPresets),
-        publishTemplates: normalizePublishTemplates(raw.publishTemplates),
         projects,
         activeProjectId,
       }
@@ -713,24 +713,6 @@ export class SettingsStore {
     return next
   }
 
-  setSlack(slack: SlackPublishSettings): AppSettings {
-    const next = { ...this.get(), slack: normalizeSlack(slack) }
-    this.write(next)
-    return next
-  }
-
-  setGitLab(gitlab: GitLabPublishSettings): AppSettings {
-    const next = { ...this.get(), gitlab: normalizeGitLab(gitlab) }
-    this.write(next)
-    return next
-  }
-
-  setGoogle(google: GooglePublishSettings): AppSettings {
-    const next = { ...this.get(), google: normalizeGoogle(google) }
-    this.write(next)
-    return next
-  }
-
   setMentionIdentities(mentionIdentities: MentionIdentity[]): AppSettings {
     const current = this.get()
     const next = { ...current, mentionIdentities: normalizeManualMentionIdentities(mentionIdentities) }
@@ -738,21 +720,10 @@ export class SettingsStore {
     return next
   }
 
-  setMarkerFieldPresets(markerFieldPresets: MarkerFieldPreset[]): AppSettings {
-    const next = { ...this.get(), markerFieldPresets: normalizeMarkerFieldPresets(markerFieldPresets) }
-    this.write(next)
-    return next
-  }
-
-  setPublishTemplates(publishTemplates: PublishTemplateSettings): AppSettings {
-    const next = { ...this.get(), publishTemplates: normalizePublishTemplates(publishTemplates) }
-    this.write(next)
-    return next
-  }
-
   refreshMentionIdentities(): AppSettings {
     const current = this.get()
-    const next = { ...current, mentionIdentities: normalizeMentionIdentities(current.mentionIdentities, current.slack, current.gitlab) }
+    const active = findActiveProject(current)
+    const next = { ...current, mentionIdentities: normalizeMentionIdentities(current.mentionIdentities, active.slack, active.gitlab) }
     this.write(next)
     return next
   }
@@ -805,7 +776,7 @@ export class SettingsStore {
     syncProjectToken(projects, next, 'slack', patch.slack)
     syncProjectToken(projects, next, 'gitlab', patch.gitlab)
     syncProjectToken(projects, next, 'google', patch.google)
-    const merged: AppSettings = { ...settings, projects, ...this.legacyMirror(projects, settings.activeProjectId) }
+    const merged: AppSettings = { ...settings, projects }
     this.write(merged)
     return merged
   }
@@ -837,7 +808,7 @@ export class SettingsStore {
       }
     }
     const projects = [...settings.projects, newProject]
-    const merged: AppSettings = { ...settings, projects, activeProjectId: newId, ...this.legacyMirror(projects, newId) }
+    const merged: AppSettings = { ...settings, projects, activeProjectId: newId }
     this.write(merged)
     return merged
   }
@@ -852,7 +823,7 @@ export class SettingsStore {
       throw new Error(`Project already exists: ${trimmed}`)
     }
     const projects = settings.projects.map(p => p.id === id ? { ...p, name: trimmed } : p)
-    const merged: AppSettings = { ...settings, projects, ...this.legacyMirror(projects, settings.activeProjectId) }
+    const merged: AppSettings = { ...settings, projects }
     this.write(merged)
     return merged
   }
@@ -866,7 +837,7 @@ export class SettingsStore {
     if (idx < 0) throw new Error(`Project not found: ${id}`)
     const projects = settings.projects.filter(p => p.id !== id)
     const activeProjectId = settings.activeProjectId === id ? projects[0].id : settings.activeProjectId
-    const merged: AppSettings = { ...settings, projects, activeProjectId, ...this.legacyMirror(projects, activeProjectId) }
+    const merged: AppSettings = { ...settings, projects, activeProjectId }
     this.write(merged)
     return merged
   }
@@ -874,22 +845,9 @@ export class SettingsStore {
   setActiveProject(id: string): AppSettings {
     const settings = this.get()
     if (!settings.projects.some(p => p.id === id)) throw new Error(`Project not found: ${id}`)
-    const merged: AppSettings = { ...settings, activeProjectId: id, ...this.legacyMirror(settings.projects, id) }
+    const merged: AppSettings = { ...settings, activeProjectId: id }
     this.write(merged)
     return merged
-  }
-
-  // Keep top-level slack/gitlab/google/etc. in sync with the active project.
-  // Removed in Task 5 once all consumers read from projects[].
-  private legacyMirror(projects: ProjectSettings[], activeProjectId: string): Pick<AppSettings, 'slack' | 'gitlab' | 'google' | 'publishTemplates' | 'markerFieldPresets'> {
-    const active = projects.find(p => p.id === activeProjectId) ?? projects[0]
-    return {
-      slack: active.slack,
-      gitlab: active.gitlab,
-      google: active.google,
-      publishTemplates: active.publishTemplates,
-      markerFieldPresets: active.markerFieldPresets,
-    }
   }
 
   private writeListeners: Array<(settings: AppSettings) => void> = []

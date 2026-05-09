@@ -248,12 +248,7 @@ app.whenReady().then(async () => {
     audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
     commonSession: DEFAULT_COMMON_SESSION,
     recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
-    slack: defaultProject.slack,                  // legacy mirror
-    gitlab: defaultProject.gitlab,                // legacy mirror
-    google: defaultProject.google,                // legacy mirror
     mentionIdentities: [],
-    markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,  // legacy mirror
-    publishTemplates: {},                         // legacy mirror
     projects: [defaultProject],
     activeProjectId: defaultProject.id,
   })

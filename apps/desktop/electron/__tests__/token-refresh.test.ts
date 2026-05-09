@@ -13,9 +13,6 @@ const MIN_DEFAULTS: AppSettings = {
   severities: DEFAULT_SEVERITIES,
   audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
   recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
-  slack: { botToken: '', channelId: '', mentionUserIds: [], mentionAliases: {} },
-  gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-  google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: 'client', oauthClientSecret: 'secret', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
   mentionIdentities: [],
   projects: [{
     id: 'default-fallback',

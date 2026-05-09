@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
+import { AddProjectDialog } from './AddProjectDialog'
 
 export function identityIdFromName(value: string): string {
   return value
@@ -252,6 +253,12 @@ interface PreferencesDialogProps {
   audioAnalysis: AudioAnalysisSettings
   audioAnalysisSaved: boolean
   commonSession: CommonSessionSettings
+  projects: ProjectSettings[]
+  selectedProject: ProjectSettings
+  onSwitchProject(id: string): void | Promise<void>
+  onAddProject(args: { name: string; duplicateFromId?: string }): Promise<void>
+  onRenameProject(id: string, newName: string): Promise<void>
+  onDeleteProject(id: string): Promise<void>
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
@@ -352,6 +359,12 @@ export function PreferencesDialog({
   audioAnalysis,
   audioAnalysisSaved,
   commonSession,
+  projects,
+  selectedProject,
+  onSwitchProject,
+  onAddProject,
+  onRenameProject,
+  onDeleteProject,
   slack,
   slackSaved,
   startingSlackOAuth,
@@ -450,6 +463,7 @@ export function PreferencesDialog({
     ? bundledGitLabOAuthInstances.find(i => i.url === normalizedGitLabBaseUrl)
     : undefined
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
+  const [showAddDialog, setShowAddDialog] = useState(false)
 
   useEffect(() => {
     setCustomSlots(visibleCustomSeverities(severities))
@@ -528,6 +542,58 @@ export function PreferencesDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mb-3 flex items-center gap-2 border-b border-zinc-800 pb-2">
+            <span className="text-xs text-zinc-500">{t('preferences.projectSwitcher')}</span>
+            <select
+              value={selectedProject.id}
+              onChange={(e) => {
+                if (e.target.value === '__add__') {
+                  setShowAddDialog(true)
+                } else {
+                  void onSwitchProject(e.target.value)
+                }
+              }}
+              className="rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+              data-testid="preferences-project-switcher"
+            >
+              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="__add__">{t('preferences.addProjectTitle')}</option>
+            </select>
+            <button
+              type="button"
+              onClick={async () => {
+                const newName = window.prompt(t('preferences.renamePromptTitle'), selectedProject.name)
+                if (newName?.trim()) await onRenameProject(selectedProject.id, newName.trim())
+              }}
+              className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
+            >
+              {t('preferences.renameProject')}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (projects.length <= 1) return
+                const ok = window.confirm(t('preferences.confirmDeleteProject').replace('{name}', selectedProject.name))
+                if (ok) await onDeleteProject(selectedProject.id)
+              }}
+              disabled={projects.length <= 1}
+              title={projects.length <= 1 ? t('preferences.cannotDeleteLast') : undefined}
+              className="rounded bg-zinc-800 px-2 py-1 text-xs text-red-300 disabled:opacity-50"
+            >
+              {t('preferences.deleteProject')}
+            </button>
+          </div>
+
+          <AddProjectDialog
+            open={showAddDialog}
+            existingProjects={projects}
+            onClose={() => setShowAddDialog(false)}
+            onSubmit={async (args) => {
+              await onAddProject(args)
+              setShowAddDialog(false)
+            }}
+          />
+
           <section className="grid gap-3 border-b border-zinc-800 pb-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{t('preferences.general')}</div>

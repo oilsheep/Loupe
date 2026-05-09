@@ -1,8 +1,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+
+// Resolve the active project from an AppSettings snapshot.
+function activeProjectFrom(settings: AppSettings): ProjectSettings {
+  return settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
+}
 
 interface Props {
   api: DesktopApi
@@ -245,7 +250,7 @@ function formatManualSlackMentions(ids: string[]): string {
   return ids.filter(id => id.startsWith('!')).map(id => id.replace(/^!(here|channel|everyone)$/, '@$1')).join(', ')
 }
 
-function channelIdFromSettings(slack: Awaited<ReturnType<DesktopApi['settings']['get']>>['slack']): string {
+function channelIdFromSettings(slack: SlackPublishSettings): string {
   const channels = (slack.channels ?? []).filter(channel => !channel.isArchived)
   return channels.some(channel => channel.id === slack.channelId) ? slack.channelId : ''
 }
@@ -1571,22 +1576,23 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   useEffect(() => {
     const apply = (settings: AppSettings) => {
+      const active = activeProjectFrom(settings)
       setSeverities(settings.severities)
-      setSlackSettings(settings.slack)
-      const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
+      setSlackSettings(active.slack)
+      const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
       const fetchedIds = new Set(fetchedUsers.map(user => user.id))
-      const fallbackUsers = (settings.slack.mentionUserIds ?? [])
+      const fallbackUsers = (active.slack.mentionUserIds ?? [])
         .filter(id => !fetchedIds.has(id))
-        .map(id => ({ id, name: '', displayName: settings.slack.mentionAliases?.[id] ?? id, realName: '' }))
+        .map(id => ({ id, name: '', displayName: active.slack.mentionAliases?.[id] ?? id, realName: '' }))
       setSlackUsers([...fetchedUsers, ...fallbackUsers])
-      setSlackAliases(settings.slack.mentionAliases ?? {})
-      setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
-      setGitLabSettings(settings.gitlab)
-      setGitLabProjectId(settings.gitlab.projectId)
-      setGitLabMode(settings.gitlab.mode)
-      setGoogleSettings(settings.google)
+      setSlackAliases(active.slack.mentionAliases ?? {})
+      setSlackChannels((active.slack.channels ?? []).filter(channel => !channel.isArchived))
+      setGitLabSettings(active.gitlab)
+      setGitLabProjectId(active.gitlab.projectId)
+      setGitLabMode(active.gitlab.mode)
+      setGoogleSettings(active.google)
       setMentionIdentities(settings.mentionIdentities ?? [])
-      setMarkerFieldPresets(settings.markerFieldPresets ?? [])
+      setMarkerFieldPresets(active.markerFieldPresets ?? [])
       setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
     }
     api.settings.get().then(apply).catch(() => {})
@@ -1596,12 +1602,13 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   useEffect(() => api.onSlackOAuthCompleted((result) => {
     setSlackConnecting(false)
     if (result.ok && result.settings) {
-      setSlackSettings(result.settings.slack)
+      const active = activeProjectFrom(result.settings)
+      setSlackSettings(active.slack)
       applySlackDirectory(result.settings)
-      setSlackChannelId(channelIdFromSettings(result.settings.slack))
-      setSlackMentionIds(result.settings.slack.mentionUserIds ?? [])
-      setSlackManualMentionInput(formatManualSlackMentions(result.settings.slack.mentionUserIds ?? []))
-      setPublishSlack(isSlackConnected(result.settings.slack))
+      setSlackChannelId(channelIdFromSettings(active.slack))
+      setSlackMentionIds(active.slack.mentionUserIds ?? [])
+      setSlackManualMentionInput(formatManualSlackMentions(active.slack.mentionUserIds ?? []))
+      setPublishSlack(isSlackConnected(active.slack))
       setSlackDirectoryError('')
     } else {
       setSlackDirectoryError(result.error || 'Slack connection failed.')
@@ -1666,14 +1673,15 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   }, [bugs])
 
   function applySlackDirectory(settings: Awaited<ReturnType<DesktopApi['settings']['get']>>): void {
-    const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
+    const active = activeProjectFrom(settings)
+    const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
     const fetchedIds = new Set(fetchedUsers.map(user => user.id))
-    const fallbackUsers = (settings.slack.mentionUserIds ?? [])
+    const fallbackUsers = (active.slack.mentionUserIds ?? [])
       .filter(id => !fetchedIds.has(id) && !id.startsWith('!'))
-      .map(id => ({ id, name: '', displayName: settings.slack.mentionAliases?.[id] ?? id, realName: '' }))
+      .map(id => ({ id, name: '', displayName: active.slack.mentionAliases?.[id] ?? id, realName: '' }))
     setSlackUsers([...fetchedUsers, ...fallbackUsers])
-    setSlackAliases(settings.slack.mentionAliases ?? {})
-    setSlackChannels((settings.slack.channels ?? []).filter(channel => !channel.isArchived))
+    setSlackAliases(active.slack.mentionAliases ?? {})
+    setSlackChannels((active.slack.channels ?? []).filter(channel => !channel.isArchived))
     setMentionIdentities(settings.mentionIdentities ?? [])
   }
 
@@ -1688,10 +1696,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
         15000,
         'Slack channel loading timed out. Try Refresh again in a minute.',
       )
-      setSlackSettings(settings.slack)
+      const active = activeProjectFrom(settings)
+      setSlackSettings(active.slack)
       applySlackDirectory(settings)
-      setSlackChannelId(channelIdFromSettings(settings.slack))
-      if ((settings.slack.channels ?? []).length === 0) {
+      setSlackChannelId(channelIdFromSettings(active.slack))
+      if ((active.slack.channels ?? []).length === 0) {
         setSlackDirectoryError('Slack connected, but no channels were returned.')
       }
       return settings
@@ -1740,15 +1749,16 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setPublishGitLab(false)
     setPublishGoogleDrive(false)
     setSlackThreadMode('per-marker-thread')
-    setSlackSettings(settings.slack)
-    setSlackChannelId(channelIdFromSettings(settings.slack))
-    setSlackMentionIds(settings.slack.mentionUserIds ?? [])
-    setSlackManualMentionInput(formatManualSlackMentions(settings.slack.mentionUserIds ?? []))
+    const active = activeProjectFrom(settings)
+    setSlackSettings(active.slack)
+    setSlackChannelId(channelIdFromSettings(active.slack))
+    setSlackMentionIds(active.slack.mentionUserIds ?? [])
+    setSlackManualMentionInput(formatManualSlackMentions(active.slack.mentionUserIds ?? []))
     applySlackDirectory(settings)
-    setGitLabSettings(settings.gitlab)
-    setGitLabProjectId(settings.gitlab.projectId)
-    setGitLabMode(settings.gitlab.mode)
-    setGoogleSettings(settings.google)
+    setGitLabSettings(active.gitlab)
+    setGitLabProjectId(active.gitlab.projectId)
+    setGitLabMode(active.gitlab.mode)
+    setGoogleSettings(active.google)
     setExportError('')
     setExportProgress(null)
     setExportId(null)
@@ -1762,15 +1772,17 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setExportError('')
     try {
       const settings = await api.settings.get()
-      const oauthSlack = { ...settings.slack, publishIdentity: 'user' as const }
+      const active = activeProjectFrom(settings)
+      const oauthSlack = { ...active.slack, publishIdentity: 'user' as const }
       setSlackSettings(oauthSlack)
       const nextSettings = await api.settings.startSlackUserOAuth(settings.activeProjectId, oauthSlack)
-      setSlackSettings(nextSettings.slack)
+      const nextActive = activeProjectFrom(nextSettings)
+      setSlackSettings(nextActive.slack)
       applySlackDirectory(nextSettings)
-      setSlackChannelId(channelIdFromSettings(nextSettings.slack))
-      setSlackMentionIds(nextSettings.slack.mentionUserIds ?? [])
-      setSlackManualMentionInput(formatManualSlackMentions(nextSettings.slack.mentionUserIds ?? []))
-      if (isSlackConnected(nextSettings.slack)) {
+      setSlackChannelId(channelIdFromSettings(nextActive.slack))
+      setSlackMentionIds(nextActive.slack.mentionUserIds ?? [])
+      setSlackManualMentionInput(formatManualSlackMentions(nextActive.slack.mentionUserIds ?? []))
+      if (isSlackConnected(nextActive.slack)) {
         setPublishSlack(true)
         setSlackConnecting(false)
       }
@@ -1787,7 +1799,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   async function refreshGitLabProjectsForExport() {
     const current = await api.settings.get()
-    const sourceSettings = gitlabSettings ?? current.gitlab
+    const sourceSettings = gitlabSettings ?? activeProjectFrom(current).gitlab
     const nextGitLab = {
       ...sourceSettings,
       projectId: gitlabProjectId.trim() || sourceSettings.projectId,
@@ -1889,25 +1901,27 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           ...manualMentions,
         ]))
         const nextSlack: SlackPublishSettings = {
-          ...currentSettings.slack,
+          ...activeProjectFrom(currentSettings).slack,
           channelId: slackChannelId.trim(),
           mentionUserIds: nextMentionIds,
           mentionAliases: slackAliases,
         }
         currentSettings = await api.settings.setSlack(currentSettings.activeProjectId, nextSlack)
-        setSlackMentionIds(currentSettings.slack.mentionUserIds ?? [])
-        setSlackManualMentionInput(formatManualSlackMentions(currentSettings.slack.mentionUserIds ?? []))
+        const nextActive = activeProjectFrom(currentSettings)
+        setSlackMentionIds(nextActive.slack.mentionUserIds ?? [])
+        setSlackManualMentionInput(formatManualSlackMentions(nextActive.slack.mentionUserIds ?? []))
       }
       if (publishGitLab && gitlabProjectId.trim()) {
         const nextGitLab: GitLabPublishSettings = {
-          ...currentSettings.gitlab,
+          ...activeProjectFrom(currentSettings).gitlab,
           projectId: gitlabProjectId.trim(),
           mode: gitlabMode,
         }
         currentSettings = await api.settings.setGitLab(currentSettings.activeProjectId, nextGitLab)
-        setGitLabSettings(currentSettings.gitlab)
-        setGitLabProjectId(currentSettings.gitlab.projectId)
-        setGitLabMode(currentSettings.gitlab.mode)
+        const nextActive = activeProjectFrom(currentSettings)
+        setGitLabSettings(nextActive.gitlab)
+        setGitLabProjectId(nextActive.gitlab.projectId)
+        setGitLabMode(nextActive.gitlab.mode)
       }
       onMutated()
       const targets: PublishTarget[] = [

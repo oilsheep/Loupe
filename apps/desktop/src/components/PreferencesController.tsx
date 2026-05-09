@@ -29,6 +29,7 @@ import type {
   HotkeySettings,
   MarkerFieldPreset,
   MentionIdentity,
+  ProjectSettings,
   PublishTemplateSettings,
   SeveritySettings,
   SlackPublishSettings,
@@ -170,7 +171,22 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [publishTemplates, setPublishTemplates] = useState<PublishTemplateSettings>({})
   const [publishTemplatesSaved, setPublishTemplatesSaved] = useState(false)
   const [bundledGitLabOAuthInstances, setBundledGitLabOAuthInstances] = useState<Array<{ url: string; clientId: string }>>([])
-  const [activeProjectId, setActiveProjectId] = useState<string>('')
+  const [projects, setProjects] = useState<ProjectSettings[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('')
+
+  // Apply project-scoped draft state from the project record. Called both when
+  // the user switches projects and when settings change for the selected project.
+  function applyProjectDraft(project: ProjectSettings) {
+    setSlack(project.slack)
+    setGitLab(project.gitlab)
+    setGitLabLabelsInput((project.gitlab.labels ?? []).join(', '))
+    setGitLabMentionsInput((project.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+    setGoogle(project.google)
+    setMarkerFieldPresets(project.markerFieldPresets?.length ? project.markerFieldPresets : DEFAULT_MARKER_FIELD_PRESETS)
+    setMarkerFieldPresetsSaved(false)
+    setPublishTemplates(project.publishTemplates ?? {})
+    setPublishTemplatesSaved(false)
+  }
 
   function applySettings(settings: AppSettings) {
     setExportRoot(settings.exportRoot)
@@ -179,39 +195,40 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setAudioAnalysis(settings.audioAnalysis)
     setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION_SETTINGS)
     setAudioAnalysisSaved(false)
-    setSlack(settings.slack)
-    setGitLab(settings.gitlab)
-    setGitLabLabelsInput((settings.gitlab.labels ?? []).join(', '))
-    setGitLabMentionsInput((settings.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
-    setGoogle(settings.google)
     setMentionIdentities(settings.mentionIdentities ?? [])
     setMentionIdentitiesSaved(false)
     setMentionIdentitiesStatus('')
-    setMarkerFieldPresets(settings.markerFieldPresets?.length ? settings.markerFieldPresets : DEFAULT_MARKER_FIELD_PRESETS)
-    setMarkerFieldPresetsSaved(false)
-    setPublishTemplates(settings.publishTemplates ?? {})
-    setPublishTemplatesSaved(false)
-    setActiveProjectId(settings.activeProjectId)
+    setProjects(settings.projects)
+    // If no project selected yet, or the selected project no longer exists,
+    // fall back to the active project. Otherwise keep the user's selection.
+    const nextSelectedId = selectedProjectId && settings.projects.some(p => p.id === selectedProjectId)
+      ? selectedProjectId
+      : settings.activeProjectId
+    setSelectedProjectId(nextSelectedId)
+    const nextSelectedProject = settings.projects.find(p => p.id === nextSelectedId) ?? settings.projects[0]
+    if (nextSelectedProject) applyProjectDraft(nextSelectedProject)
   }
 
   useEffect(() => {
     api.settings.get().then(applySettings)
     api.settings.getBundledGitLabOAuthInstances().then(setBundledGitLabOAuthInstances).catch(() => {})
     return api.onAppSettingsUpdated(applySettings)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => api.onSlackOAuthCompleted(result => {
     setStartingSlackOAuth(false)
     setSlackSaved(false)
     if (result.ok && result.settings) {
-      setSlack(result.settings.slack)
+      const project = result.settings.projects.find(p => p.id === selectedProjectId) ?? result.settings.projects[0]
+      if (project) setSlack(project.slack)
       setMentionIdentities(result.settings.mentionIdentities ?? [])
       setSlackSaved(true)
       setSlackError('')
     } else {
       setSlackError(result.error || 'Slack OAuth failed')
     }
-  }), [])
+  }), [selectedProjectId])
 
   const activeSlackUsers = useMemo(() => (slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot), [slack.mentionUsers])
   const activeGitLabUsers = useMemo(() => (gitlab.mentionUsers ?? []).filter(user => !user.state || user.state === 'active'), [gitlab.mentionUsers])
@@ -281,7 +298,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.startSlackUserOAuth(activeProjectId, {
+      const settings = await api.settings.startSlackUserOAuth(selectedProjectId, {
         ...slack,
         botToken: slack.botToken.trim(),
         userToken: slack.userToken?.trim() || '',
@@ -291,7 +308,8 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
         oauthClientSecret: slack.oauthClientSecret?.trim() || '',
         oauthRedirectUri: 'loupe://slack-oauth',
       })
-      setSlack(settings.slack)
+      const project = settings.projects.find(p => p.id === selectedProjectId) ?? settings.projects[0]
+      if (project) setSlack(project.slack)
     } catch (err) {
       setStartingSlackOAuth(false)
       setSlackError(err instanceof Error ? err.message : String(err))
@@ -302,7 +320,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.setSlack(activeProjectId, {
+      const settings = await api.settings.setSlack(selectedProjectId, {
         ...next,
         botToken: next.botToken.trim(),
         userToken: next.userToken?.trim() || '',
@@ -324,7 +342,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setSlackSaved(false)
     setSlackError('')
     try {
-      const settings = await api.settings.refreshSlackUsers(activeProjectId)
+      const settings = await api.settings.refreshSlackUsers(selectedProjectId)
       applySettings(settings)
       setSlackSaved(true)
     } catch (err) {
@@ -357,7 +375,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.setGitLab(activeProjectId, gitLabSettingsInput())
+      const settings = await api.settings.setGitLab(selectedProjectId, gitLabSettingsInput())
       applySettings(settings)
       setGitLabSaved(true)
     } catch (err) {
@@ -372,9 +390,10 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.connectGitLabOAuth(activeProjectId, gitLabSettingsInput())
+      const settings = await api.settings.connectGitLabOAuth(selectedProjectId, gitLabSettingsInput())
       applySettings(settings)
-      await loadGitLabProjects(settings.gitlab)
+      const next = settings.projects.find(p => p.id === selectedProjectId) ?? settings.projects[0]
+      if (next) await loadGitLabProjects(next.gitlab)
       setGitLabSaved(true)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
@@ -395,7 +414,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setRefreshingGitLabProjects(true)
     setGitLabError('')
     try {
-      const projects = await api.settings.listGitLabProjects(activeProjectId, input)
+      const projects = await api.settings.listGitLabProjects(selectedProjectId, input)
       setGitLabProjects(projects)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
@@ -415,9 +434,9 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGitLabError('')
     try {
       if (forceEmailLookup) setGitLab(prev => ({ ...prev, emailLookup: 'admin-users-api' }))
-      const savedSettings = await api.settings.setGitLab(activeProjectId, gitLabSettingsInput(forceEmailLookup ? { emailLookup: 'admin-users-api' } : {}))
+      const savedSettings = await api.settings.setGitLab(selectedProjectId, gitLabSettingsInput(forceEmailLookup ? { emailLookup: 'admin-users-api' } : {}))
       applySettings(savedSettings)
-      const settings = await api.settings.refreshGitLabUsers(activeProjectId)
+      const settings = await api.settings.refreshGitLabUsers(selectedProjectId)
       applySettings(settings)
       setGitLabSaved(true)
     } catch (err) {
@@ -448,7 +467,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const settings = await api.settings.setGoogle(activeProjectId, googleSettingsInput())
+      const settings = await api.settings.setGoogle(selectedProjectId, googleSettingsInput())
       applySettings(settings)
       setGoogleSaved(true)
     } catch (err) {
@@ -464,7 +483,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const settings = await api.settings.connectGoogleOAuth(activeProjectId, googleSettingsInput())
+      const settings = await api.settings.connectGoogleOAuth(selectedProjectId, googleSettingsInput())
       applySettings(settings)
       setGoogleStatus(t('preferences.googleConnectedRefreshHint'))
       setGoogleSaved(true)
@@ -488,7 +507,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const folders = await api.settings.listGoogleDriveFolders(activeProjectId, input)
+      const folders = await api.settings.listGoogleDriveFolders(selectedProjectId, input)
       setGoogleFolders(folders)
       setGoogle(prev => {
         const driveFolderId = parseGoogleDriveFolderInput(prev.driveFolderId)
@@ -514,7 +533,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const folder = await api.settings.createGoogleDriveFolder(activeProjectId, googleSettingsInput(), name)
+      const folder = await api.settings.createGoogleDriveFolder(selectedProjectId, googleSettingsInput(), name)
       setGoogle(prev => ({ ...prev, driveFolderId: folder.id, driveFolderName: folder.name }))
       setGoogleFolders(prev => sortGoogleFolders([...prev.filter(item => item.id !== folder.id), folder]))
       setNewGoogleFolderName('')
@@ -531,7 +550,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const sheets = await api.settings.listGoogleSpreadsheets(activeProjectId, input)
+      const sheets = await api.settings.listGoogleSpreadsheets(selectedProjectId, input)
       setGoogleSpreadsheets(sheets)
       setGoogle(prev => {
         const spreadsheetId = parseGoogleSpreadsheetInput(prev.spreadsheetId)
@@ -551,7 +570,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const tabs = await api.settings.listGoogleSheetTabs(activeProjectId, input)
+      const tabs = await api.settings.listGoogleSheetTabs(selectedProjectId, input)
       setGoogleSheetTabs(tabs)
       setGoogle(prev => ({ ...prev, spreadsheetId: parseGoogleSpreadsheetInput(prev.spreadsheetId) }))
       setGoogleStatus(tabs.length === 0 ? 'No sheet tabs found.' : `Loaded ${tabs.length} sheet tab${tabs.length === 1 ? '' : 's'}.`)
@@ -644,18 +663,53 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   }
 
   async function saveMarkerFieldPresets(next = markerFieldPresets) {
-    const settings = await api.settings.setMarkerFieldPresets(activeProjectId, next)
-    setMarkerFieldPresets(settings.markerFieldPresets ?? [])
+    const settings = await api.settings.setMarkerFieldPresets(selectedProjectId, next)
+    applySettings(settings)
+    const project = settings.projects.find(p => p.id === selectedProjectId) ?? settings.projects[0]
+    setMarkerFieldPresets(project?.markerFieldPresets?.length ? project.markerFieldPresets : DEFAULT_MARKER_FIELD_PRESETS)
     setMarkerFieldPresetsSaved(true)
   }
 
   async function savePublishTemplates(next = publishTemplates) {
-    const settings = await api.settings.setPublishTemplates(activeProjectId, next)
-    setPublishTemplates(settings.publishTemplates ?? {})
+    const settings = await api.settings.setPublishTemplates(selectedProjectId, next)
+    applySettings(settings)
+    const project = settings.projects.find(p => p.id === selectedProjectId) ?? settings.projects[0]
+    setPublishTemplates(project?.publishTemplates ?? {})
     setPublishTemplatesSaved(true)
   }
 
+  async function handleSwitchProject(id: string) {
+    setSelectedProjectId(id)
+    const project = projects.find(p => p.id === id)
+    if (project) applyProjectDraft(project)
+  }
+
+  async function handleAddProject(args: { name: string; duplicateFromId?: string }) {
+    const next = await api.settings.addProject(args)
+    // Switch the dialog to view the newly-created project (which is also the new active id).
+    setSelectedProjectId(next.activeProjectId)
+    applySettings(next)
+    const newProject = next.projects.find(p => p.id === next.activeProjectId) ?? next.projects[0]
+    if (newProject) applyProjectDraft(newProject)
+  }
+
+  async function handleRenameProject(id: string, newName: string) {
+    const next = await api.settings.renameProject(id, newName)
+    applySettings(next)
+  }
+
+  async function handleDeleteProject(id: string) {
+    const next = await api.settings.deleteProject(id)
+    setSelectedProjectId(next.activeProjectId)
+    applySettings(next)
+    const newProject = next.projects.find(p => p.id === next.activeProjectId) ?? next.projects[0]
+    if (newProject) applyProjectDraft(newProject)
+  }
+
   if (!open) return null
+
+  const selectedProject = projects.find(p => p.id === selectedProjectId) ?? projects[0]
+  if (!selectedProject) return null
 
   return (
     <PreferencesDialog
@@ -667,6 +721,12 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       audioAnalysis={audioAnalysis}
       audioAnalysisSaved={audioAnalysisSaved}
       commonSession={commonSession}
+      projects={projects}
+      selectedProject={selectedProject}
+      onSwitchProject={handleSwitchProject}
+      onAddProject={handleAddProject}
+      onRenameProject={handleRenameProject}
+      onDeleteProject={handleDeleteProject}
       slack={slack}
       slackSaved={slackSaved}
       startingSlackOAuth={startingSlackOAuth}

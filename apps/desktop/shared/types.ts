@@ -219,14 +219,9 @@ export interface AppSettings {
   audioAnalysis: AudioAnalysisSettings
   commonSession?: CommonSessionSettings
   recordingPreferences?: RecordingPreferences
-  slack: SlackPublishSettings              // legacy; kept for compat during Tasks 1-4
-  gitlab: GitLabPublishSettings            // legacy
-  google: GooglePublishSettings            // legacy
   mentionIdentities: MentionIdentity[]
-  markerFieldPresets?: MarkerFieldPreset[] // legacy
-  publishTemplates?: PublishTemplateSettings // legacy
-  projects: ProjectSettings[]              // NEW; non-empty by invariant
-  activeProjectId: string                  // NEW; references projects[].id
+  projects: ProjectSettings[]              // non-empty by invariant
+  activeProjectId: string                  // references projects[].id
 }
 
 export interface Session {

@@ -22,7 +22,7 @@ import { publishManifestToRemote, type RemotePublishResult } from './remote-publ
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
 import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
-import { findActiveProject, findProjectByIdOrActive, type SettingsStore } from './settings'
+import { findActiveProject, findProjectByIdOrActive, findProjectForSession, type SettingsStore } from './settings'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
@@ -2788,7 +2788,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: deps.settings.get().markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProjectForSession(deps.settings.get(), session.project).project.markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
@@ -2943,7 +2943,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: deps.settings.get().markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProjectForSession(deps.settings.get(), session.project).project.markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
