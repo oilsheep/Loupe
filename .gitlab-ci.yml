@@ -145,9 +145,12 @@ rollback:update-channel:
       when: manual
       allow_failure: true
   variables:
-    ROLLBACK_VERSION:
-      value: ""
-      description: "Version to repoint loupe/latest at (e.g. 0.5.1 — no leading 'v'). The version must already exist as loupe/<VERSION>/ in the package registry."
+    # Operator passes ROLLBACK_VERSION via the manual-run dialog (Variables
+    # section). Value example: "0.5.1" — no leading "v". The version must
+    # already exist as loupe/<VERSION>/ in the package registry. GitLab
+    # only allows `description:` on pipeline-level variables, not job-level,
+    # so this hint lives in a YAML comment instead.
+    ROLLBACK_VERSION: ""
   before_script:
     - apk add --no-cache curl python3 bash
   script:
