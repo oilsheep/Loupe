@@ -619,4 +619,31 @@ describe('SettingsStore.setProject — token sync', () => {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
+
+  it('clears refreshError on siblings when source clears its own', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const defaultId = store.get().projects[0].id
+      // Set both projects to share an account AND have a refreshError
+      store.setProject(defaultId, {
+        google: { ...store.get().projects[0].google, accountEmail: 'shared@example.com', token: 't1', refreshError: { at: 1, code: 'invalid_grant' } },
+      })
+      store.addProject({ name: 'Cytus', duplicateFromId: defaultId })
+      const cytusId = store.get().projects.find(p => p.name === 'Cytus')!.id
+      // Both should now have refreshError set
+      expect(store.get().projects.find(p => p.id === defaultId)!.google.refreshError).toBeDefined()
+      expect(store.get().projects.find(p => p.id === cytusId)!.google.refreshError).toBeDefined()
+      // Now refresh Default's Google: clear refreshError + new token
+      store.setProject(defaultId, {
+        google: { ...store.get().projects[0].google, token: 'fresh-token', refreshError: undefined },
+      })
+      // Cytus's refreshError should ALSO be cleared via sync
+      const cytusGoogle = store.get().projects.find(p => p.id === cytusId)!.google
+      expect(cytusGoogle.refreshError).toBeUndefined()
+      expect(cytusGoogle.token).toBe('fresh-token')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
 })

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, RecordingPreferences, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 
@@ -70,6 +70,15 @@ function normalizeHotkeys(raw?: Partial<HotkeySettings> & { note?: string }): Ho
   }
 }
 
+function normalizeRefreshError(raw: unknown): RefreshError | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const value = raw as Partial<RefreshError>
+  const at = typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0
+  const code = typeof value.code === 'string' ? value.code.trim() : ''
+  if (!at || !code) return undefined
+  return { at, code }
+}
+
 function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettings {
   const mentionUserIds = normalizeSlackMentionIds(raw?.mentionUserIds)
   const mentionAliases = normalizeMentionAliases(raw?.mentionAliases)
@@ -107,6 +116,7 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     mentionAliases: Object.fromEntries(Object.entries(mentionAliases).filter(([id]) => knownIds.has(id))),
     mentionUsers,
     usersFetchedAt: typeof raw?.usersFetchedAt === 'string' ? raw.usersFetchedAt : null,
+    ...(normalizeRefreshError(raw?.refreshError) ? { refreshError: normalizeRefreshError(raw?.refreshError) } : {}),
   }
 }
 
@@ -412,6 +422,7 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
     mentionUsers: normalizeGitLabMentionUsers(raw?.mentionUsers),
     usersFetchedAt: typeof raw?.usersFetchedAt === 'string' ? raw.usersFetchedAt : null,
     lastUserSyncWarning: typeof raw?.lastUserSyncWarning === 'string' ? raw.lastUserSyncWarning : null,
+    ...(normalizeRefreshError(raw?.refreshError) ? { refreshError: normalizeRefreshError(raw?.refreshError) } : {}),
   }
 }
 
@@ -430,6 +441,7 @@ function normalizeGoogle(raw?: Partial<GooglePublishSettings>): GooglePublishSet
     spreadsheetId: typeof raw?.spreadsheetId === 'string' ? raw.spreadsheetId.trim() : '',
     spreadsheetName: typeof raw?.spreadsheetName === 'string' ? raw.spreadsheetName.trim() : '',
     sheetName: typeof raw?.sheetName === 'string' ? raw.sheetName.trim() : '',
+    ...(normalizeRefreshError(raw?.refreshError) ? { refreshError: normalizeRefreshError(raw?.refreshError) } : {}),
   }
 }
 
@@ -562,10 +574,26 @@ function identityKey(service: TokenSyncableService, p: ProjectSettings): string 
   return null
 }
 
-const TOKEN_FIELDS: Record<TokenSyncableService, string[]> = {
-  slack: ['botToken', 'userToken', 'oauthUserScopes', 'oauthConnectedAt', 'refreshError'],
-  gitlab: ['token', 'authType', 'refreshError'],
-  google: ['token', 'refreshToken', 'tokenExpiresAt', 'accountEmail', 'refreshError'],
+// Fields where missing means "don't overwrite" (don't accidentally wipe a sibling's token).
+const TOKEN_FIELDS_COPY_IF_DEFINED: Record<TokenSyncableService, string[]> = {
+  slack: ['botToken', 'userToken', 'oauthUserScopes', 'oauthConnectedAt'],
+  gitlab: ['token', 'authType'],
+  google: ['token', 'refreshToken', 'tokenExpiresAt', 'accountEmail'],
+}
+
+// Fields where the source's value (including undefined) is authoritative.
+// Used for refreshError: clearing on the source must clear on siblings too.
+const TOKEN_FIELDS_COPY_ALWAYS: Record<TokenSyncableService, string[]> = {
+  slack: ['refreshError'],
+  gitlab: ['refreshError'],
+  google: ['refreshError'],
+}
+
+// Defensive clone for shared-reference safety. Token fields are JSON-clean
+// (strings, numbers, arrays of strings, plain objects), so structuredClone is safe.
+function cloneIfMutable(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return v
+  return structuredClone(v)
 }
 
 // Mutates `projects` in place: copies token-related fields from `source` to all
@@ -574,20 +602,31 @@ function syncProjectToken(
   projects: ProjectSettings[],
   source: ProjectSettings,
   service: TokenSyncableService,
-  patch: Partial<unknown> | undefined,
+  patch: unknown,        // only used for the truthiness check
 ): void {
   if (!patch) return
   const sourceKey = identityKey(service, source)
   if (!sourceKey) return
-  const fields = TOKEN_FIELDS[service]
+  const ifDefined = TOKEN_FIELDS_COPY_IF_DEFINED[service]
+  const always = TOKEN_FIELDS_COPY_ALWAYS[service]
   for (let i = 0; i < projects.length; i++) {
     const p = projects[i]
     if (p.id === source.id) continue
     if (identityKey(service, p) !== sourceKey) continue
     const merged: any = { ...p[service] }
-    for (const f of fields) {
-      const v = (source[service] as any)[f]
-      if (v !== undefined) merged[f] = v
+    const sourceService = source[service] as any
+    for (const f of ifDefined) {
+      const v = sourceService[f]
+      if (v !== undefined) merged[f] = cloneIfMutable(v)
+    }
+    for (const f of always) {
+      // Always copy — including undefined, so clearing propagates.
+      const v = sourceService[f]
+      if (v === undefined) {
+        delete merged[f]
+      } else {
+        merged[f] = cloneIfMutable(v)
+      }
     }
     projects[i] = { ...p, [service]: merged }
   }
@@ -754,7 +793,7 @@ export class SettingsStore {
       const source = settings.projects.find(p => p.id === args.duplicateFromId)
       if (!source) throw new Error(`Source project not found: ${args.duplicateFromId}`)
       newProject = {
-        ...JSON.parse(JSON.stringify(source)),  // deep copy including OAuth tokens
+        ...structuredClone(source),  // deep copy including OAuth tokens
         id: newId,
         name: trimmedName,
       }
