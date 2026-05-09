@@ -57,8 +57,10 @@ build:mac:
     - test
   allow_failure: true
   variables:
-    LOUPE_SIGN_MAC: "0"
-    CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    # Sign with the protected CSC_LINK + CSC_KEY_PASSWORD CI variables. Skip
+    # notarization until we have an Apple API key — bypasses package.json's
+    # mac.notarize=true via the inline `-c.mac.notarize=false` override.
+    CSC_IDENTITY_AUTO_DISCOVERY: "true"
     # Pin node-gyp to a working Python; the host's /opt/homebrew Python 3.14
     # has a broken libexpat link that crashes during better-sqlite3 rebuild.
     PYTHON: "/opt/homebrew/bin/python3.13"
@@ -72,7 +74,12 @@ build:mac:
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
   script:
-    - ./start-dev.sh build
+    # Equivalent to ./start-dev.sh build, but inlined so we can pass
+    # -c.mac.notarize=false. start-dev.sh hard-requires notarize credentials
+    # when LOUPE_SIGN_MAC=1; switch back to it once Apple API key lands.
+    - pnpm rebuild:electron
+    - pnpm --filter desktop exec electron-vite build
+    - pnpm --filter desktop exec electron-builder --mac --publish never -c.mac.notarize=false
   artifacts:
     name: "loupe-macos-$CI_COMMIT_SHORT_SHA"
     paths:
