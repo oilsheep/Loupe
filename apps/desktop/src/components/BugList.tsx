@@ -62,10 +62,8 @@ const DEFAULT_SEVERITIES: SeveritySettings = {
 }
 const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
   platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
-  projects: [],
   testers: [],
   lastPlatform: '',
-  lastProject: '',
   lastTester: '',
 }
 
@@ -583,13 +581,11 @@ function ExportConfirmDialog({
             <input
               value={project}
               onChange={(e) => onProjectChange(e.target.value)}
-              list="export-common-projects"
               placeholder={t('export.project')}
               className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </label>
           <datalist id="export-common-platforms">{commonSession.platforms.map(item => <option key={item} value={item} />)}</datalist>
-          <datalist id="export-common-projects">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -1885,10 +1881,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       let currentSettings = await api.settings.get()
       await api.settings.setCommonSession({
         platforms: appendCommonValue(currentSettings.commonSession?.platforms ?? DEFAULT_COMMON_SESSION.platforms, exportPlatform),
-        projects: appendCommonValue(currentSettings.commonSession?.projects ?? DEFAULT_COMMON_SESSION.projects, exportProject),
         testers: appendCommonValue(currentSettings.commonSession?.testers ?? DEFAULT_COMMON_SESSION.testers, exportTester),
         lastPlatform: exportPlatform.trim(),
-        lastProject: exportProject.trim(),
         lastTester: exportTester.trim(),
       }).then(settings => {
         currentSettings = settings

@@ -65,6 +65,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
     settings: {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async (next) => ({ ...settings, audioAnalysis: next })),
+      setActiveProject: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProjectId: id })),
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -174,5 +175,67 @@ describe('Draft audio analysis settings', () => {
 
     await screen.findByTestId('video-player')
     expect(fakeApi.audioAnalysis.analyzeSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('Draft project resolution', () => {
+  function buildSession(project?: string): Session {
+    return {
+      id: 's1',
+      deviceId: 'device-1',
+      deviceModel: 'Pixel 7',
+      androidVersion: 'Android 16',
+      connectionMode: 'usb',
+      status: 'draft',
+      buildVersion: 'MR',
+      testNote: '',
+      tester: '',
+      project,
+      startedAt: 1,
+      endedAt: 2,
+      durationMs: 88_000,
+      videoPath: '/recording/video.mp4',
+      pcRecordingEnabled: false,
+      pcVideoPath: null,
+      micAudioPath: '/recording/session-mic.webm',
+      micAudioDurationMs: 88_000,
+      micAudioStartOffsetMs: 0,
+    }
+  }
+
+  it('switches active project to the session project when matched', async () => {
+    const multiProjectSettings = {
+      ...settings,
+      projects: [
+        ...settings.projects,
+        { id: 'cytus-id', name: 'Cytus', slack: { botToken: '', channelId: '' }, gitlab: { baseUrl: '', token: '', projectId: '', mode: 'single-issue' as const }, google: { token: '' } },
+      ],
+      activeProjectId: 'test-project',
+    }
+    fakeApi.settings.get = vi.fn().mockResolvedValue(multiProjectSettings)
+    fakeApi.settings.setActiveProject = vi.fn().mockImplementation(async (id: string) => ({ ...multiProjectSettings, activeProjectId: id }))
+    fakeApi.session.get = vi.fn().mockResolvedValue({ session: buildSession('Cytus'), bugs: [] })
+
+    render(<Draft sessionId="s1" />)
+    await screen.findByTestId('video-player')
+
+    await waitFor(() => {
+      expect(fakeApi.settings.setActiveProject).toHaveBeenCalledWith('cytus-id')
+    })
+    expect(screen.queryByText(/no longer exists/)).toBeNull()
+  })
+
+  it('shows a dismissible warning banner when the session project no longer exists', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    fakeApi.session.get = vi.fn().mockResolvedValue({ session: buildSession('Cytus'), bugs: [] })
+
+    render(<Draft sessionId="s1" />)
+    await screen.findByTestId('video-player')
+
+    const banner = await screen.findByText(/no longer exists/i)
+    expect(banner).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => expect(screen.queryByText(/no longer exists/i)).toBeNull())
   })
 })

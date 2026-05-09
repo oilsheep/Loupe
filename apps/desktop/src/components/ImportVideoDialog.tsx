@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
 import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
-import type { AudioAnalysisProgress, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, Session } from '@shared/types'
+import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, Session } from '@shared/types'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS as SHARED_AUDIO_LANGUAGE_OPTIONS, triggerPreset as sharedTriggerPreset } from '@/lib/audioAnalysisPresets'
 
 interface Props {
@@ -51,12 +51,11 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
   const [tester, setTester] = useState('')
   const [commonSession, setCommonSession] = useState<CommonSessionSettings>({
     platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
-    projects: [],
     testers: [],
     lastPlatform: '',
-    lastProject: '',
     lastTester: '',
   })
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [analyzeAudio, setAnalyzeAudio] = useState(true)
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
@@ -70,17 +69,21 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    api.settings.get().then(settings => {
+    api.settings.get().then(loaded => {
       if (cancelled) return
-      const next = settings.audioAnalysis
+      const next = loaded.audioAnalysis
       setAudioSettings(next)
       setAudioLanguage(next.language || 'auto')
       setTriggerKeywords(next.triggerKeywords?.trim() || sharedTriggerPreset(next.language || 'auto').words)
-      if (settings.commonSession) {
-        setCommonSession(settings.commonSession)
-        setPlatform(settings.commonSession.lastPlatform)
-        setProject(settings.commonSession.lastProject)
-        setTester(settings.commonSession.lastTester)
+      setSettings(loaded)
+      if (loaded.commonSession) {
+        setCommonSession(loaded.commonSession)
+        setPlatform(loaded.commonSession.lastPlatform)
+        setTester(loaded.commonSession.lastTester)
+      }
+      if (loaded.projects.length > 0) {
+        const active = loaded.projects.find(p => p.id === loaded.activeProjectId) ?? loaded.projects[0]
+        setProject(active.name)
       }
     }).catch(() => {})
     return () => { cancelled = true }
@@ -187,14 +190,13 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
     const next = {
       ...commonSession,
       lastPlatform: platform.trim(),
-      lastProject: project.trim(),
       lastTester: tester.trim(),
     }
     const saved = await api.settings.setCommonSession(next)
     setCommonSession(saved.commonSession ?? next)
   }
 
-  async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
+  async function addCommonValue(kind: 'platforms' | 'testers', value: string) {
     const text = value.trim()
     if (!text) return
     const next = {
@@ -203,6 +205,18 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
     }
     const saved = await api.settings.setCommonSession(next)
     setCommonSession(saved.commonSession ?? next)
+  }
+
+  async function selectProject(projectId: string) {
+    const found = settings?.projects.find(p => p.id === projectId)
+    if (!found) return
+    setProject(found.name)
+    try {
+      const saved = await api.settings.setActiveProject(projectId)
+      setSettings(saved)
+    } catch (err) {
+      console.warn('failed to set active project:', err)
+    }
   }
 
   return (
@@ -351,19 +365,15 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
 
               <label className="text-xs font-semibold text-zinc-200">
                 Project
-                <div className="mt-1 flex gap-2">
-                  <input
-                    value={project}
-                    onChange={e => setProject(e.target.value)}
-                    list="common-projects-import"
-                    placeholder="Project name"
-                    className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-                  />
-                  {project.trim() && !commonSession.projects.includes(project.trim()) && (
-                    <button type="button" onClick={() => { void addCommonValue('projects', project) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">Add</button>
-                  )}
-                </div>
-                <datalist id="common-projects-import">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
+                <select
+                  value={settings?.activeProjectId ?? ''}
+                  onChange={e => { void selectProject(e.target.value) }}
+                  className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  {(settings?.projects ?? []).map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
               </label>
 
               <label className="text-xs font-semibold text-zinc-200">

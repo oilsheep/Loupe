@@ -37,10 +37,8 @@ DEFAULT_AUDIO_ANALYSIS.triggerKeywords = 'record, mark, log, 記錄, 紀錄, 標
 
 export const DEFAULT_COMMON_SESSION: CommonSessionSettings = {
   platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
-  projects: [],
   testers: [],
   lastPlatform: '',
-  lastProject: '',
   lastTester: '',
 }
 
@@ -386,10 +384,8 @@ function normalizePublishTemplates(raw?: unknown): PublishTemplateSettings {
 function normalizeCommonSession(raw?: Partial<CommonSessionSettings>): CommonSessionSettings {
   return {
     platforms: uniqueList(raw?.platforms, DEFAULT_COMMON_SESSION.platforms),
-    projects: uniqueList(raw?.projects),
     testers: uniqueList(raw?.testers),
     lastPlatform: typeof raw?.lastPlatform === 'string' ? raw.lastPlatform.trim() : '',
-    lastProject: typeof raw?.lastProject === 'string' ? raw.lastProject.trim() : '',
     lastTester: typeof raw?.lastTester === 'string' ? raw.lastTester.trim() : '',
   }
 }

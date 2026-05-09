@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo, RecordingPreferences } from '@shared/types'
+import type { AppSettings, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo, RecordingPreferences } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 import {
@@ -87,12 +87,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [tester, setTester] = useState('')
   const [commonSession, setCommonSession] = useState<CommonSessionSettings>({
     platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
-    projects: [],
     testers: [],
     lastPlatform: '',
-    lastProject: '',
     lastTester: '',
   })
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [logcatPackageName, setLogcatPackageName] = useState('')
   const [logcatPackageOptions, setLogcatPackageOptions] = useState<string[]>([])
   const [logcatPackageMenuOpen, setLogcatPackageMenuOpen] = useState(false)
@@ -128,26 +127,30 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
 
   useEffect(() => {
     let cancelled = false
-    api.settings.get().then(settings => {
+    api.settings.get().then(loaded => {
       if (cancelled) return
-      const next = settings.audioAnalysis
+      const next = loaded.audioAnalysis
       const language = next.language || 'auto'
       const keywords = next.triggerKeywords?.trim() || sharedTriggerPreset(language).words
       setAudioSettings(next)
       setAudioLanguage(language)
       setTriggerKeywords(keywords)
       setTriggerWordsCustomized(!sharedIsPresetTriggerWords(keywords))
-      if (settings.recordingPreferences) {
-        setRecordingPreferences(settings.recordingPreferences)
-        setRecordMic(settings.recordingPreferences.recordMic)
-        setIosLaunchApp(settings.recordingPreferences.iosLaunchApp)
-        setRecordSystemAudio(canRecordSystemAudio ? settings.recordingPreferences.recordSystemAudio ?? false : false)
+      setSettings(loaded)
+      if (loaded.recordingPreferences) {
+        setRecordingPreferences(loaded.recordingPreferences)
+        setRecordMic(loaded.recordingPreferences.recordMic)
+        setIosLaunchApp(loaded.recordingPreferences.iosLaunchApp)
+        setRecordSystemAudio(canRecordSystemAudio ? loaded.recordingPreferences.recordSystemAudio ?? false : false)
       }
-      if (settings.commonSession) {
-        setCommonSession(settings.commonSession)
-        setPlatform(settings.commonSession.lastPlatform)
-        setProject(settings.commonSession.lastProject)
-        setTester(settings.commonSession.lastTester)
+      if (loaded.commonSession) {
+        setCommonSession(loaded.commonSession)
+        setPlatform(loaded.commonSession.lastPlatform)
+        setTester(loaded.commonSession.lastTester)
+      }
+      if (loaded.projects.length > 0) {
+        const active = loaded.projects.find(p => p.id === loaded.activeProjectId) ?? loaded.projects[0]
+        setProject(active.name)
       }
     }).catch(() => {
       if (cancelled) return
@@ -259,7 +262,6 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       ...commonSession,
       ...overrides,
       lastPlatform: platform.trim(),
-      lastProject: project.trim(),
       lastTester: tester.trim(),
     }
     const saved = await api.settings.setCommonSession(next)
@@ -293,7 +295,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     void saveRecordingPreferencesLast({ recordSystemAudio: next })
   }
 
-  async function addCommonValue(kind: 'platforms' | 'projects' | 'testers', value: string) {
+  async function addCommonValue(kind: 'platforms' | 'testers', value: string) {
     const text = value.trim()
     if (!text) return
     const next = {
@@ -302,6 +304,18 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     }
     const saved = await api.settings.setCommonSession(next)
     setCommonSession(saved.commonSession ?? next)
+  }
+
+  async function selectProject(projectId: string) {
+    const found = settings?.projects.find(p => p.id === projectId)
+    if (!found) return
+    setProject(found.name)
+    try {
+      const saved = await api.settings.setActiveProject(projectId)
+      setSettings(saved)
+    } catch (err) {
+      console.warn('failed to set active project:', err)
+    }
   }
 
   function changeAudioLanguage(language: string) {
@@ -444,21 +458,16 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
 
         <label className="text-xs font-semibold text-zinc-200">
           Project
-          <div className="mt-1 flex gap-2">
-            <input
-              value={project}
-              onChange={e => setProject(e.target.value)}
-              list="common-projects"
-              placeholder="Project name"
-              className="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-            {project.trim() && !commonSession.projects.includes(project.trim()) && (
-              <button type="button" onClick={() => { void addCommonValue('projects', project) }} className="rounded bg-zinc-800 px-2 py-2 text-xs text-zinc-200 hover:bg-zinc-700">
-                Add
-              </button>
-            )}
-          </div>
-          <datalist id="common-projects">{commonSession.projects.map(item => <option key={item} value={item} />)}</datalist>
+          <select
+            value={settings?.activeProjectId ?? ''}
+            onChange={e => { void selectProject(e.target.value) }}
+            data-testid="project-select"
+            className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            {(settings?.projects ?? []).map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </label>
 
         <label className="text-xs font-semibold text-zinc-200">

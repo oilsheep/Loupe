@@ -99,10 +99,8 @@ const DEFAULT_AUDIO_ANALYSIS_SETTINGS: AudioAnalysisSettings = {
 
 const DEFAULT_COMMON_SESSION_SETTINGS: CommonSessionSettings = {
   platforms: ['ios', 'android', 'windows', 'macOS', 'linux'],
-  projects: [],
   testers: [],
   lastPlatform: '',
-  lastProject: '',
   lastTester: '',
 }
 

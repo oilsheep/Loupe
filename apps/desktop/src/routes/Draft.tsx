@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
+import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
@@ -87,7 +87,10 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [backgroundAnalyzingAudio, setBackgroundAnalyzingAudio] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
+  const [projectMismatch, setProjectMismatch] = useState<{ sessionProjectName: string; activeProjectName: string } | null>(null)
+  const [projectMismatchDismissed, setProjectMismatchDismissed] = useState(false)
   const [metadataOpen, setMetadataOpen] = useState(false)
   const [audioPanelOpen, setAudioPanelOpen] = useState(false)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -144,9 +147,11 @@ export function Draft({ sessionId }: { sessionId: string }) {
     }
   }), [refresh, sessionId])
   const reloadSettings = useCallback(async () => {
-    const settings = await api.settings.get()
-    setAudioSettings(settings.audioAnalysis)
-    setSeverities(settings.severities)
+    const next = await api.settings.get()
+    setSettings(next)
+    setAudioSettings(next.audioAnalysis)
+    setSeverities(next.severities)
+    return next
   }, [])
   useEffect(() => {
     let cancelled = false
@@ -156,6 +161,32 @@ export function Draft({ sessionId }: { sessionId: string }) {
     return () => { cancelled = true }
   }, [reloadSettings])
   useEffect(() => { refresh() }, [refresh])
+
+  // When the Draft view loads with a session that has a named project, sync the
+  // active project to that session's project (so BugList's activeProjectFrom
+  // resolution naturally publishes to the right place). If the session was
+  // recorded under a project that no longer exists, surface a warning banner so
+  // the user knows publishing is falling back to the active project.
+  useEffect(() => {
+    const sessionProjectName = data?.session.project?.trim()
+    if (!sessionProjectName) {
+      setProjectMismatch(null)
+      return
+    }
+    if (!settings || settings.projects.length === 0) return
+    const matched = settings.projects.find(p => p.name === sessionProjectName)
+    if (matched) {
+      setProjectMismatch(null)
+      if (matched.id !== settings.activeProjectId) {
+        api.settings.setActiveProject(matched.id)
+          .then(saved => { setSettings(saved) })
+          .catch(err => { console.warn('Draft: failed to set active project:', err) })
+      }
+    } else {
+      const active = settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
+      setProjectMismatch({ sessionProjectName, activeProjectName: active.name })
+    }
+  }, [data?.session.project, settings])
 
   const analyzeAudio = useCallback(async () => {
     if (analyzingAudio || backgroundAnalyzingAudio) return
@@ -638,6 +669,20 @@ export function Draft({ sessionId }: { sessionId: string }) {
             </section>
           </div>
         </div>
+        {projectMismatch && !projectMismatchDismissed && (
+          <div className="m-2 flex items-start gap-2 rounded border border-amber-700 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+            <span className="min-w-0 flex-1">
+              {t('draft.projectNotFound', { name: projectMismatch.sessionProjectName, active: projectMismatch.activeProjectName })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setProjectMismatchDismissed(true)}
+              className="shrink-0 rounded bg-amber-900 px-2 py-1 text-xs text-amber-100 hover:bg-amber-800"
+            >
+              {t('common.dismiss')}
+            </button>
+          </div>
+        )}
         <div className="min-h-0 overflow-auto">
           <BugList
             ref={bugListRef}

@@ -647,13 +647,12 @@ export function PreferencesDialog({
             <div>
               <div className="text-sm font-medium text-zinc-200">{zh ? '\u5e38\u7528\u8cc7\u8a0a' : 'Common session info'}</div>
               <div className="mt-1 text-xs leading-5 text-zinc-500">
-                {zh ? '\u7ba1\u7406\u5e73\u53f0\u3001\u5c08\u6848\u3001\u6e2c\u8a66\u4eba\u54e1\u5e38\u7528\u503c\uff0c\u65b0 session \u6703\u81ea\u52d5\u5e36\u5165\u4e0a\u6b21\u4f7f\u7528\u7684\u5e73\u53f0\u3001\u5c08\u6848\u8207\u6e2c\u8a66\u4eba\u54e1\u3002' : 'Manage common platforms, projects, and testers. New sessions reuse the last platform, project, and tester.'}
+                {zh ? '\u7ba1\u7406\u5e73\u53f0\u8207\u6e2c\u8a66\u4eba\u54e1\u5e38\u7528\u503c\uff0c\u65b0 session \u6703\u81ea\u52d5\u5e36\u5165\u4e0a\u6b21\u4f7f\u7528\u7684\u5e73\u53f0\u8207\u6e2c\u8a66\u4eba\u54e1\u3002' : 'Manage common platforms and testers. New sessions reuse the last platform and tester.'}
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               {([
                 ['platforms', zh ? '\u5e73\u53f0' : 'Platforms'],
-                ['projects', zh ? '\u5c08\u6848' : 'Projects'],
                 ['testers', zh ? '\u6e2c\u8a66\u4eba\u54e1' : 'Testers'],
               ] as const).map(([key, label]) => (
                 <label key={key} className="text-xs text-zinc-400">

@@ -149,10 +149,8 @@ export interface AudioAnalysisSettings {
 
 export interface CommonSessionSettings {
   platforms: string[]
-  projects: string[]
   testers: string[]
   lastPlatform: string
-  lastProject: string
   lastTester: string
 }
 

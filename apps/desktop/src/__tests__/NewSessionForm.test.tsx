@@ -33,13 +33,22 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       recordSystemAudio: false,
     },
     mentionIdentities: [],
-    projects: [{
-      id: 'test-project',
-      name: 'Default',
-      slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
-      gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
-      google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
-    }],
+    projects: [
+      {
+        id: 'test-project',
+        name: 'Default',
+        slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+      },
+      {
+        id: 'cytus-project',
+        name: 'Cytus',
+        slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
+        gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
+      },
+    ],
     activeProjectId: 'test-project',
   }
   const session: Session = {
@@ -77,6 +86,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async audioAnalysis => ({ ...settings, audioAnalysis })),
       setRecordingPreferences: vi.fn().mockImplementation(async recordingPreferences => ({ ...settings, recordingPreferences })),
+      setActiveProject: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProjectId: id })),
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -192,6 +202,34 @@ describe('NewSessionForm audio trigger settings', () => {
         iosLaunchApp: true,
         recordSystemAudio: false,
       })
+    })
+  })
+})
+
+describe('NewSessionForm project dropdown', () => {
+  it('renders an option for every project from settings.projects[]', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const select = await screen.findByTestId('project-select') as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('test-project'))
+    const options = Array.from(select.querySelectorAll('option')).map(o => o.textContent)
+    expect(options).toEqual(['Default', 'Cytus'])
+  })
+
+  it('persists active project on change and uses the selected name when starting', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const select = await screen.findByTestId('project-select') as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('test-project'))
+
+    fireEvent.change(select, { target: { value: 'cytus-project' } })
+    await waitFor(() => expect(fakeApi.settings.setActiveProject).toHaveBeenCalledWith('cytus-project'))
+
+    fireEvent.click(screen.getByTestId('start-session'))
+    await waitFor(() => {
+      expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ project: 'Cytus' }))
     })
   })
 })
