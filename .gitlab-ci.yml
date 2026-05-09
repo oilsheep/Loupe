@@ -106,8 +106,9 @@ build:win:
     - pnpm install --frozen-lockfile
   script:
     - pnpm --dir apps/desktop dist:win
-    # Stable filename for the GitLab Release direct-download link.
-    - cp apps/desktop/dist/*Setup*.exe apps/desktop/dist/loupe-windows-x64.exe
+    # Stable filename for the GitLab Release direct-download link. Matches
+    # `Loupe QA Recorder-X.Y.Z.exe` while excluding `__uninstaller-*.exe`.
+    - cp apps/desktop/dist/[!_]*.exe apps/desktop/dist/loupe-windows-x64.exe
   artifacts:
     name: "loupe-windows-$CI_COMMIT_SHORT_SHA"
     paths:
