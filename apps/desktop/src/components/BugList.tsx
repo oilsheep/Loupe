@@ -4,9 +4,19 @@ import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSetting
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
-// Resolve the active project from an AppSettings snapshot.
-function activeProjectFrom(settings: AppSettings): ProjectSettings {
+// Resolve the project to read from. Prefer the per-session override (e.g. when
+// Draft opens an old session whose project differs from the global active),
+// otherwise fall back to the global active project.
+function activeProjectFrom(settings: AppSettings, override?: ProjectSettings): ProjectSettings {
+  if (override) return override
   return settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
+}
+
+// Resolve the project id to write back to via setSlack/setGitLab/etc. Routes
+// per-session writes (e.g. refreshing channels from an old session's Draft) to
+// that session's project, not the currently-active one.
+function targetProjectId(settings: AppSettings, override?: ProjectSettings): string {
+  return override?.id ?? settings.activeProjectId
 }
 
 interface Props {
@@ -29,6 +39,11 @@ interface Props {
   testNote?: string
   hasSessionMicTrack?: boolean
   markerToolbar?: ReactNode
+  // Per-session project override. Read sites prefer this over
+  // activeProjectFrom(settings); write sites (setSlack/setGitLab/etc.) route to
+  // this project's id when present, so refreshing Slack channels for an old
+  // session correctly updates that session's project.
+  overrideProject?: ProjectSettings
 }
 
 export interface BugListHandle {
@@ -1483,7 +1498,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, overrideProject }: Props, ref) {
   const { t } = useI18n()
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
@@ -1572,7 +1587,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   useEffect(() => {
     const apply = (settings: AppSettings) => {
-      const active = activeProjectFrom(settings)
+      const active = activeProjectFrom(settings, overrideProject)
       setSeverities(settings.severities)
       setSlackSettings(active.slack)
       const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
@@ -1593,12 +1608,12 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     }
     api.settings.get().then(apply).catch(() => {})
     return api.onAppSettingsUpdated(apply)
-  }, [api])
+  }, [api, overrideProject])
 
   useEffect(() => api.onSlackOAuthCompleted((result) => {
     setSlackConnecting(false)
     if (result.ok && result.settings) {
-      const active = activeProjectFrom(result.settings)
+      const active = activeProjectFrom(result.settings, overrideProject)
       setSlackSettings(active.slack)
       applySlackDirectory(result.settings)
       setSlackChannelId(channelIdFromSettings(active.slack))
@@ -1609,7 +1624,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     } else {
       setSlackDirectoryError(result.error || 'Slack connection failed.')
     }
-  }), [api])
+  }), [api, overrideProject])
 
   useEffect(() => {
     const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)
@@ -1669,7 +1684,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   }, [bugs])
 
   function applySlackDirectory(settings: Awaited<ReturnType<DesktopApi['settings']['get']>>): void {
-    const active = activeProjectFrom(settings)
+    const active = activeProjectFrom(settings, overrideProject)
     const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
     const fetchedIds = new Set(fetchedUsers.map(user => user.id))
     const fallbackUsers = (active.slack.mentionUserIds ?? [])
@@ -1688,11 +1703,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     const refreshPromise = (async () => {
       const current = await api.settings.get()
       const settings = await withTimeout(
-        api.settings.refreshSlackChannels(current.activeProjectId),
+        api.settings.refreshSlackChannels(targetProjectId(current, overrideProject)),
         15000,
         'Slack channel loading timed out. Try Refresh again in a minute.',
       )
-      const active = activeProjectFrom(settings)
+      const active = activeProjectFrom(settings, overrideProject)
       setSlackSettings(active.slack)
       applySlackDirectory(settings)
       setSlackChannelId(channelIdFromSettings(active.slack))
@@ -1745,7 +1760,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setPublishGitLab(false)
     setPublishGoogleDrive(false)
     setSlackThreadMode('per-marker-thread')
-    const active = activeProjectFrom(settings)
+    const active = activeProjectFrom(settings, overrideProject)
     setSlackSettings(active.slack)
     setSlackChannelId(channelIdFromSettings(active.slack))
     setSlackMentionIds(active.slack.mentionUserIds ?? [])
@@ -1768,11 +1783,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setExportError('')
     try {
       const settings = await api.settings.get()
-      const active = activeProjectFrom(settings)
+      const active = activeProjectFrom(settings, overrideProject)
       const oauthSlack = { ...active.slack, publishIdentity: 'user' as const }
       setSlackSettings(oauthSlack)
-      const nextSettings = await api.settings.startSlackUserOAuth(settings.activeProjectId, oauthSlack)
-      const nextActive = activeProjectFrom(nextSettings)
+      const nextSettings = await api.settings.startSlackUserOAuth(targetProjectId(settings, overrideProject), oauthSlack)
+      const nextActive = activeProjectFrom(nextSettings, overrideProject)
       setSlackSettings(nextActive.slack)
       applySlackDirectory(nextSettings)
       setSlackChannelId(channelIdFromSettings(nextActive.slack))
@@ -1795,7 +1810,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   async function refreshGitLabProjectsForExport() {
     const current = await api.settings.get()
-    const sourceSettings = gitlabSettings ?? activeProjectFrom(current).gitlab
+    const sourceSettings = gitlabSettings ?? activeProjectFrom(current, overrideProject).gitlab
     const nextGitLab = {
       ...sourceSettings,
       projectId: gitlabProjectId.trim() || sourceSettings.projectId,
@@ -1805,7 +1820,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setGitLabProjectsError('')
     try {
       const projects = await withTimeout(
-        api.settings.listGitLabProjects(current.activeProjectId, nextGitLab),
+        api.settings.listGitLabProjects(targetProjectId(current, overrideProject), nextGitLab),
         15000,
         'GitLab project loading timed out. Try Refresh again in a minute.',
       )
@@ -1895,24 +1910,24 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           ...manualMentions,
         ]))
         const nextSlack: SlackPublishSettings = {
-          ...activeProjectFrom(currentSettings).slack,
+          ...activeProjectFrom(currentSettings, overrideProject).slack,
           channelId: slackChannelId.trim(),
           mentionUserIds: nextMentionIds,
           mentionAliases: slackAliases,
         }
-        currentSettings = await api.settings.setSlack(currentSettings.activeProjectId, nextSlack)
-        const nextActive = activeProjectFrom(currentSettings)
+        currentSettings = await api.settings.setSlack(targetProjectId(currentSettings, overrideProject), nextSlack)
+        const nextActive = activeProjectFrom(currentSettings, overrideProject)
         setSlackMentionIds(nextActive.slack.mentionUserIds ?? [])
         setSlackManualMentionInput(formatManualSlackMentions(nextActive.slack.mentionUserIds ?? []))
       }
       if (publishGitLab && gitlabProjectId.trim()) {
         const nextGitLab: GitLabPublishSettings = {
-          ...activeProjectFrom(currentSettings).gitlab,
+          ...activeProjectFrom(currentSettings, overrideProject).gitlab,
           projectId: gitlabProjectId.trim(),
           mode: gitlabMode,
         }
-        currentSettings = await api.settings.setGitLab(currentSettings.activeProjectId, nextGitLab)
-        const nextActive = activeProjectFrom(currentSettings)
+        currentSettings = await api.settings.setGitLab(targetProjectId(currentSettings, overrideProject), nextGitLab)
+        const nextActive = activeProjectFrom(currentSettings, overrideProject)
         setGitLabSettings(nextActive.gitlab)
         setGitLabProjectId(nextActive.gitlab.projectId)
         setGitLabMode(nextActive.gitlab.mode)

@@ -103,8 +103,12 @@ vi.mock('@/components/VideoPlayer', async () => {
   }
 })
 
+const bugListProps = vi.fn()
 vi.mock('@/components/BugList', () => ({
-  BugList: () => <div data-testid="bug-list" />,
+  BugList: (props: Record<string, unknown>) => {
+    bugListProps(props)
+    return <div data-testid="bug-list" />
+  },
 }))
 
 describe('Draft audio analysis settings', () => {
@@ -203,7 +207,7 @@ describe('Draft project resolution', () => {
     }
   }
 
-  it('switches active project to the session project when matched', async () => {
+  it('passes the matched session project to BugList as overrideProject without mutating active', async () => {
     const multiProjectSettings = {
       ...settings,
       projects: [
@@ -215,13 +219,17 @@ describe('Draft project resolution', () => {
     fakeApi.settings.get = vi.fn().mockResolvedValue(multiProjectSettings)
     fakeApi.settings.setActiveProject = vi.fn().mockImplementation(async (id: string) => ({ ...multiProjectSettings, activeProjectId: id }))
     fakeApi.session.get = vi.fn().mockResolvedValue({ session: buildSession('Cytus'), bugs: [] })
+    bugListProps.mockClear()
 
     render(<Draft sessionId="s1" />)
     await screen.findByTestId('video-player')
 
     await waitFor(() => {
-      expect(fakeApi.settings.setActiveProject).toHaveBeenCalledWith('cytus-id')
+      expect(bugListProps).toHaveBeenCalledWith(expect.objectContaining({
+        overrideProject: expect.objectContaining({ id: 'cytus-id', name: 'Cytus' }),
+      }))
     })
+    expect(fakeApi.settings.setActiveProject).not.toHaveBeenCalled()
     expect(screen.queryByText(/no longer exists/)).toBeNull()
   })
 

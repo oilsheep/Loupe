@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
+import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, ProjectSettings, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
@@ -162,11 +162,12 @@ export function Draft({ sessionId }: { sessionId: string }) {
   }, [reloadSettings])
   useEffect(() => { refresh() }, [refresh])
 
-  // When the Draft view loads with a session that has a named project, sync the
-  // active project to that session's project (so BugList's activeProjectFrom
-  // resolution naturally publishes to the right place). If the session was
-  // recorded under a project that no longer exists, surface a warning banner so
-  // the user knows publishing is falling back to the active project.
+  // When the Draft view loads with a session whose project name no longer
+  // matches any current project, surface a warning banner so the user knows
+  // publishing is falling back to the active project. The per-session project
+  // override flows through `draftProject` below — we no longer mutate
+  // AppSettings.activeProjectId, which would leak the choice into the next
+  // NewSessionForm visit.
   useEffect(() => {
     const sessionProjectName = data?.session.project?.trim()
     if (!sessionProjectName) {
@@ -177,16 +178,25 @@ export function Draft({ sessionId }: { sessionId: string }) {
     const matched = settings.projects.find(p => p.name === sessionProjectName)
     if (matched) {
       setProjectMismatch(null)
-      if (matched.id !== settings.activeProjectId) {
-        api.settings.setActiveProject(matched.id)
-          .then(saved => { setSettings(saved) })
-          .catch(err => { console.warn('Draft: failed to set active project:', err) })
-      }
     } else {
       const active = settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
       setProjectMismatch({ sessionProjectName, activeProjectName: active.name })
     }
   }, [data?.session.project, settings])
+
+  // Resolve the per-session project locally instead of mutating global active.
+  // BugList prefers this override over its activeProjectFrom(settings) fallback,
+  // so opening an old "Cytus" session's Draft doesn't bleed into the next
+  // session's NewSessionForm.
+  const draftProject: ProjectSettings | undefined = (() => {
+    if (!settings || settings.projects.length === 0) return undefined
+    const sessionProjectName = data?.session.project?.trim()
+    if (sessionProjectName) {
+      const matched = settings.projects.find(p => p.name === sessionProjectName)
+      if (matched) return matched
+    }
+    return settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
+  })()
 
   const analyzeAudio = useCallback(async () => {
     if (analyzingAudio || backgroundAnalyzingAudio) return
@@ -703,6 +713,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             testNote={testNote}
             hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}
             markerToolbar={markerToolbar}
+            overrideProject={draftProject}
           />
         </div>
       </aside>
