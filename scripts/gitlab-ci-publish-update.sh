@@ -1,11 +1,15 @@
 #!/bin/sh
 set -eu
 
-# Upload the just-built electron-updater channel files to the project's
-# GitLab Generic Package registry. Each tag pipeline writes to TWO paths:
-#   loupe/<version>/   immutable archive of this exact build (rollback source)
-#   loupe/latest/      mutable pointer to the most recent release
-# Tag-only — no-op for release-branch verification pipelines.
+# Upload electron-updater channel files to the project's GitLab Generic
+# Package registry. Each tag pipeline writes:
+#   loupe/<version>/      full archive (binaries + ymls). Permanent.
+#   loupe/latest/         only the two yml files, with file URLs rewritten
+#                         to `../<version>/<filename>` so updater requests
+#                         resolve back into the versioned archive.
+#
+# That means rollback is just two tiny re-uploads, not gigabytes of copy.
+# Tag-only — release-branch verifies are no-ops.
 
 if [ -z "${CI_COMMIT_TAG:-}" ]; then
   echo "[publish-update] skip: CI_COMMIT_TAG empty"
@@ -13,35 +17,40 @@ if [ -z "${CI_COMMIT_TAG:-}" ]; then
 fi
 
 VERSION="${CI_COMMIT_TAG#v}"
+DIST="apps/desktop/dist"
 BASE_API="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/loupe"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-upload_to() {
+put() {
   channel="$1"
-  f="$2"
-  [ -f "$f" ] || return 0
-  name=$(basename "$f")
-  # GitLab generic-package filenames must satisfy ^[\w\.-]+$ (no spaces);
-  # we already use space-free artifactName overrides so this is a sanity guard.
-  name_enc=$(printf '%s' "$name" | sed 's/ /%20/g')
-  echo "[publish-update] PUT loupe/$channel/$name"
+  src="$2"
+  remote_name="$3"
+  echo "[publish-update] PUT loupe/$channel/$remote_name"
   curl --silent --show-error --fail \
     --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-    --upload-file "$f" \
-    "${BASE_API}/${channel}/${name_enc}?select=package_file" >/dev/null
+    --upload-file "$src" \
+    "${BASE_API}/${channel}/${remote_name}?select=package_file" >/dev/null
 }
 
-cd apps/desktop/dist
-for f in *; do
+# 1) Full archive at loupe/<version>/
+for f in "$DIST"/*; do
   [ -f "$f" ] || continue
-  case "$f" in
+  name=$(basename "$f")
+  case "$name" in
     __uninstaller-*) continue ;;
     *.dmg|*.exe|*.zip|latest-mac.yml|latest.yml|*.blockmap)
-      upload_to "$VERSION" "$f"
-      upload_to latest "$f"
-      ;;
+      put "$VERSION" "$f" "$name" ;;
   esac
 done
 
-echo "[publish-update] done — version=$VERSION + latest"
+# 2) loupe/latest/ — only the ymls, with relative URLs to ../<version>/
+for yml in latest-mac.yml latest.yml; do
+  src="$DIST/$yml"
+  [ -f "$src" ] || continue
+  tmp="/tmp/${yml}.latest"
+  python3 "$SCRIPT_DIR/gitlab-ci-yml-prefix.py" "$VERSION" < "$src" > "$tmp"
+  put latest "$tmp" "$yml"
+  rm -f "$tmp"
+done
 
-echo "[publish-update] done"
+echo "[publish-update] done — version=$VERSION archive + latest pointer"
