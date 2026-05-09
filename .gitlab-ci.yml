@@ -143,8 +143,9 @@ release:gitlab:
       Internal Rayark release built from tag $CI_COMMIT_TAG (sha $CI_COMMIT_SHORT_SHA).
 
       Download platform binaries from the linked job artifacts below.
-      Notarization / code signing is performed by the upstream GitHub
-      workflow on tagged releases; these GitLab artifacts are unsigned.
+      The macOS .dmg is signed with the Rayark Developer ID and notarized
+      by Apple; it should open without Gatekeeper warnings. The Windows
+      .exe is unsigned (matches upstream's GitHub Actions output).
     assets:
       links:
         - name: "macOS (arm64) — DMG + zip"
