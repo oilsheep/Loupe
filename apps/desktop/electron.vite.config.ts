@@ -49,6 +49,7 @@ export default defineConfig(({ mode }) => {
         __LOUPE_SLACK_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_SLACK_OAUTH_CLIENT_SECRET ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_ID ?? ''),
         __LOUPE_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? process.env.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET ?? ''),
+        __LOUPE_GITLAB_OAUTH_INSTANCES__: JSON.stringify(env.LOUPE_GITLAB_OAUTH_INSTANCES ?? process.env.LOUPE_GITLAB_OAUTH_INSTANCES ?? ''),
         __LOUPE_UPDATE_PROVIDER__: JSON.stringify(updateProvider),
         __LOUPE_UPDATE_API_URL__: JSON.stringify(updateApiUrl),
         __LOUPE_UPDATE_PAGE_URL_TEMPLATE__: JSON.stringify(updatePageTemplate),

@@ -37,6 +37,7 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: false
       LOUPE_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_ID }}
       LOUPE_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.LOUPE_GOOGLE_OAUTH_CLIENT_SECRET }}
+      LOUPE_GITLAB_OAUTH_INSTANCES: ${{ secrets.LOUPE_GITLAB_OAUTH_INSTANCES }}
 
     steps:
       - name: Check out repository
@@ -65,6 +66,15 @@ jobs:
             echo "::error::Set LOUPE_GOOGLE_OAUTH_CLIENT_ID and LOUPE_GOOGLE_OAUTH_CLIENT_SECRET in the repository or environment secrets. Google's loopback Desktop OAuth requires both even with PKCE."
             exit 1
           fi
+
+      - name: Verify LOUPE_GITLAB_OAUTH_INSTANCES (lenient)
+        if: github.event_name != 'pull_request'
+        run: |
+          if [ -z "${LOUPE_GITLAB_OAUTH_INSTANCES:-}" ]; then
+            echo "::warning::LOUPE_GITLAB_OAUTH_INSTANCES is empty; built artifact will require users to enter their own GitLab OAuth client ID."
+            exit 0
+          fi
+          echo "$LOUPE_GITLAB_OAUTH_INSTANCES" | python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); assert isinstance(data, list), "must be a JSON array"; [(_:=__import__("sys").exit(f"invalid entry: {e}")) for e in data if not (isinstance(e, dict) and "url" in e and "clientId" in e)]; print(f"validated {len(data)} OAuth instance(s)")'
 
       - name: Type check
         run: pnpm --filter desktop typecheck
