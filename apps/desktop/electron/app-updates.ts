@@ -76,9 +76,17 @@ async function checkGithubUpdate(currentVersion: string, platform: NodeJS.Platfo
 }
 
 async function checkGitLabUpdate(currentVersion: string): Promise<AppUpdateCheckResult> {
-  const response = await fetch(API_URL, {
-    headers: { 'User-Agent': `Loupe/${currentVersion}` },
-  })
+  // Node 22 fetch (undici) refuses URLs with embedded credentials per the
+  // WHATWG Fetch spec ("Request cannot be constructed from a URL that
+  // includes credentials"). Strip userinfo and re-attach as a Basic header.
+  const url = new URL(API_URL)
+  const headers: Record<string, string> = { 'User-Agent': `Loupe/${currentVersion}` }
+  if (url.username || url.password) {
+    headers.Authorization = `Basic ${Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString('base64')}`
+    url.username = ''
+    url.password = ''
+  }
+  const response = await fetch(url.toString(), { headers })
   if (!response.ok) throw new Error(`GitLab update check failed: HTTP ${response.status}`)
   const text = await response.text()
 
