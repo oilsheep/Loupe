@@ -550,7 +550,13 @@ export function PreferencesDialog({
                 if (e.target.value === '__add__') {
                   setShowAddDialog(true)
                 } else {
-                  void onSwitchProject(e.target.value)
+                  void (async () => {
+                    try {
+                      await onSwitchProject(e.target.value)
+                    } catch (err: any) {
+                      window.alert(err?.message ?? String(err))
+                    }
+                  })()
                 }
               }}
               className="rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
@@ -563,7 +569,12 @@ export function PreferencesDialog({
               type="button"
               onClick={async () => {
                 const newName = window.prompt(t('preferences.renamePromptTitle'), selectedProject.name)
-                if (newName?.trim()) await onRenameProject(selectedProject.id, newName.trim())
+                if (!newName?.trim()) return
+                try {
+                  await onRenameProject(selectedProject.id, newName.trim())
+                } catch (err: any) {
+                  window.alert(err?.message ?? String(err))
+                }
               }}
               className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
             >
@@ -574,7 +585,12 @@ export function PreferencesDialog({
               onClick={async () => {
                 if (projects.length <= 1) return
                 const ok = window.confirm(t('preferences.confirmDeleteProject').replace('{name}', selectedProject.name))
-                if (ok) await onDeleteProject(selectedProject.id)
+                if (!ok) return
+                try {
+                  await onDeleteProject(selectedProject.id)
+                } catch (err: any) {
+                  window.alert(err?.message ?? String(err))
+                }
               }}
               disabled={projects.length <= 1}
               title={projects.length <= 1 ? t('preferences.cannotDeleteLast') : undefined}

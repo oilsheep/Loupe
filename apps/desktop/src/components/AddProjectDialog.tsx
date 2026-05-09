@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import type { ProjectSettings } from '@shared/types'
 
@@ -15,6 +15,14 @@ export function AddProjectDialog({ open, existingProjects, onClose, onSubmit }: 
   const [duplicateFromId, setDuplicateFromId] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setName('')
+      setDuplicateFromId('')
+      setError('')
+    }
+  }, [open])
 
   if (!open) return null
 
