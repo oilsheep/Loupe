@@ -170,7 +170,7 @@ describe('NewSessionForm audio trigger settings', () => {
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
     const mic = await screen.findByLabelText('Record QA microphone for audio auto-markers') as HTMLInputElement
-    expect(mic.checked).toBe(false)
+    await waitFor(() => expect(mic.checked).toBe(false))
 
     fireEvent.click(mic)
     await waitFor(() => {
