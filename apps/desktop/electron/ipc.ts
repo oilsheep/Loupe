@@ -43,6 +43,7 @@ export const CHANNEL = {
   appDownloadUpdate:       'app:downloadUpdate',
   appInstallUpdate:        'app:installUpdate',
   appUpdateEvent:          'app:updateEvent',
+  appSettingsUpdated:      'app:settingsUpdated',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
   appStartUxPlayReceiver: 'app:startUxPlayReceiver',
   appStopUxPlayReceiver:  'app:stopUxPlayReceiver',

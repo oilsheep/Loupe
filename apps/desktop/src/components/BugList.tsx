@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -1570,7 +1570,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    api.settings.get().then(settings => {
+    const apply = (settings: AppSettings) => {
       setSeverities(settings.severities)
       setSlackSettings(settings.slack)
       const fetchedUsers = (settings.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
@@ -1588,7 +1588,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setMentionIdentities(settings.mentionIdentities ?? [])
       setMarkerFieldPresets(settings.markerFieldPresets ?? [])
       setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
-    }).catch(() => {})
+    }
+    api.settings.get().then(apply).catch(() => {})
+    return api.onAppSettingsUpdated(apply)
   }, [api])
 
   useEffect(() => api.onSlackOAuthCompleted((result) => {

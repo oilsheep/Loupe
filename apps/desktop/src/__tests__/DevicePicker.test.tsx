@@ -53,6 +53,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
     onToolInstallLog: () => () => {},
     onAppUpdateEvent: () => () => {},
     onSlackOAuthCompleted: () => () => {},
+    onAppSettingsUpdated: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }

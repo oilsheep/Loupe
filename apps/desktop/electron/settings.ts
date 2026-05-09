@@ -605,8 +605,23 @@ export class SettingsStore {
     return next
   }
 
+  private writeListeners: Array<(settings: AppSettings) => void> = []
+
+  // Subscribe to settings writes. Each persisted change (any setX method) fires
+  // every listener. Used by main.ts to broadcast settings to all windows so
+  // open Home / BugList instances see live updates without a restart.
+  onWrite(listener: (settings: AppSettings) => void): () => void {
+    this.writeListeners.push(listener)
+    return () => {
+      this.writeListeners = this.writeListeners.filter(l => l !== listener)
+    }
+  }
+
   private write(settings: AppSettings): void {
     mkdirSync(dirname(this.filePath), { recursive: true })
     writeFileSync(this.filePath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8')
+    for (const listener of this.writeListeners) {
+      try { listener(settings) } catch (err) { console.error('settings write listener error:', err) }
+    }
   }
 }

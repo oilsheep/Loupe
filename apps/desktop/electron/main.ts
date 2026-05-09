@@ -9,7 +9,7 @@ import { LogcatBuffer } from './logcat'
 import { SessionManager } from './session'
 import { openDb } from './db'
 import { createPaths, defaultRoot } from './paths'
-import { registerIpc, emitBugMarkRequested, handleProtocolUrl } from './ipc'
+import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
@@ -321,6 +321,14 @@ app.whenReady().then(async () => {
     hotkeys = next
     applyHotkey()
   }
+
+  // Broadcast settings writes to every renderer so open Home / BugList instances
+  // re-apply (e.g. Google connect status, refreshed tokens) without a restart.
+  settings.onWrite((next) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send(CHANNEL.appSettingsUpdated, next)
+    }
+  })
 
   registerIpc({ adb, manager, paths, runner, db, settings, getWindow: () => win, setHotkeyEnabled, setHotkeys })
 

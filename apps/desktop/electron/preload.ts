@@ -147,6 +147,11 @@ const api: DesktopApi = {
     ipcRenderer.on(CHANNEL.settingsSlackOAuthCompleted, handler)
     return () => ipcRenderer.removeListener(CHANNEL.settingsSlackOAuthCompleted, handler)
   },
+  onAppSettingsUpdated: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, settings: any) => cb(settings)
+    ipcRenderer.on(CHANNEL.appSettingsUpdated, handler)
+    return () => ipcRenderer.removeListener(CHANNEL.appSettingsUpdated, handler)
+  },
   _resolveAssetPath: (id, relPath) => ipcRenderer.invoke(CHANNEL.sessionResolveAssetPath, id, relPath),
 }
 

@@ -535,6 +535,7 @@ export interface DesktopApi {
   /** Renderer subscribes to packaged app update download/install progress. */
   onAppUpdateEvent(cb: (event: AppUpdateEvent) => void): () => void
   onSlackOAuthCompleted(cb: (result: { ok: boolean; settings?: AppSettings; error?: string }) => void): () => void
+  onAppSettingsUpdated(cb: (settings: AppSettings) => void): () => void
   /** Resolves an asset under a session dir to its absolute path. Used by the renderer to construct loupe-file:// URLs for video.mp4, screenshots, etc. */
   _resolveAssetPath(sessionId: string, relPath: string): Promise<string>
 }

@@ -48,6 +48,7 @@ function fakeApi(): DesktopApi {
     onToolInstallLog: () => () => {},
     onAppUpdateEvent: () => () => {},
     onSlackOAuthCompleted: () => () => {},
+    onAppSettingsUpdated: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }

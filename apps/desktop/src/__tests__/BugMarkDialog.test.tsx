@@ -40,6 +40,7 @@ function fakeApi(markBug = vi.fn().mockResolvedValue({ id: 'b1' })): DesktopApi 
     onToolInstallLog: () => () => {},
     onAppUpdateEvent: () => () => {},
     onSlackOAuthCompleted: () => () => {},
+    onAppSettingsUpdated: () => () => {},
     _resolveAssetPath: vi.fn().mockResolvedValue('/abs/path') as any,
   }
 }

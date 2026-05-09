@@ -193,6 +193,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   useEffect(() => {
     api.settings.get().then(applySettings)
+    return api.onAppSettingsUpdated(applySettings)
   }, [])
 
   useEffect(() => api.onSlackOAuthCompleted(result => {
