@@ -431,3 +431,192 @@ describe('multi-project migration', () => {
     }
   })
 })
+
+describe('SettingsStore.addProject', () => {
+  it('adds a new project with a unique id and name; sets activeProjectId to the new project', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const after = store.addProject({ name: 'Cytus' })
+      expect(after.projects).toHaveLength(2)
+      expect(after.projects[1].name).toBe('Cytus')
+      expect(after.activeProjectId).toBe(after.projects[1].id)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects duplicate names', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      expect(() => store.addProject({ name: 'Default' })).toThrow(/already exists|duplicate/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('with duplicateFromId carries over slack/gitlab/google including OAuth tokens', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const original = store.get().projects[0]
+      // Set up the source project with non-trivial values
+      store.setProject(original.id, {
+        slack: { ...original.slack, botToken: 'xoxb-fixture', channelId: 'C1' },
+        gitlab: { ...original.gitlab, token: 'glpat-x', projectId: 'group/proj' },
+        google: { ...original.google, token: 'g-tok', accountEmail: 'a@b.com' },
+      })
+      const after = store.addProject({ name: 'Cytus', duplicateFromId: original.id })
+      const cytus = after.projects.find(p => p.name === 'Cytus')!
+      expect(cytus.slack.botToken).toBe('xoxb-fixture')
+      expect(cytus.slack.channelId).toBe('C1')
+      expect(cytus.gitlab.token).toBe('glpat-x')
+      expect(cytus.gitlab.projectId).toBe('group/proj')
+      expect(cytus.google.token).toBe('g-tok')
+      expect(cytus.google.accountEmail).toBe('a@b.com')
+      expect(cytus.id).not.toBe(original.id)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.renameProject', () => {
+  it('renames the project name', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const id = store.get().projects[0].id
+      const after = store.renameProject(id, 'Renamed')
+      expect(after.projects[0].name).toBe('Renamed')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects rename to an already-taken name', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      store.addProject({ name: 'Cytus' })
+      const defaultId = store.get().projects.find(p => p.name === 'Default')!.id
+      expect(() => store.renameProject(defaultId, 'Cytus')).toThrow(/already exists|duplicate/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('throws on unknown id', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      expect(() => store.renameProject('nonexistent', 'X')).toThrow(/not found|unknown/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.deleteProject', () => {
+  it('deletes a project; updates activeProjectId if it was active', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const cytus = store.addProject({ name: 'Cytus' }).projects.find(p => p.name === 'Cytus')!
+      // activeProjectId is now Cytus's id (addProject made it active)
+      const after = store.deleteProject(cytus.id)
+      expect(after.projects.find(p => p.id === cytus.id)).toBeUndefined()
+      expect(after.activeProjectId).toBe(after.projects[0].id)  // first remaining
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to delete the last project', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const onlyId = store.get().projects[0].id
+      expect(() => store.deleteProject(onlyId)).toThrow(/cannot delete the last|at least one/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.setActiveProject', () => {
+  it('updates activeProjectId', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const cytus = store.addProject({ name: 'Cytus' }).projects.find(p => p.name === 'Cytus')!
+      const defaultId = store.get().projects.find(p => p.name === 'Default')!.id
+      const after = store.setActiveProject(defaultId)
+      expect(after.activeProjectId).toBe(defaultId)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects unknown id', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      expect(() => store.setActiveProject('nonexistent')).toThrow(/not found|unknown/i)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.setProject', () => {
+  it('merges the patch into the named project', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const id = store.get().projects[0].id
+      const after = store.setProject(id, {
+        slack: { ...store.get().projects[0].slack, channelId: 'C-new' },
+      })
+      expect(after.projects[0].slack.channelId).toBe('C-new')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.setProject — token sync', () => {
+  it('propagates Google token to siblings sharing the same accountEmail', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const defaultId = store.get().projects[0].id
+      // Set up Default with a Google account
+      store.setProject(defaultId, {
+        google: { ...store.get().projects[0].google, accountEmail: 'shared@example.com', token: 'old-token', refreshToken: 'old-refresh' },
+      })
+      // Add Cytus with same email
+      store.addProject({ name: 'Cytus', duplicateFromId: defaultId })
+      const cytusId = store.get().projects.find(p => p.name === 'Cytus')!.id
+      // Add Deemo with DIFFERENT email
+      store.addProject({ name: 'Deemo' })
+      const deemoId = store.get().projects.find(p => p.name === 'Deemo')!.id
+      store.setProject(deemoId, {
+        google: { ...store.get().projects.find(p => p.id === deemoId)!.google, accountEmail: 'other@example.com', token: 'other-token' },
+      })
+      // Now refresh Default's Google token — should sync to Cytus but not Deemo.
+      const after = store.setProject(defaultId, {
+        google: { ...store.get().projects[0].google, token: 'new-token', tokenExpiresAt: 999 },
+      })
+      const def = after.projects.find(p => p.id === defaultId)!
+      const cyt = after.projects.find(p => p.id === cytusId)!
+      const dee = after.projects.find(p => p.id === deemoId)!
+      expect(def.google.token).toBe('new-token')
+      expect(cyt.google.token).toBe('new-token')
+      expect(dee.google.token).toBe('other-token')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})

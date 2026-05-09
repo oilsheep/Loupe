@@ -549,6 +549,50 @@ function normalizeProjects(raw: Partial<AppSettings>): { projects: ProjectSettin
   return { projects: [defaultProject], activeProjectId: defaultProject.id }
 }
 
+type TokenSyncableService = 'slack' | 'gitlab' | 'google'
+
+function identityKey(service: TokenSyncableService, p: ProjectSettings): string | null {
+  if (service === 'google') return p.google.accountEmail || null
+  if (service === 'slack') return p.slack.oauthTeamId || null
+  if (service === 'gitlab') {
+    const baseUrl = p.gitlab.baseUrl?.trim().replace(/\/+$/, '')
+    if (!baseUrl) return null
+    return `${baseUrl}::${p.gitlab.oauthClientId ?? ''}`
+  }
+  return null
+}
+
+const TOKEN_FIELDS: Record<TokenSyncableService, string[]> = {
+  slack: ['botToken', 'userToken', 'oauthUserScopes', 'oauthConnectedAt', 'refreshError'],
+  gitlab: ['token', 'authType', 'refreshError'],
+  google: ['token', 'refreshToken', 'tokenExpiresAt', 'accountEmail', 'refreshError'],
+}
+
+// Mutates `projects` in place: copies token-related fields from `source` to all
+// other projects sharing the same identity key for the given service.
+function syncProjectToken(
+  projects: ProjectSettings[],
+  source: ProjectSettings,
+  service: TokenSyncableService,
+  patch: Partial<unknown> | undefined,
+): void {
+  if (!patch) return
+  const sourceKey = identityKey(service, source)
+  if (!sourceKey) return
+  const fields = TOKEN_FIELDS[service]
+  for (let i = 0; i < projects.length; i++) {
+    const p = projects[i]
+    if (p.id === source.id) continue
+    if (identityKey(service, p) !== sourceKey) continue
+    const merged: any = { ...p[service] }
+    for (const f of fields) {
+      const v = (source[service] as any)[f]
+      if (v !== undefined) merged[f] = v
+    }
+    projects[i] = { ...p, [service]: merged }
+  }
+}
+
 export class SettingsStore {
   constructor(private filePath: string, private defaults: AppSettings) {}
 
@@ -672,6 +716,111 @@ export class SettingsStore {
     const next = { ...this.get(), recordingPreferences: normalizeRecordingPreferences(recordingPreferences) }
     this.write(next)
     return next
+  }
+
+  setProject(id: string, patch: Partial<Omit<ProjectSettings, 'id' | 'name'>>): AppSettings {
+    const settings = this.get()
+    const idx = settings.projects.findIndex(p => p.id === id)
+    if (idx < 0) throw new Error(`Project not found: ${id}`)
+    const next: ProjectSettings = {
+      ...settings.projects[idx],
+      ...patch,
+      // re-normalize the merged service blocks
+      slack: patch.slack ? normalizeSlack(patch.slack) : settings.projects[idx].slack,
+      gitlab: patch.gitlab ? normalizeGitLab(patch.gitlab) : settings.projects[idx].gitlab,
+      google: patch.google ? normalizeGoogle(patch.google) : settings.projects[idx].google,
+    }
+    const projects = [...settings.projects]
+    projects[idx] = next
+    // Token sync: if the patch updated tokens on a service, propagate to siblings sharing identity key.
+    syncProjectToken(projects, next, 'slack', patch.slack)
+    syncProjectToken(projects, next, 'gitlab', patch.gitlab)
+    syncProjectToken(projects, next, 'google', patch.google)
+    const merged: AppSettings = { ...settings, projects, ...this.legacyMirror(projects, settings.activeProjectId) }
+    this.write(merged)
+    return merged
+  }
+
+  addProject(args: { name: string; duplicateFromId?: string }): AppSettings {
+    const settings = this.get()
+    const trimmedName = args.name.trim().slice(0, 50)
+    if (!trimmedName) throw new Error('Project name cannot be empty')
+    if (settings.projects.some(p => p.name === trimmedName)) {
+      throw new Error(`Project already exists: ${trimmedName}`)
+    }
+    const newId = randomUUID()
+    let newProject: ProjectSettings
+    if (args.duplicateFromId) {
+      const source = settings.projects.find(p => p.id === args.duplicateFromId)
+      if (!source) throw new Error(`Source project not found: ${args.duplicateFromId}`)
+      newProject = {
+        ...JSON.parse(JSON.stringify(source)),  // deep copy including OAuth tokens
+        id: newId,
+        name: trimmedName,
+      }
+    } else {
+      newProject = {
+        id: newId,
+        name: trimmedName,
+        slack: normalizeSlack(undefined),
+        gitlab: normalizeGitLab(undefined),
+        google: normalizeGoogle(undefined),
+      }
+    }
+    const projects = [...settings.projects, newProject]
+    const merged: AppSettings = { ...settings, projects, activeProjectId: newId, ...this.legacyMirror(projects, newId) }
+    this.write(merged)
+    return merged
+  }
+
+  renameProject(id: string, newName: string): AppSettings {
+    const settings = this.get()
+    const trimmed = newName.trim().slice(0, 50)
+    if (!trimmed) throw new Error('Project name cannot be empty')
+    const target = settings.projects.find(p => p.id === id)
+    if (!target) throw new Error(`Project not found: ${id}`)
+    if (settings.projects.some(p => p.id !== id && p.name === trimmed)) {
+      throw new Error(`Project already exists: ${trimmed}`)
+    }
+    const projects = settings.projects.map(p => p.id === id ? { ...p, name: trimmed } : p)
+    const merged: AppSettings = { ...settings, projects, ...this.legacyMirror(projects, settings.activeProjectId) }
+    this.write(merged)
+    return merged
+  }
+
+  deleteProject(id: string): AppSettings {
+    const settings = this.get()
+    if (settings.projects.length <= 1) {
+      throw new Error('Cannot delete the last project; at least one must remain')
+    }
+    const idx = settings.projects.findIndex(p => p.id === id)
+    if (idx < 0) throw new Error(`Project not found: ${id}`)
+    const projects = settings.projects.filter(p => p.id !== id)
+    const activeProjectId = settings.activeProjectId === id ? projects[0].id : settings.activeProjectId
+    const merged: AppSettings = { ...settings, projects, activeProjectId, ...this.legacyMirror(projects, activeProjectId) }
+    this.write(merged)
+    return merged
+  }
+
+  setActiveProject(id: string): AppSettings {
+    const settings = this.get()
+    if (!settings.projects.some(p => p.id === id)) throw new Error(`Project not found: ${id}`)
+    const merged: AppSettings = { ...settings, activeProjectId: id, ...this.legacyMirror(settings.projects, id) }
+    this.write(merged)
+    return merged
+  }
+
+  // Keep top-level slack/gitlab/google/etc. in sync with the active project.
+  // Removed in Task 5 once all consumers read from projects[].
+  private legacyMirror(projects: ProjectSettings[], activeProjectId: string): Pick<AppSettings, 'slack' | 'gitlab' | 'google' | 'publishTemplates' | 'markerFieldPresets'> {
+    const active = projects.find(p => p.id === activeProjectId) ?? projects[0]
+    return {
+      slack: active.slack,
+      gitlab: active.gitlab,
+      google: active.google,
+      publishTemplates: active.publishTemplates,
+      markerFieldPresets: active.markerFieldPresets,
+    }
   }
 
   private writeListeners: Array<(settings: AppSettings) => void> = []
