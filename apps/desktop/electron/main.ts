@@ -328,20 +328,18 @@ app.whenReady().then(async () => {
   const startupUrls = [...pendingProtocolUrls.splice(0), ...process.argv.filter(arg => arg.startsWith('loupe://'))]
   for (const url of startupUrls) handleDeepLink(url)
   applyHotkey()
+
+  // macOS: Dock-icon click reopens the main window after the user closed
+  // it with the red X. window-all-closed unregistered globalShortcut, so
+  // re-apply the hotkeys here too.
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow().then(applyHotkey).catch(err => console.error(err))
+    }
+  })
 }).catch((err) => { console.error(err); app.quit() })
 
 app.on('window-all-closed', () => {
   globalShortcut.unregisterAll()
   if (process.platform !== 'darwin') app.quit()
-})
-
-// macOS: clicking the Dock icon (or activating from the menubar) reopens
-// the main window after the user closed it with the red X. Without this
-// the only way back into the app is Cmd+Q plus relaunch. Hotkeys are not
-// re-registered here (window-all-closed already unregistered them); user
-// would relaunch fully to get globalShortcut back.
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void createWindow().catch(err => console.error(err))
-  }
 })

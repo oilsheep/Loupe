@@ -41,6 +41,15 @@ export function Home() {
     try {
       const result = await api.app.checkForUpdates()
       setUpdateCheck(result)
+      // Drop pending electron-updater state when the channel no longer
+      // advertises this version (e.g. after a rollback) so the user can't
+      // trigger an install of a withdrawn build.
+      setUpdateEvent(prev => {
+        if (!prev) return prev
+        const stale = !result.updateAvailable
+          || (result.latestVersion !== undefined && prev.latestVersion !== result.latestVersion)
+        return stale ? null : prev
+      })
     } catch (err) {
       if (showErrors) {
         setUpdateCheck({
