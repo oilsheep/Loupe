@@ -137,6 +137,20 @@ build:win:
     policy: pull
   interruptible: false
 
+rollback:update-channel:
+  stage: release
+  image: alpine:3.21
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "release"
+      when: manual
+      allow_failure: true
+  variables:
+    ROLLBACK_VERSION: ""
+  before_script:
+    - apk add --no-cache curl python3 bash
+  script:
+    - sh scripts/gitlab-ci-rollback-update-channel.sh
+
 release:gitlab:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
