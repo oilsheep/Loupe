@@ -412,4 +412,22 @@ describe('multi-project migration', () => {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
+
+  it('persists the migrated projects[] so UUIDs are stable across get() calls', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const filePath = join(tmp, 'settings.json')
+      writeFileSync(filePath, JSON.stringify({
+        slack: { botToken: 'xoxb-legacy', channelId: 'C1' },
+        gitlab: { baseUrl: 'https://gitlab.rayark.com' },
+        google: { token: 'g-token' },
+      }))
+      const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
+      const first = store.get().projects[0].id
+      const second = store.get().projects[0].id
+      expect(second).toBe(first)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
 })

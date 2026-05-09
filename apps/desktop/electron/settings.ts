@@ -556,11 +556,12 @@ export class SettingsStore {
     if (!existsSync(this.filePath)) return this.defaults
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings>
+      const wasLegacy = !Array.isArray(raw.projects)
       const slack = normalizeSlack(raw.slack)
       const gitlab = normalizeGitLab(raw.gitlab)
       const google = normalizeGoogle(raw.google)
       const { projects, activeProjectId } = normalizeProjects(raw)
-      return {
+      const next: AppSettings = {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
         locale: normalizeLocale(raw.locale),
@@ -577,6 +578,11 @@ export class SettingsStore {
         projects,
         activeProjectId,
       }
+      if (wasLegacy) {
+        // Persist the one-time legacy migration so projects[0].id is stable across get() calls.
+        this.write(next)
+      }
+      return next
     } catch {
       return this.defaults
     }
