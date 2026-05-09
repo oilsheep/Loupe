@@ -75,6 +75,9 @@ build:mac:
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
   script:
     - ./start-dev.sh build
+    # Stable filename for the GitLab Release direct-download link. Original
+    # version-suffixed file is kept for auto-updater consumers.
+    - cp "apps/desktop/dist/"*"-arm64.dmg" apps/desktop/dist/loupe-macos-arm64.dmg
   artifacts:
     name: "loupe-macos-$CI_COMMIT_SHORT_SHA"
     paths:
@@ -103,6 +106,8 @@ build:win:
     - pnpm install --frozen-lockfile
   script:
     - pnpm --dir apps/desktop dist:win
+    # Stable filename for the GitLab Release direct-download link.
+    - cp apps/desktop/dist/*Setup*.exe apps/desktop/dist/loupe-windows-x64.exe
   artifacts:
     name: "loupe-windows-$CI_COMMIT_SHORT_SHA"
     paths:
@@ -148,9 +153,9 @@ release:gitlab:
       .exe is unsigned (matches upstream's GitHub Actions output).
     assets:
       links:
-        - name: "macOS (arm64) — DMG + zip"
-          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build:mac"
+        - name: "macOS (arm64) — DMG"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/apps/desktop/dist/loupe-macos-arm64.dmg?job=build:mac"
           link_type: package
-        - name: "Windows (x64) — installer + zip"
-          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build:win"
+        - name: "Windows (x64) — Installer"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/apps/desktop/dist/loupe-windows-x64.exe?job=build:win"
           link_type: package
