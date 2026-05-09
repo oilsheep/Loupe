@@ -73,6 +73,7 @@ build:mac:
     - eval "$(fnm env)"
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
+    - pnpm install --frozen-lockfile
   script:
     # Equivalent to ./start-dev.sh build, but inlined so we can pass
     # -c.mac.notarize=false. start-dev.sh hard-requires notarize credentials
