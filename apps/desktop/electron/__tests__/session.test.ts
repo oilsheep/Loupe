@@ -52,7 +52,7 @@ describe('SessionManager', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'sess-'))
-    paths = createPaths(root)
+    paths = createPaths({ configRoot: root, sessionsRoot: root })
     paths.ensureRoot()
     db = openDb(paths.dbFile())
     stubs = makeStubs()

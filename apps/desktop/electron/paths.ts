@@ -1,8 +1,14 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
+export interface AppRoots {
+  configRoot: string    // settings.json + meta.sqlite live here
+  sessionsRoot: string  // sessions/<id>/ live here
+}
+
 export interface Paths {
-  root(): string
+  configRoot(): string
+  sessionsRoot(): string
   dbFile(): string
   settingsFile(): string
   sessionDir(sessionId: string): string
@@ -24,23 +30,24 @@ export interface Paths {
   ensureSessionDirs(sessionId: string): void
 }
 
-export function createPaths(root: string): Paths {
-  // Capture in closure so methods are safe to destructure (`const { ensureSessionDirs } = paths`).
-  const screenshotsDir = (id: string) => join(root, 'sessions', id, 'screenshots')
-  const logcatDir      = (id: string) => join(root, 'sessions', id, 'logcat')
-  const audioDir       = (id: string) => join(root, 'sessions', id, 'audio')
-  const clipsDir       = (id: string) => join(root, 'sessions', id, 'clips')
+export function createPaths(roots: AppRoots): Paths {
+  const { configRoot, sessionsRoot } = roots
+  const screenshotsDir = (id: string) => join(sessionsRoot, 'sessions', id, 'screenshots')
+  const logcatDir      = (id: string) => join(sessionsRoot, 'sessions', id, 'logcat')
+  const audioDir       = (id: string) => join(sessionsRoot, 'sessions', id, 'audio')
+  const clipsDir       = (id: string) => join(sessionsRoot, 'sessions', id, 'clips')
   return {
-    root: () => root,
-    dbFile: () => join(root, 'meta.sqlite'),
-    settingsFile: () => join(root, 'settings.json'),
-    sessionDir: (id) => join(root, 'sessions', id),
-    projectFile: (id) => join(root, 'sessions', id, `${id}.loupe`),
-    videoFile: (id) => join(root, 'sessions', id, 'video.mp4'),
-    pcVideoFile: (id) => join(root, 'sessions', id, 'pc-recording.webm'),
-    micAudioFile: (id) => join(root, 'sessions', id, 'session-mic.webm'),
-    clicksFile: (id) => join(root, 'sessions', id, 'clicks.jsonl'),
-    telemetryFile: (id) => join(root, 'sessions', id, 'telemetry.jsonl'),
+    configRoot: () => configRoot,
+    sessionsRoot: () => sessionsRoot,
+    dbFile: () => join(configRoot, 'meta.sqlite'),
+    settingsFile: () => join(configRoot, 'settings.json'),
+    sessionDir: (id) => join(sessionsRoot, 'sessions', id),
+    projectFile: (id) => join(sessionsRoot, 'sessions', id, `${id}.loupe`),
+    videoFile: (id) => join(sessionsRoot, 'sessions', id, 'video.mp4'),
+    pcVideoFile: (id) => join(sessionsRoot, 'sessions', id, 'pc-recording.webm'),
+    micAudioFile: (id) => join(sessionsRoot, 'sessions', id, 'session-mic.webm'),
+    clicksFile: (id) => join(sessionsRoot, 'sessions', id, 'clicks.jsonl'),
+    telemetryFile: (id) => join(sessionsRoot, 'sessions', id, 'telemetry.jsonl'),
     screenshotsDir,
     screenshotFile: (id, bugId) => join(screenshotsDir(id), `${bugId}.png`),
     logcatDir,
@@ -49,7 +56,10 @@ export function createPaths(root: string): Paths {
     audioFile: (id, bugId) => join(audioDir(id), `${bugId}.webm`),
     clipsDir,
     clipFile: (id, bugId) => join(clipsDir(id), `${bugId}.mp4`),
-    ensureRoot: () => { mkdirSync(root, { recursive: true }) },
+    ensureRoot: () => {
+      mkdirSync(configRoot, { recursive: true })
+      mkdirSync(sessionsRoot, { recursive: true })
+    },
     ensureSessionDirs: (id) => {
       mkdirSync(screenshotsDir(id), { recursive: true })
       mkdirSync(logcatDir(id),      { recursive: true })
@@ -59,7 +69,22 @@ export function createPaths(root: string): Paths {
   }
 }
 
-/** Default root: %APPDATA%/qa-tool. Resolved via Electron `app.getPath('userData')` in main.ts. */
-export function defaultRoot(userDataDir: string): string {
-  return join(userDataDir, 'qa-tool')
+interface ResolveOpts {
+  platform: NodeJS.Platform
+  isPackaged: boolean
+  userData: string
+  movies: string
+  exeDir: string
+  devRoot: string
+}
+
+export function resolveAppRoots(opts: ResolveOpts): AppRoots {
+  if (!opts.isPackaged) {
+    return { configRoot: opts.devRoot, sessionsRoot: opts.devRoot }
+  }
+  if (opts.platform === 'darwin') {
+    return { configRoot: opts.userData, sessionsRoot: join(opts.movies, 'Loupe') }
+  }
+  const exeRecordings = join(opts.exeDir, 'recordings')
+  return { configRoot: exeRecordings, sessionsRoot: exeRecordings }
 }

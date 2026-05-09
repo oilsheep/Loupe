@@ -8,7 +8,7 @@ import { Scrcpy } from './scrcpy'
 import { LogcatBuffer } from './logcat'
 import { SessionManager } from './session'
 import { openDb } from './db'
-import { createPaths, defaultRoot } from './paths'
+import { createPaths, resolveAppRoots } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
@@ -215,16 +215,19 @@ app.whenReady().then(async () => {
     })
   })
 
-  // Recordings always live next to the app — never in %APPDATA% — so QA can browse
-  // them as plain files without hunting for hidden user-data folders.
-  //   Dev (electron-vite):  <repo>/recordings/        (__dirname = <repo>/apps/desktop/out/main)
-  //   Packaged (.exe):      <install-dir>/recordings/ (next to the exe)
-  // `defaultRoot(userDataDir)` is retained as a fallback helper but no longer used by main.
-  const root = app.isPackaged
-    ? join(dirname(app.getPath('exe')), 'recordings')
-    : join(__dirname, '..', '..', '..', '..', 'recordings')
-  console.log(`Loupe: session data root = ${root}`)
-  const paths = createPaths(root); paths.ensureRoot()
+  // Settings + DB live in `configRoot`; recordings live in `sessionsRoot`.
+  // On darwin packaged these split (userData + ~/Movies/Loupe); on every other
+  // platform-mode they collapse to the same directory.
+  const roots = resolveAppRoots({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    userData: app.getPath('userData'),
+    movies: app.getPath('videos'),  // Electron's 'videos' === ~/Movies on macOS
+    exeDir: dirname(app.getPath('exe')),
+    devRoot: join(__dirname, '..', '..', '..', '..', 'recordings'),
+  })
+  console.log(`Loupe: configRoot=${roots.configRoot} sessionsRoot=${roots.sessionsRoot}`)
+  const paths = createPaths(roots); paths.ensureRoot()
   const settings = new SettingsStore(paths.settingsFile(), {
     exportRoot: join(app.getPath('videos'), 'Loupe'),
     hotkeys: DEFAULT_HOTKEYS,
