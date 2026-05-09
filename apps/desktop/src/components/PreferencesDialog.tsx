@@ -1042,6 +1042,14 @@ export function PreferencesDialog({
                     </button>
                   )}
                 </div>
+                {google.refreshError ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                    <span className="text-xs text-amber-300">{t('preferences.googleRefreshFailed')}</span>
+                    <button type="button" onClick={onConnectGoogleOAuth} disabled={connectingGoogleOAuth || !googleHasOAuthCredentials} className="rounded bg-amber-700 px-2.5 py-1.5 text-xs text-white hover:bg-amber-600 disabled:opacity-50">
+                      {t('preferences.reconnectGoogle')}
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <label className="min-w-0 text-xs text-zinc-500">

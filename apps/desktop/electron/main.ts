@@ -13,6 +13,8 @@ import { createPaths, resolveAppRoots } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
+import { refreshAllExpiringTokens, type RefreshDeps } from './token-refresh'
+import { refreshGoogleAccessToken } from './google-publisher'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { HotkeySettings, ProjectSettings } from '@shared/types'
 
@@ -351,6 +353,35 @@ app.whenReady().then(async () => {
   const startupUrls = [...pendingProtocolUrls.splice(0), ...process.argv.filter(arg => arg.startsWith('loupe://'))]
   for (const url of startupUrls) handleDeepLink(url)
   applyHotkey()
+
+  // Proactive Google token refresh: keep refresh tokens warm so the 6-month
+  // inactivity timer never fires. Sweeps every project's Google account at
+  // startup and on a 50-minute interval. Failures land on
+  // project.google.refreshError; the Preferences dialog surfaces a Reconnect
+  // button when it's set.
+  const refreshDeps: RefreshDeps = {
+    refreshGoogle: async ({ refreshToken, accountEmail }) => {
+      const target = settings.get().projects.find(p => p.google.accountEmail === accountEmail)
+      if (!target) throw new Error(`No project found for accountEmail: ${accountEmail}`)
+      const refreshed = await refreshGoogleAccessToken({
+        ...target.google,
+        refreshToken,
+        // Force a refresh by zeroing the cached expiry; otherwise the helper
+        // returns early when the access token still has time left, but the
+        // sweep's whole point is to roll forward before that happens.
+        tokenExpiresAt: 0,
+      })
+      return {
+        token: refreshed.token,
+        tokenExpiresAt: refreshed.tokenExpiresAt ?? Date.now() + 3600_000,
+        refreshToken: refreshed.refreshToken,
+      }
+    },
+  }
+  void refreshAllExpiringTokens(settings, refreshDeps).catch(err => console.warn('startup token refresh failed:', err))
+  setInterval(() => {
+    void refreshAllExpiringTokens(settings, refreshDeps).catch(err => console.warn('periodic token refresh failed:', err))
+  }, 50 * 60 * 1000)
 
   // macOS: Dock-icon click reopens the main window after the user closed
   // it with the red X. window-all-closed unregistered globalShortcut, so
