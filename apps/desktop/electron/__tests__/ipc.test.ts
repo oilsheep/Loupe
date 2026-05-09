@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +34,7 @@ vi.mock('electron-updater', () => ({
 }))
 
 import { buildMacAvfoundationInputName, extractIosApps, gdigrabWindowInput, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
+import { _resetBundledInstancesCacheForTests, _setBundledInstancesRawForTests, findBundledOAuthInstance } from '../gitlab-oauth-config'
 import type { PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
@@ -132,5 +133,27 @@ describe('extractIosApps', () => {
       { bundleId: 'com.pinkcore.ig', name: 'CursedBlossom' },
       { bundleId: 'com.apple.mobilesafari', name: 'Safari' },
     ])
+  })
+})
+
+describe('gitlab oauth bundled fallback', () => {
+  beforeEach(() => {
+    _setBundledInstancesRawForTests('[{"url":"https://gitlab.rayark.com","clientId":"BUNDLED_ID"}]')
+  })
+  afterEach(() => {
+    _resetBundledInstancesCacheForTests()
+  })
+
+  it('uses the bundled clientId when settings.oauthClientId is empty and baseUrl matches', () => {
+    // Lightweight assertion: confirm findBundledOAuthInstance would resolve
+    // for the test baseUrl. The full OAuth roundtrip is exercised in manual
+    // verification (Task 5) since it requires the electron protocol handler.
+    expect(findBundledOAuthInstance('https://gitlab.rayark.com')).toEqual({
+      url: 'https://gitlab.rayark.com', clientId: 'BUNDLED_ID',
+    })
+  })
+
+  it('returns no bundled match for an unknown baseUrl', () => {
+    expect(findBundledOAuthInstance('https://gitlab.example.com')).toBeUndefined()
   })
 })

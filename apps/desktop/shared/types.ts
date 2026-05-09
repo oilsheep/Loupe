@@ -491,6 +491,7 @@ export interface DesktopApi {
     setGitLab(settings: GitLabPublishSettings):                      Promise<AppSettings>
     connectGitLabOAuth(settings: GitLabPublishSettings):              Promise<AppSettings>
     cancelGitLabOAuth():                                             Promise<void>
+    getBundledGitLabOAuthInstances():                                Promise<Array<{ url: string; clientId: string }>>
     listGitLabProjects(settings: GitLabPublishSettings):              Promise<GitLabProject[]>
     setGoogle(settings: GooglePublishSettings):                       Promise<AppSettings>
     connectGoogleOAuth(settings: GooglePublishSettings):              Promise<AppSettings>

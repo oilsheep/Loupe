@@ -91,6 +91,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       setGitLab: vi.fn().mockImplementation((nextGitLab) => Promise.resolve({ ...settingsWithOptions, gitlab: nextGitLab })) as any,
       connectGitLabOAuth: vi.fn() as any,
       cancelGitLabOAuth: vi.fn() as any,
+      getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]) as any,
       listGitLabProjects: vi.fn().mockResolvedValue([{ id: 7, name: 'App', nameWithNamespace: 'QA / App', pathWithNamespace: 'qa/app', webUrl: 'https://gitlab.example.com/qa/app' }]) as any,
       setGoogle: vi.fn() as any,
       connectGoogleOAuth: vi.fn() as any,

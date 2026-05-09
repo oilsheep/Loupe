@@ -31,6 +31,7 @@ import { resolveBundledTool, withToolPath } from './tool-paths'
 import { MacSystemAudioCapture } from './macos-system-audio'
 import { checkForAppUpdates } from './app-updates'
 import { configureElectronUpdater, downloadElectronUpdate, installElectronUpdate } from './electron-updates'
+import { findBundledOAuthInstance, getBundledOAuthInstances } from './gitlab-oauth-config'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -103,6 +104,7 @@ export const CHANNEL = {
   settingsSetGitLab:       'settings:setGitLab',
   settingsConnectGitLabOAuth:'settings:connectGitLabOAuth',
   settingsCancelGitLabOAuth:'settings:cancelGitLabOAuth',
+  settingsGetBundledGitLabOAuthInstances:'settings:getBundledGitLabOAuthInstances',
   settingsListGitLabProjects:'settings:listGitLabProjects',
   settingsSetGoogle:       'settings:setGoogle',
   settingsConnectGoogleOAuth:'settings:connectGoogleOAuth',
@@ -470,10 +472,15 @@ function base64Url(buffer: Buffer): string {
 async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<string> {
   gitlabOAuthCancel?.()
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
-  const clientId = settings.oauthClientId?.trim() || ''
+  if (!baseUrl) throw new Error('GitLab base URL is missing')
+  // User-entered clientId wins; otherwise fall back to a build-bundled client
+  // for this GitLab instance. Bundled apps are PKCE-only public clients, so
+  // there is no bundled secret — the existing optional-secret token-exchange
+  // body below is unchanged.
+  const bundled = findBundledOAuthInstance(baseUrl)
+  const clientId = settings.oauthClientId?.trim() || bundled?.clientId || ''
   const clientSecret = settings.oauthClientSecret?.trim() || ''
   const redirectUri = DEFAULT_GITLAB_OAUTH_REDIRECT_URI
-  if (!baseUrl) throw new Error('GitLab base URL is missing')
   if (!clientId) throw new Error('GitLab OAuth client ID is missing')
 
   const redirect = new URL(redirectUri)
@@ -2378,6 +2385,9 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsCancelGitLabOAuth, async () => {
     gitlabOAuthCancel?.()
     gitlabOAuthCancel = null
+  })
+  ipcMain.handle(CHANNEL.settingsGetBundledGitLabOAuthInstances, async () => {
+    return getBundledOAuthInstances()
   })
   ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, gitlab: GitLabPublishSettings) => {
     return fetchGitLabProjects(gitlab)

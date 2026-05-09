@@ -78,6 +78,7 @@ const api: DesktopApi = {
     setGitLab:         (settings) => ipcRenderer.invoke(CHANNEL.settingsSetGitLab, settings),
     connectGitLabOAuth: (settings) => ipcRenderer.invoke(CHANNEL.settingsConnectGitLabOAuth, settings),
     cancelGitLabOAuth: () => ipcRenderer.invoke(CHANNEL.settingsCancelGitLabOAuth),
+    getBundledGitLabOAuthInstances: () => ipcRenderer.invoke(CHANNEL.settingsGetBundledGitLabOAuthInstances),
     listGitLabProjects: (settings) => ipcRenderer.invoke(CHANNEL.settingsListGitLabProjects, settings),
     setGoogle:         (settings) => ipcRenderer.invoke(CHANNEL.settingsSetGoogle, settings),
     connectGoogleOAuth: (settings) => ipcRenderer.invoke(CHANNEL.settingsConnectGoogleOAuth, settings),
