@@ -18,17 +18,25 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
   const { t } = useI18n()
   const missingCount = missingTools.length
   const updateAvailable = Boolean(updateCheck?.updateAvailable)
-  const downloading = updateEvent?.phase === 'downloading'
-  const downloaded = updateEvent?.phase === 'downloaded'
+  const phase = updateEvent?.phase
+  const downloading = phase === 'downloading'
+  const downloaded = phase === 'downloaded'
+  const checkingDownload = phase === 'checking' && updateAvailable
+  const errored = phase === 'error'
+
   const updateButtonText = downloaded
     ? 'Restart to install'
     : downloading
       ? `Downloading ${Math.round(updateEvent?.percent ?? 0)}%`
-      : updateAvailable
-        ? `Download v${updateCheck?.latestVersion}`
-        : checkingForUpdates
-          ? 'Checking...'
-          : 'Check updates'
+      : checkingDownload
+        ? 'Preparing...'
+        : errored
+          ? `Retry v${updateCheck?.latestVersion}`
+          : updateAvailable
+            ? `Download v${updateCheck?.latestVersion}`
+            : checkingForUpdates
+              ? 'Checking...'
+              : 'Check updates'
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3">
@@ -43,7 +51,15 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
             onClick={downloaded ? onInstallUpdate : onDownloadUpdate}
             disabled={downloading}
             className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
-            title={downloaded ? 'Restart Loupe and install the downloaded update' : updateCheck?.assetName ? `Download ${updateCheck.assetName}` : 'Download the latest Loupe release'}
+            title={
+              downloaded
+                ? 'Restart Loupe and install the downloaded update'
+                : errored
+                  ? `Update failed: ${updateEvent?.message ?? 'unknown error'}. Click to retry.`
+                  : updateCheck?.assetName
+                    ? `Download ${updateCheck.assetName}`
+                    : 'Download the latest Loupe release'
+            }
           >
             {updateButtonText}
           </button>
@@ -57,6 +73,11 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
           >
             {updateButtonText}
           </button>
+        )}
+        {errored && updateEvent?.message && (
+          <span className="ml-1 max-w-[200px] truncate text-xs text-red-300" title={updateEvent.message}>
+            {updateEvent.message}
+          </span>
         )}
         <button
           type="button"

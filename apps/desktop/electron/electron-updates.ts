@@ -2,6 +2,16 @@ import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { AppUpdateEvent } from '@shared/types'
 
+// Pipe electron-updater's internal log messages to console + the app's update
+// event stream. Without this, generic-provider failures (URL credentials, auth
+// errors, signing mismatches) are completely silent on macOS.
+autoUpdater.logger = {
+  info: (...args: any[]) => console.log('[electron-updater]', ...args),
+  warn: (...args: any[]) => console.warn('[electron-updater]', ...args),
+  error: (...args: any[]) => console.error('[electron-updater]', ...args),
+  debug: (...args: any[]) => console.debug('[electron-updater]', ...args),
+}
+
 let configured = false
 let latestVersion: string | undefined
 
@@ -47,9 +57,19 @@ export function configureElectronUpdater(emit: (event: AppUpdateEvent) => void):
 export async function downloadElectronUpdate(): Promise<void> {
   if (!app.isPackaged) throw new Error('Automatic update install is only available in packaged builds.')
   autoUpdater.autoDownload = false
-  const result = await autoUpdater.checkForUpdates()
-  if (!result?.isUpdateAvailable) throw new Error('No update is available.')
-  latestVersion = result.updateInfo.version
+  // electron-updater requires checkForUpdates() to populate internal state before downloadUpdate() will work.
+  // We do call it once here (fresh state, since the custom check in app-updates.ts is a separate code path),
+  // but with a hard timeout so we don't hang silently if the generic provider misbehaves.
+  const checkResult = await Promise.race([
+    autoUpdater.checkForUpdates(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Update check timed out after 30 seconds. The release channel may be unreachable; check your network or try again.')), 30_000),
+    ),
+  ])
+  if (!checkResult?.isUpdateAvailable) {
+    throw new Error('electron-updater could not confirm an update is available. The release channel may have been rolled back.')
+  }
+  latestVersion = checkResult.updateInfo.version
   await autoUpdater.downloadUpdate()
 }
 
