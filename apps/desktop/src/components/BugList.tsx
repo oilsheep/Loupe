@@ -2281,6 +2281,18 @@ function MarkerCustomFieldsEditor({
     return presets.find(preset => preset.key.trim() === key.trim())
   }
 
+  function presetDefaultText(preset: MarkerFieldPreset | undefined): string {
+    if (!preset?.defaultValue || Array.isArray(preset.defaultValue)) return ''
+    return preset.defaultValue
+  }
+
+  function updateNewKey(value: string) {
+    setNewKey(value)
+    const preset = presetFor(value)
+    if (!preset) return
+    setNewValue(presetDefaultText(preset))
+  }
+
   function addField() {
     const key = newKey.trim()
     if (!key) return
@@ -2303,7 +2315,9 @@ function MarkerCustomFieldsEditor({
       <div className="space-y-1">
         {draft.map((field, index) => {
           const preset = presetFor(field.key)
-          const optionsId = `custom-field-options-${field.key.replace(/[^a-z0-9_-]+/gi, '-')}-${index}`
+          const fieldText = fieldValueText(field.value)
+          const valueOptions = preset?.options ?? []
+          const hasValueOptions = !preset?.multi && valueOptions.length > 0
           return (
             <div key={`${field.key}-${index}`} className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)_auto] gap-1">
               <input
@@ -2327,19 +2341,25 @@ function MarkerCustomFieldsEditor({
                   />
                 ) : (
                   <>
-                    <input
-                      value={fieldValueText(field.value)}
-                      list={preset?.options?.length ? optionsId : undefined}
-                      onChange={(e) => persistDraft(draft.map((item, i) => i === index ? { ...item, value: e.target.value } : item))}
-                      onBlur={() => commit()}
-                      placeholder="value"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-                    />
-                    {preset?.options?.length ? (
-                      <datalist id={optionsId}>
-                        {preset.options.map(option => <option key={option} value={option} />)}
-                      </datalist>
-                    ) : null}
+                    {hasValueOptions ? (
+                      <select
+                        value={fieldText}
+                        onChange={(e) => persistDraft(draft.map((item, i) => i === index ? { ...item, value: e.target.value } : item))}
+                        onBlur={() => commit()}
+                        className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                      >
+                        {fieldText && !valueOptions.includes(fieldText) ? <option value={fieldText}>{fieldText}</option> : null}
+                        {valueOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        value={fieldText}
+                        onChange={(e) => persistDraft(draft.map((item, i) => i === index ? { ...item, value: e.target.value } : item))}
+                        onBlur={() => commit()}
+                        placeholder="value"
+                        className="w-full rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+                      />
+                    )}
                   </>
                 )}
               </div>
@@ -2358,22 +2378,38 @@ function MarkerCustomFieldsEditor({
           <input
             value={newKey}
             list="marker-custom-field-keys"
-            onChange={(e) => setNewKey(e.target.value)}
+            onChange={(e) => updateNewKey(e.target.value)}
             placeholder="key"
             className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
           />
-          <input
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                addField()
-              }
-            }}
-            placeholder="value"
-            className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-          />
+          {(() => {
+            const preset = presetFor(newKey)
+            const valueOptions = !preset?.multi ? preset?.options ?? [] : []
+            return valueOptions.length > 0 ? (
+              <select
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                <option value="">value</option>
+                {newValue && !valueOptions.includes(newValue) ? <option value={newValue}>{newValue}</option> : null}
+                {valueOptions.map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+            ) : (
+              <input
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addField()
+                  }
+                }}
+                placeholder="value"
+                className="min-w-0 rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+              />
+            )
+          })()}
           <button type="button" onClick={addField} className="rounded bg-zinc-800 px-2 text-zinc-200 hover:bg-zinc-700" title="Add custom field">
             +
           </button>
