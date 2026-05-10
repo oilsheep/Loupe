@@ -33,9 +33,21 @@ vi.mock('electron-updater', () => ({
   },
 }))
 
-import { buildMacAvfoundationInputName, extractIosApps, gdigrabWindowInput, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath } from '../ipc'
+// electron-updates uses require() internally to load electron-updater, which
+// bypasses the ESM mock above. Mock the wrapper module directly so registerIpc
+// can be exercised in unit tests without spinning up the real autoUpdater.
+vi.mock('../electron-updates', () => ({
+  configureElectronUpdater: vi.fn(),
+  downloadElectronUpdate: vi.fn(),
+  installElectronUpdate: vi.fn(),
+  checkForAppUpdates: vi.fn(),
+}))
+
+import { CHANNEL, buildMacAvfoundationInputName, extractIosApps, gdigrabWindowInput, isUnsupportedGdigrabDrawMouseError, parseMacWindowId, parseWindowsWindowHandle, recoverProjectMicAudioPath, registerIpc } from '../ipc'
 import { _resetBundledInstancesCacheForTests, _setBundledInstancesRawForTests, findBundledOAuthInstance } from '../gitlab-oauth-config'
-import type { PcCaptureSource } from '@shared/types'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
+import { ipcMain } from 'electron'
+import type { AppSettings, PcCaptureSource } from '@shared/types'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
   it('detects ffmpeg builds that do not support gdigrab draw_mouse', () => {
@@ -155,5 +167,73 @@ describe('gitlab oauth bundled fallback', () => {
 
   it('returns no bundled match for an unknown baseUrl', () => {
     expect(findBundledOAuthInstance('https://gitlab.example.com')).toBeUndefined()
+  })
+})
+
+describe('settings:renameProfile no longer cascades to db.renameSessionProject', () => {
+  // Under the separated Profile/Project concept model, the game label on a
+  // session (Session.project) is independent of the publish-config profile
+  // that recorded it. Renaming a profile must NOT silently rewrite session
+  // game labels. db.renameSessionProject is kept as a tested utility for
+  // future bulk relabel workflows but is no longer called from the IPC path.
+
+  const FALLBACK_DEFAULTS: AppSettings = {
+    exportRoot: '/default',
+    hotkeys: DEFAULT_HOTKEYS,
+    locale: 'system',
+    severities: DEFAULT_SEVERITIES,
+    audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
+    recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
+    mentionIdentities: [],
+    profiles: [{
+      id: 'default-fallback',
+      name: 'OldName',
+      slack: { botToken: '', channelId: '' },
+      gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' },
+      google: { token: '' },
+    }],
+    activeProfileId: 'default-fallback',
+  }
+
+  it('renaming a profile via IPC handler does not call db.renameSessionProject', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-ipc-rename-'))
+    try {
+      const settings = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
+      const id = settings.get().profiles[0].id
+
+      // Capture handlers registered by registerIpc so we can invoke them
+      // directly without spinning up the rest of the Electron lifecycle.
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+      const handleSpy = vi.spyOn(ipcMain, 'handle').mockImplementation(((channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
+        handlers.set(channel, handler)
+      }) as unknown as typeof ipcMain.handle)
+
+      const renameSessionProject = vi.fn()
+      const deps = {
+        adb: {} as never,
+        manager: {} as never,
+        paths: {} as never,
+        runner: {} as never,
+        db: { renameSessionProject } as never,
+        settings,
+        getWindow: () => null,
+        setHotkeyEnabled: () => {},
+        setHotkeys: () => {},
+      }
+
+      try {
+        registerIpc(deps)
+        const handler = handlers.get(CHANNEL.settingsRenameProfile)
+        expect(handler).toBeDefined()
+        await handler!({} as unknown, id, 'NewName')
+        expect(renameSessionProject).not.toHaveBeenCalled()
+        // Sanity: the rename actually applied to settings.
+        expect(settings.get().profiles.find(p => p.id === id)?.name).toBe('NewName')
+      } finally {
+        handleSpy.mockRestore()
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })

@@ -30,6 +30,7 @@ export interface ExportManifest {
     buildVersion: string
     platform?: string
     project?: string
+    profileId?: string | null
     testNote: string
     tester: string
     deviceId: string
@@ -125,6 +126,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
       buildVersion: args.session.buildVersion,
       platform: args.session.platform ?? '',
       project: args.session.project ?? '',
+      profileId: args.session.profileId ?? null,
       testNote: args.session.testNote,
       tester: args.session.tester,
       deviceId: args.session.deviceId,

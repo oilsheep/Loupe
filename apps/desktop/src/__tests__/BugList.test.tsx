@@ -43,8 +43,8 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
   const slack = options.slack ?? { botToken: '', channelId: '' }
   const gitlabSettings = options.gitlab ?? gitlab
   const googleSettings = options.google ?? google
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities, activeProjectId: 'p1', projects: [{ id: 'p1', name: 'Default', slack, gitlab, google, markerFieldPresets: [] }] }
-  const settingsWithOptions = { ...settings, projects: [{ id: 'p1', name: 'Default', slack, gitlab: gitlabSettings, google: googleSettings, markerFieldPresets: [] }] }
+  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities, activeProfileId: 'p1', profiles: [{ id: 'p1', name: 'Default', slack, gitlab, google, markerFieldPresets: [] }] }
+  const settingsWithOptions = { ...settings, profiles: [{ id: 'p1', name: 'Default', slack, gitlab: gitlabSettings, google: googleSettings, markerFieldPresets: [] }] }
   return {
     doctor: vi.fn() as any,
     app: {
@@ -87,8 +87,8 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       setCommonSession: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setRecordingPreferences: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseWhisperModel: vi.fn().mockResolvedValue('') as any,
-      setSlack: vi.fn().mockImplementation((_projectId, nextSlack) => Promise.resolve({ ...settingsWithOptions, projects: [{ ...settingsWithOptions.projects[0], slack: nextSlack }] })) as any,
-      setGitLab: vi.fn().mockImplementation((_projectId, nextGitLab) => Promise.resolve({ ...settingsWithOptions, projects: [{ ...settingsWithOptions.projects[0], gitlab: nextGitLab }] })) as any,
+      setSlack: vi.fn().mockImplementation((_projectId, nextSlack) => Promise.resolve({ ...settingsWithOptions, profiles: [{ ...settingsWithOptions.profiles[0], slack: nextSlack }] })) as any,
+      setGitLab: vi.fn().mockImplementation((_projectId, nextGitLab) => Promise.resolve({ ...settingsWithOptions, profiles: [{ ...settingsWithOptions.profiles[0], gitlab: nextGitLab }] })) as any,
       connectGitLabOAuth: vi.fn() as any,
       cancelGitLabOAuth: vi.fn() as any,
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]) as any,
@@ -111,10 +111,10 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       refreshGitLabUsers: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
-      addProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
-      renameProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
-      deleteProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
-      setActiveProject: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      addProfile: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      renameProfile: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      deleteProfile: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setActiveProfile: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       chooseExportRoot: vi.fn() as any,
     },
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -478,6 +478,147 @@ describe('BugList', () => {
   it('renders thumbnail when bug has screenshotRel', async () => {
     render(<BugList api={fakeApi()} sessionId="s1" bugs={[bug({ screenshotRel: 'screenshots/b1.png' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('thumb-b1')).toBeTruthy())
+  })
+
+  it('shows a Profile dropdown in the export dialog with all profiles', async () => {
+    const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const settings = {
+      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      activeProfileId: 'pA',
+      profiles: [
+        { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
+        { id: 'pB', name: 'Deemo', slack: slackB, gitlab, google, markerFieldPresets: [] },
+      ],
+    }
+    const api = fakeApi()
+    api.settings.get = vi.fn().mockResolvedValue(settings) as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+
+    const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
+    expect(profileSelect.tagName).toBe('SELECT')
+    const options = Array.from(profileSelect.querySelectorAll('option')).map(o => o.textContent)
+    expect(options).toContain('Cytus')
+    expect(options).toContain('Deemo')
+  })
+
+  it('switching the Profile dropdown does not call api.settings.setActiveProfile', async () => {
+    const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const settings = {
+      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      activeProfileId: 'pA',
+      profiles: [
+        { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
+        { id: 'pB', name: 'Deemo', slack: slackB, gitlab, google, markerFieldPresets: [] },
+      ],
+    }
+    const api = fakeApi()
+    api.settings.get = vi.fn().mockResolvedValue(settings) as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+
+    const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
+    fireEvent.change(profileSelect, { target: { value: 'pB' } })
+
+    expect(api.settings.setActiveProfile).not.toHaveBeenCalled()
+  })
+
+  it('publishing after switching the dropdown writes to the override profile, not the global active', async () => {
+    const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const settings = {
+      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      activeProfileId: 'pA',
+      profiles: [
+        { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
+        { id: 'pB', name: 'Deemo', slack: slackB, gitlab, google, markerFieldPresets: [] },
+      ],
+    }
+    const api = fakeApi()
+    api.settings.get = vi.fn().mockResolvedValue(settings) as any
+    api.settings.setSlack = vi.fn().mockImplementation((profileId: string, nextSlack: any) => {
+      const profile = settings.profiles.find(p => p.id === profileId)!
+      const updatedProfile = { ...profile, slack: nextSlack }
+      return Promise.resolve({
+        ...settings,
+        profiles: settings.profiles.map(p => p.id === profileId ? updatedProfile : p),
+      })
+    }) as any
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+
+    const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
+    fireEvent.change(profileSelect, { target: { value: 'pB' } })
+
+    // Now toggle Slack on (pB has slackB connected) and publish
+    await waitFor(() => {
+      const publishToggle = screen.queryByLabelText('Publish') as HTMLInputElement | null
+      expect(publishToggle).toBeTruthy()
+    })
+    const publishToggle = screen.getByLabelText('Publish') as HTMLInputElement
+    fireEvent.click(publishToggle)
+    fireEvent.click(screen.getByTestId('confirm-export'))
+
+    await waitFor(() => expect(api.settings.setSlack).toHaveBeenCalled())
+    // The setSlack write must target pB (the dropdown override), not pA (active).
+    expect((api.settings.setSlack as any).mock.calls[0][0]).toBe('pB')
+  })
+
+  it('does not clobber local Profile dropdown choice when overrideProfile prop reference changes but id is the same', async () => {
+    const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
+    const profileA = { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] }
+    const profileB = { id: 'pB', name: 'Deemo', slack: slackB, gitlab, google, markerFieldPresets: [] }
+    const settings = {
+      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      activeProfileId: 'pA',
+      profiles: [profileA, profileB],
+    }
+    const api = fakeApi()
+    api.settings.get = vi.fn().mockResolvedValue(settings) as any
+    const { rerender } = render(
+      <BugList
+        api={api}
+        sessionId="s1"
+        bugs={[bug()]}
+        selectedBugId={null}
+        onSelect={vi.fn()}
+        onMutated={vi.fn()}
+        tester="Avery"
+        overrideProfile={profileA}
+      />
+    )
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+
+    const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
+    // User manually switches the dropdown from pA → pB.
+    fireEvent.change(profileSelect, { target: { value: 'pB' } })
+    await waitFor(() => expect(profileSelect.value).toBe('pB'))
+
+    // Simulate Draft re-resolving the session (e.g. via reloadSettings or
+    // onAppSettingsUpdated): useMemo recomputes profileLookup.profile and
+    // returns a NEW object reference for pA — same id, fresh object.
+    rerender(
+      <BugList
+        api={api}
+        sessionId="s1"
+        bugs={[bug()]}
+        selectedBugId={null}
+        onSelect={vi.fn()}
+        onMutated={vi.fn()}
+        tester="Avery"
+        overrideProfile={{ ...profileA }}
+      />
+    )
+
+    // The user's pB choice must be preserved despite the new prop reference.
+    expect(profileSelect.value).toBe('pB')
   })
 
   it('renders a collapsible logcat preview when bug has logcatRel', async () => {

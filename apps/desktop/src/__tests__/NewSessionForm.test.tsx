@@ -33,7 +33,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       recordSystemAudio: false,
     },
     mentionIdentities: [],
-    projects: [
+    profiles: [
       {
         id: 'test-project',
         name: 'Default',
@@ -49,7 +49,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
         google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
       },
     ],
-    activeProjectId: 'test-project',
+    activeProfileId: 'test-project',
   }
   const session: Session = {
     id: 's1',
@@ -86,7 +86,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async audioAnalysis => ({ ...settings, audioAnalysis })),
       setRecordingPreferences: vi.fn().mockImplementation(async recordingPreferences => ({ ...settings, recordingPreferences })),
-      setActiveProject: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProjectId: id })),
+      setActiveProfile: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProfileId: id })),
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -207,11 +207,11 @@ describe('NewSessionForm audio trigger settings', () => {
 })
 
 describe('NewSessionForm project dropdown', () => {
-  it('renders an option for every project from settings.projects[]', async () => {
+  it('renders an option for every project from settings.profiles[]', async () => {
     fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
-    const select = await screen.findByTestId('project-select') as HTMLSelectElement
+    const select = await screen.findByTestId('profile-select') as HTMLSelectElement
     await waitFor(() => expect(select.value).toBe('test-project'))
     const options = Array.from(select.querySelectorAll('option')).map(o => o.textContent)
     expect(options).toEqual(['Default', 'Cytus'])
@@ -221,15 +221,68 @@ describe('NewSessionForm project dropdown', () => {
     fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
-    const select = await screen.findByTestId('project-select') as HTMLSelectElement
+    const select = await screen.findByTestId('profile-select') as HTMLSelectElement
     await waitFor(() => expect(select.value).toBe('test-project'))
 
     fireEvent.change(select, { target: { value: 'cytus-project' } })
-    await waitFor(() => expect(fakeApi.settings.setActiveProject).toHaveBeenCalledWith('cytus-project'))
+    await waitFor(() => expect(fakeApi.settings.setActiveProfile).toHaveBeenCalledWith('cytus-project'))
 
     fireEvent.click(screen.getByTestId('start-session'))
     await waitFor(() => {
       expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ project: 'Cytus' }))
+    })
+  })
+})
+
+describe('NewSessionForm — Profile dropdown + Project text input', () => {
+  it('renders Profile dropdown and Project text input as separate fields', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const profileSelect = await screen.findByTestId('profile-select') as HTMLSelectElement
+    const projectInput = await screen.findByTestId('project-input') as HTMLInputElement
+    expect(profileSelect.tagName).toBe('SELECT')
+    expect(projectInput.tagName).toBe('INPUT')
+    expect(profileSelect).not.toBe(projectInput as unknown as HTMLSelectElement)
+  })
+
+  it('switching profile updates Project default unless user has typed', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const profileSelect = await screen.findByTestId('profile-select') as HTMLSelectElement
+    const projectInput = await screen.findByTestId('project-input') as HTMLInputElement
+
+    await waitFor(() => expect(projectInput.value).toBe('Default'))
+
+    fireEvent.change(profileSelect, { target: { value: 'cytus-project' } })
+    await waitFor(() => expect(projectInput.value).toBe('Cytus'))
+
+    fireEvent.change(projectInput, { target: { value: 'CustomLabel' } })
+    fireEvent.change(profileSelect, { target: { value: 'test-project' } })
+    expect(projectInput.value).toBe('CustomLabel')
+
+    // After typing-and-deleting back to the active profile's name, the field
+    // is "clean" again — switching profile should re-autopopulate.
+    fireEvent.change(profileSelect, { target: { value: 'cytus-project' } })
+    fireEvent.change(projectInput, { target: { value: 'Cytus' } })
+    fireEvent.change(profileSelect, { target: { value: 'test-project' } })
+    await waitFor(() => expect(projectInput.value).toBe('Default'))
+  })
+
+  it('Start Recording payload includes profileId and project label', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const projectInput = await screen.findByTestId('project-input') as HTMLInputElement
+    await waitFor(() => expect(projectInput.value).toBe('Default'))
+
+    fireEvent.click(screen.getByTestId('start-session'))
+    await waitFor(() => {
+      expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({
+        profileId: 'test-project',
+        project: 'Default',
+      }))
     })
   })
 })

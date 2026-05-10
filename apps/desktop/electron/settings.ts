@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
@@ -363,7 +363,7 @@ function normalizeMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
   return [...byKey.values()]
 }
 
-function normalizeProjectMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
+function normalizeProfileMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
   const presets = normalizeMarkerFieldPresets(raw)
   return presets.length ? presets : DEFAULT_MARKER_FIELD_PRESETS
 }
@@ -411,7 +411,7 @@ function normalizeRecordingPreferences(raw?: Partial<RecordingPreferences>): Rec
 function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSettings {
   const mode = raw?.mode === 'per-marker-issue' ? 'per-marker-issue' : 'single-issue'
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
-  const authType = raw?.authType === 'oauth' ? 'oauth' : 'pat'
+  const authType = raw?.authType === 'pat' ? 'pat' : 'oauth'
   return {
     baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
@@ -508,28 +508,28 @@ function normalizeSeverities(raw?: Partial<SeveritySettings>): SeveritySettings 
   return out
 }
 
-function normalizeProjectId(raw: unknown): string {
+function normalizeProfileId(raw: unknown): string {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : randomUUID()
 }
 
-function normalizeProjectName(raw: unknown, fallback: string): string {
+function normalizeProfileName(raw: unknown, fallback: string): string {
   if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 50)
   return fallback
 }
 
-function normalizeProject(raw: Partial<ProjectSettings> | undefined, fallbackName: string): ProjectSettings {
+function normalizeProfile(raw: Partial<ProfileSettings> | undefined, fallbackName: string): ProfileSettings {
   return {
-    id: normalizeProjectId(raw?.id),
-    name: normalizeProjectName(raw?.name, fallbackName),
+    id: normalizeProfileId(raw?.id),
+    name: normalizeProfileName(raw?.name, fallbackName),
     slack: normalizeSlack(raw?.slack),
     gitlab: normalizeGitLab(raw?.gitlab),
     google: normalizeGoogle(raw?.google),
     publishTemplates: raw?.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
-    markerFieldPresets: normalizeProjectMarkerFieldPresets(raw?.markerFieldPresets),
+    markerFieldPresets: normalizeProfileMarkerFieldPresets(raw?.markerFieldPresets),
   }
 }
 
-// Used during read of an old settings.json that has top-level slack/gitlab/google but no projects.
+// Used during read of an old settings.json that has top-level slack/gitlab/google but no profiles.
 type LegacyTopLevel = {
   slack?: Partial<SlackPublishSettings>
   gitlab?: Partial<GitLabPublishSettings>
@@ -538,7 +538,7 @@ type LegacyTopLevel = {
   markerFieldPresets?: MarkerFieldPreset[]
 }
 
-function buildDefaultProjectFromLegacy(raw: Partial<AppSettings> & LegacyTopLevel): ProjectSettings {
+function buildDefaultProfileFromLegacy(raw: Partial<AppSettings> & LegacyTopLevel): ProfileSettings {
   return {
     id: randomUUID(),
     name: 'Default',
@@ -546,48 +546,49 @@ function buildDefaultProjectFromLegacy(raw: Partial<AppSettings> & LegacyTopLeve
     gitlab: normalizeGitLab(raw.gitlab),
     google: normalizeGoogle(raw.google),
     publishTemplates: raw.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
-    markerFieldPresets: normalizeProjectMarkerFieldPresets(raw.markerFieldPresets),
+    markerFieldPresets: normalizeProfileMarkerFieldPresets(raw.markerFieldPresets),
   }
 }
 
-export function findProjectById(settings: AppSettings, id: string): ProjectSettings | undefined {
-  return settings.projects.find(p => p.id === id)
+export function findProfileById(settings: AppSettings, id: string): ProfileSettings | undefined {
+  return settings.profiles.find(p => p.id === id)
 }
 
-export function findActiveProject(settings: AppSettings): ProjectSettings {
-  return findProjectById(settings, settings.activeProjectId) ?? settings.projects[0]
+export function findActiveProfile(settings: AppSettings): ProfileSettings {
+  return findProfileById(settings, settings.activeProfileId) ?? settings.profiles[0]
 }
 
-// For IPC handlers writing to a project: find by id, fall back to active if the
+// For IPC handlers writing to a profile: find by id, fall back to active if the
 // id is somehow stale (deleted between write and read). Defensively safe.
-export function findProjectByIdOrActive(settings: AppSettings, id: string): ProjectSettings {
-  return findProjectById(settings, id) ?? findActiveProject(settings)
+export function findProfileByIdOrActive(settings: AppSettings, id: string): ProfileSettings {
+  return findProfileById(settings, id) ?? findActiveProfile(settings)
 }
 
-export function findProjectByName(settings: AppSettings, name: string): ProjectSettings | undefined {
-  return settings.projects.find(p => p.name === name)
+export function findProfileByName(settings: AppSettings, name: string): ProfileSettings | undefined {
+  return settings.profiles.find(p => p.name === name)
 }
 
-// For session resolution: find the project named in the session, or fall back to active.
-export function findProjectForSession(
-  settings: AppSettings,
-  sessionProjectName: string | undefined | null,
-): { project: ProjectSettings; matched: boolean } {
-  if (sessionProjectName) {
-    const direct = findProjectByName(settings, sessionProjectName)
-    if (direct) return { project: direct, matched: true }
-  }
-  return { project: findActiveProject(settings), matched: false }
-}
-
-function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projects: ProjectSettings[]; activeProjectId: string; needsWrite: boolean } {
-  const incoming = Array.isArray(raw.projects) ? raw.projects : []
-  if (incoming.length > 0) {
-    const needsWrite = incoming.some(p => !hasPersistedMarkerFieldPresets((p as Partial<ProjectSettings>).markerFieldPresets))
-    const projects = incoming.map((p, i) => normalizeProject(p as Partial<ProjectSettings>, `Project ${i + 1}`))
+function normalizeProfiles(raw: Partial<AppSettings> & LegacyTopLevel): { profiles: ProfileSettings[]; activeProfileId: string; needsWrite: boolean } {
+  // One-way migration: legacy keys `projects` / `activeProjectId` → `profiles` / `activeProfileId`.
+  // Read accepts either; on the next write, only the new keys are emitted (the in-memory
+  // AppSettings shape only has profiles/activeProfileId), so the legacy keys disappear.
+  const rawProfiles = Array.isArray(raw.profiles)
+    ? raw.profiles
+    : Array.isArray((raw as { projects?: unknown }).projects)
+      ? ((raw as { projects: unknown[] }).projects as Partial<ProfileSettings>[])
+      : []
+  const rawActiveId = typeof raw.activeProfileId === 'string'
+    ? raw.activeProfileId
+    : typeof (raw as { activeProjectId?: unknown }).activeProjectId === 'string'
+      ? (raw as { activeProjectId: string }).activeProjectId
+      : ''
+  const cameFromLegacyKeys = !Array.isArray(raw.profiles) && Array.isArray((raw as { projects?: unknown }).projects)
+  if (rawProfiles.length > 0) {
+    const needsWrite = cameFromLegacyKeys || rawProfiles.some(p => !hasPersistedMarkerFieldPresets((p as Partial<ProfileSettings>).markerFieldPresets))
+    const profiles = rawProfiles.map((p, i) => normalizeProfile(p as Partial<ProfileSettings>, `Profile ${i + 1}`))
     // Enforce uniqueness of name (rename duplicates with suffix)
     const seen = new Set<string>()
-    for (const p of projects) {
+    for (const p of profiles) {
       let candidate = p.name
       let suffix = 2
       while (seen.has(candidate)) {
@@ -596,19 +597,19 @@ function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projec
       p.name = candidate
       seen.add(candidate)
     }
-    const activeId = typeof raw.activeProjectId === 'string' && projects.some(p => p.id === raw.activeProjectId)
-      ? raw.activeProjectId
-      : projects[0].id
-    return { projects, activeProjectId: activeId, needsWrite }
+    const activeId = rawActiveId && profiles.some(p => p.id === rawActiveId)
+      ? rawActiveId
+      : profiles[0].id
+    return { profiles, activeProfileId: activeId, needsWrite }
   }
-  // Legacy migration: build single Default project from top-level fields.
-  const defaultProject = buildDefaultProjectFromLegacy(raw)
-  return { projects: [defaultProject], activeProjectId: defaultProject.id, needsWrite: true }
+  // Legacy migration: build single Default profile from top-level fields.
+  const defaultProfile = buildDefaultProfileFromLegacy(raw)
+  return { profiles: [defaultProfile], activeProfileId: defaultProfile.id, needsWrite: true }
 }
 
 type TokenSyncableService = 'slack' | 'gitlab' | 'google'
 
-function identityKey(service: TokenSyncableService, p: ProjectSettings): string | null {
+function identityKey(service: TokenSyncableService, p: ProfileSettings): string | null {
   if (service === 'google') return p.google.accountEmail || null
   if (service === 'slack') return p.slack.oauthTeamId || null
   if (service === 'gitlab') {
@@ -641,11 +642,11 @@ function cloneIfMutable(v: unknown): unknown {
   return structuredClone(v)
 }
 
-// Mutates `projects` in place: copies token-related fields from `source` to all
-// other projects sharing the same identity key for the given service.
-function syncProjectToken(
-  projects: ProjectSettings[],
-  source: ProjectSettings,
+// Mutates `profiles` in place: copies token-related fields from `source` to all
+// other profiles sharing the same identity key for the given service.
+function syncProfileToken(
+  profiles: ProfileSettings[],
+  source: ProfileSettings,
   service: TokenSyncableService,
   patch: unknown,        // only used for the truthiness check
 ): void {
@@ -654,8 +655,8 @@ function syncProjectToken(
   if (!sourceKey) return
   const ifDefined = TOKEN_FIELDS_COPY_IF_DEFINED[service]
   const always = TOKEN_FIELDS_COPY_ALWAYS[service]
-  for (let i = 0; i < projects.length; i++) {
-    const p = projects[i]
+  for (let i = 0; i < profiles.length; i++) {
+    const p = profiles[i]
     if (p.id === source.id) continue
     if (identityKey(service, p) !== sourceKey) continue
     const merged: any = { ...p[service] }
@@ -673,7 +674,7 @@ function syncProjectToken(
         merged[f] = cloneIfMutable(v)
       }
     }
-    projects[i] = { ...p, [service]: merged }
+    profiles[i] = { ...p, [service]: merged }
   }
 }
 
@@ -684,8 +685,8 @@ export class SettingsStore {
     if (!existsSync(this.filePath)) return this.defaults
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings> & LegacyTopLevel
-      const wasLegacy = !Array.isArray(raw.projects)
-      const { projects, activeProjectId, needsWrite } = normalizeProjects(raw)
+      const wasLegacy = !Array.isArray(raw.profiles)
+      const { profiles, activeProfileId, needsWrite } = normalizeProfiles(raw)
       const next: AppSettings = {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
@@ -695,8 +696,8 @@ export class SettingsStore {
         commonSession: normalizeCommonSession(raw.commonSession),
         recordingPreferences: normalizeRecordingPreferences(raw.recordingPreferences),
         mentionIdentities: normalizeManualMentionIdentities(raw.mentionIdentities),
-        projects,
-        activeProjectId,
+        profiles,
+        activeProfileId,
       }
       if (wasLegacy || needsWrite) {
         // Persist one-time migrations so generated project IDs and default marker
@@ -730,7 +731,7 @@ export class SettingsStore {
 
   refreshMentionIdentities(): AppSettings {
     const current = this.get()
-    const active = findActiveProject(current)
+    const active = findActiveProfile(current)
     const next = { ...current, mentionIdentities: normalizeMentionIdentities(current.mentionIdentities, active.slack, active.gitlab) }
     this.write(next)
     return next
@@ -766,48 +767,48 @@ export class SettingsStore {
     return next
   }
 
-  setProject(id: string, patch: Partial<Omit<ProjectSettings, 'id' | 'name'>>): AppSettings {
+  setProfile(id: string, patch: Partial<Omit<ProfileSettings, 'id' | 'name'>>): AppSettings {
     const settings = this.get()
-    const idx = settings.projects.findIndex(p => p.id === id)
-    if (idx < 0) throw new Error(`Project not found: ${id}`)
-    const next: ProjectSettings = {
-      ...settings.projects[idx],
+    const idx = settings.profiles.findIndex(p => p.id === id)
+    if (idx < 0) throw new Error(`Profile not found: ${id}`)
+    const next: ProfileSettings = {
+      ...settings.profiles[idx],
       ...patch,
       // re-normalize the merged service blocks
-      slack: patch.slack ? normalizeSlack(patch.slack) : settings.projects[idx].slack,
-      gitlab: patch.gitlab ? normalizeGitLab(patch.gitlab) : settings.projects[idx].gitlab,
-      google: patch.google ? normalizeGoogle(patch.google) : settings.projects[idx].google,
+      slack: patch.slack ? normalizeSlack(patch.slack) : settings.profiles[idx].slack,
+      gitlab: patch.gitlab ? normalizeGitLab(patch.gitlab) : settings.profiles[idx].gitlab,
+      google: patch.google ? normalizeGoogle(patch.google) : settings.profiles[idx].google,
     }
-    const projects = [...settings.projects]
-    projects[idx] = next
+    const profiles = [...settings.profiles]
+    profiles[idx] = next
     // Token sync: if the patch updated tokens on a service, propagate to siblings sharing identity key.
-    syncProjectToken(projects, next, 'slack', patch.slack)
-    syncProjectToken(projects, next, 'gitlab', patch.gitlab)
-    syncProjectToken(projects, next, 'google', patch.google)
-    const merged: AppSettings = { ...settings, projects }
+    syncProfileToken(profiles, next, 'slack', patch.slack)
+    syncProfileToken(profiles, next, 'gitlab', patch.gitlab)
+    syncProfileToken(profiles, next, 'google', patch.google)
+    const merged: AppSettings = { ...settings, profiles }
     this.write(merged)
     return merged
   }
 
-  addProject(args: { name: string; duplicateFromId?: string }): AppSettings {
+  addProfile(args: { name: string; duplicateFromId?: string }): AppSettings {
     const settings = this.get()
     const trimmedName = args.name.trim().slice(0, 50)
-    if (!trimmedName) throw new Error('Project name cannot be empty')
-    if (settings.projects.some(p => p.name === trimmedName)) {
-      throw new Error(`Project already exists: ${trimmedName}`)
+    if (!trimmedName) throw new Error('Profile name cannot be empty')
+    if (settings.profiles.some(p => p.name === trimmedName)) {
+      throw new Error(`Profile already exists: ${trimmedName}`)
     }
     const newId = randomUUID()
-    let newProject: ProjectSettings
+    let newProfile: ProfileSettings
     if (args.duplicateFromId) {
-      const source = settings.projects.find(p => p.id === args.duplicateFromId)
-      if (!source) throw new Error(`Source project not found: ${args.duplicateFromId}`)
-      newProject = {
+      const source = settings.profiles.find(p => p.id === args.duplicateFromId)
+      if (!source) throw new Error(`Source profile not found: ${args.duplicateFromId}`)
+      newProfile = {
         ...structuredClone(source),  // deep copy including OAuth tokens
         id: newId,
         name: trimmedName,
       }
     } else {
-      newProject = {
+      newProfile = {
         id: newId,
         name: trimmedName,
         slack: normalizeSlack(undefined),
@@ -815,45 +816,45 @@ export class SettingsStore {
         google: normalizeGoogle(undefined),
       }
     }
-    const projects = [...settings.projects, newProject]
-    const merged: AppSettings = { ...settings, projects, activeProjectId: newId }
+    const profiles = [...settings.profiles, newProfile]
+    const merged: AppSettings = { ...settings, profiles, activeProfileId: newId }
     this.write(merged)
     return merged
   }
 
-  renameProject(id: string, newName: string): AppSettings {
+  renameProfile(id: string, newName: string): AppSettings {
     const settings = this.get()
     const trimmed = newName.trim().slice(0, 50)
-    if (!trimmed) throw new Error('Project name cannot be empty')
-    const target = settings.projects.find(p => p.id === id)
-    if (!target) throw new Error(`Project not found: ${id}`)
-    if (settings.projects.some(p => p.id !== id && p.name === trimmed)) {
-      throw new Error(`Project already exists: ${trimmed}`)
+    if (!trimmed) throw new Error('Profile name cannot be empty')
+    const target = settings.profiles.find(p => p.id === id)
+    if (!target) throw new Error(`Profile not found: ${id}`)
+    if (settings.profiles.some(p => p.id !== id && p.name === trimmed)) {
+      throw new Error(`Profile already exists: ${trimmed}`)
     }
-    const projects = settings.projects.map(p => p.id === id ? { ...p, name: trimmed } : p)
-    const merged: AppSettings = { ...settings, projects }
+    const profiles = settings.profiles.map(p => p.id === id ? { ...p, name: trimmed } : p)
+    const merged: AppSettings = { ...settings, profiles }
     this.write(merged)
     return merged
   }
 
-  deleteProject(id: string): AppSettings {
+  deleteProfile(id: string): AppSettings {
     const settings = this.get()
-    if (settings.projects.length <= 1) {
-      throw new Error('Cannot delete the last project; at least one must remain')
+    if (settings.profiles.length <= 1) {
+      throw new Error('Cannot delete the last profile; at least one must remain')
     }
-    const idx = settings.projects.findIndex(p => p.id === id)
-    if (idx < 0) throw new Error(`Project not found: ${id}`)
-    const projects = settings.projects.filter(p => p.id !== id)
-    const activeProjectId = settings.activeProjectId === id ? projects[0].id : settings.activeProjectId
-    const merged: AppSettings = { ...settings, projects, activeProjectId }
+    const idx = settings.profiles.findIndex(p => p.id === id)
+    if (idx < 0) throw new Error(`Profile not found: ${id}`)
+    const profiles = settings.profiles.filter(p => p.id !== id)
+    const activeProfileId = settings.activeProfileId === id ? profiles[0].id : settings.activeProfileId
+    const merged: AppSettings = { ...settings, profiles, activeProfileId }
     this.write(merged)
     return merged
   }
 
-  setActiveProject(id: string): AppSettings {
+  setActiveProfile(id: string): AppSettings {
     const settings = this.get()
-    if (!settings.projects.some(p => p.id === id)) throw new Error(`Project not found: ${id}`)
-    const merged: AppSettings = { ...settings, activeProjectId: id }
+    if (!settings.profiles.some(p => p.id === id)) throw new Error(`Profile not found: ${id}`)
+    const merged: AppSettings = { ...settings, activeProfileId: id }
     this.write(merged)
     return merged
   }

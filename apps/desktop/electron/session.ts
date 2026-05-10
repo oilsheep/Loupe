@@ -161,6 +161,7 @@ export interface StartArgs {
   buildVersion: string
   platform?: string
   project?: string
+  profileId?: string | null
   testNote: string
   tester?: string
   recordMic?: boolean
@@ -186,6 +187,7 @@ export interface ImportVideoArgs {
   buildVersion: string
   platform?: string
   project?: string
+  profileId?: string | null
   testNote: string
   tester?: string
   analyzeAudio?: boolean
@@ -250,6 +252,7 @@ export class SessionManager {
       id, buildVersion: args.buildVersion, testNote: args.testNote,
       platform: args.platform?.trim() ?? '',
       project: args.project?.trim() ?? '',
+      profileId: args.profileId ?? null,
       tester: args.tester?.trim() ?? '',
       deviceId: args.deviceId, deviceModel: info.model, androidVersion: info.androidVersion,
       ramTotalGb: 'ramTotalGb' in info ? info.ramTotalGb ?? null : null,
@@ -370,6 +373,7 @@ export class SessionManager {
       buildVersion: args.buildVersion,
       platform: args.platform?.trim() ?? '',
       project: args.project?.trim() ?? '',
+      profileId: args.profileId ?? null,
       testNote: args.testNote,
       tester: args.tester?.trim() ?? '',
       deviceId: `import:${id}`,

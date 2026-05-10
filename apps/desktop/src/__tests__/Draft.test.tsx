@@ -21,14 +21,14 @@ const { fakeApi, settings } = vi.hoisted(() => {
     },
     audioAnalysis: { enabled: true, engine: 'whisper-cpp', modelPath: '', language: 'auto', triggerKeywords: '記錄, 紀錄, record, mark', showTriggerWords: false },
     mentionIdentities: [],
-    projects: [{
+    profiles: [{
       id: 'test-project',
       name: 'Default',
       slack: { botToken: '', channelId: '', channels: [], mentionUserIds: [], mentionAliases: {} },
       gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
       google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: '', driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     }],
-    activeProjectId: 'test-project',
+    activeProfileId: 'test-project',
   }
 
   const session: Session = {
@@ -65,7 +65,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
     settings: {
       get: vi.fn().mockResolvedValue(settings),
       setAudioAnalysis: vi.fn().mockImplementation(async (next) => ({ ...settings, audioAnalysis: next })),
-      setActiveProject: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProjectId: id })),
+      setActiveProfile: vi.fn().mockImplementation(async (id: string) => ({ ...settings, activeProfileId: id })),
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
@@ -207,17 +207,17 @@ describe('Draft project resolution', () => {
     }
   }
 
-  it('passes the matched session project to BugList as overrideProject without mutating active', async () => {
+  it('passes the matched session project to BugList as overrideProfile without mutating active', async () => {
     const multiProjectSettings = {
       ...settings,
-      projects: [
-        ...settings.projects,
+      profiles: [
+        ...settings.profiles,
         { id: 'cytus-id', name: 'Cytus', slack: { botToken: '', channelId: '' }, gitlab: { baseUrl: '', token: '', projectId: '', mode: 'single-issue' as const }, google: { token: '' } },
       ],
-      activeProjectId: 'test-project',
+      activeProfileId: 'test-project',
     }
     fakeApi.settings.get = vi.fn().mockResolvedValue(multiProjectSettings)
-    fakeApi.settings.setActiveProject = vi.fn().mockImplementation(async (id: string) => ({ ...multiProjectSettings, activeProjectId: id }))
+    fakeApi.settings.setActiveProfile = vi.fn().mockImplementation(async (id: string) => ({ ...multiProjectSettings, activeProfileId: id }))
     fakeApi.session.get = vi.fn().mockResolvedValue({ session: buildSession('Cytus'), bugs: [] })
     bugListProps.mockClear()
 
@@ -226,10 +226,10 @@ describe('Draft project resolution', () => {
 
     await waitFor(() => {
       expect(bugListProps).toHaveBeenCalledWith(expect.objectContaining({
-        overrideProject: expect.objectContaining({ id: 'cytus-id', name: 'Cytus' }),
+        overrideProfile: expect.objectContaining({ id: 'cytus-id', name: 'Cytus' }),
       }))
     })
-    expect(fakeApi.settings.setActiveProject).not.toHaveBeenCalled()
+    expect(fakeApi.settings.setActiveProfile).not.toHaveBeenCalled()
     expect(screen.queryByText(/no longer exists/)).toBeNull()
   })
 
@@ -245,5 +245,45 @@ describe('Draft project resolution', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     await waitFor(() => expect(screen.queryByText(/no longer exists/i)).toBeNull())
+  })
+
+  it('does not show the banner when the session profileId still matches a profile (reason=id)', async () => {
+    const multiProjectSettings = {
+      ...settings,
+      profiles: [
+        ...settings.profiles,
+        { id: 'cytus-id', name: 'Cytus', slack: { botToken: '', channelId: '' }, gitlab: { baseUrl: '', token: '', projectId: '', mode: 'single-issue' as const }, google: { token: '' } },
+      ],
+      activeProfileId: 'test-project',
+    }
+    // Session has a stale `project` name that no longer exists, but its
+    // `profileId` still resolves — banner should not show because reason is 'id'.
+    fakeApi.settings.get = vi.fn().mockResolvedValue(multiProjectSettings)
+    fakeApi.session.get = vi.fn().mockResolvedValue({ session: { ...buildSession('OldRenamedName'), profileId: 'cytus-id' }, bugs: [] })
+
+    render(<Draft sessionId="s1" />)
+    await screen.findByTestId('video-player')
+    await waitFor(() => expect(bugListProps).toHaveBeenCalled())
+
+    expect(screen.queryByText(/no longer exists/i)).toBeNull()
+  })
+
+  it('does not show the banner when the session project name matches a profile (reason=name)', async () => {
+    const multiProjectSettings = {
+      ...settings,
+      profiles: [
+        ...settings.profiles,
+        { id: 'cytus-id', name: 'Cytus', slack: { botToken: '', channelId: '' }, gitlab: { baseUrl: '', token: '', projectId: '', mode: 'single-issue' as const }, google: { token: '' } },
+      ],
+      activeProfileId: 'test-project',
+    }
+    fakeApi.settings.get = vi.fn().mockResolvedValue(multiProjectSettings)
+    fakeApi.session.get = vi.fn().mockResolvedValue({ session: buildSession('Cytus'), bugs: [] })
+
+    render(<Draft sessionId="s1" />)
+    await screen.findByTestId('video-player')
+    await waitFor(() => expect(bugListProps).toHaveBeenCalled())
+
+    expect(screen.queryByText(/no longer exists/i)).toBeNull()
   })
 })

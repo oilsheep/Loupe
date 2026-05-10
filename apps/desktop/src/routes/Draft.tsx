@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, ProjectSettings, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
+import { findProfileForSession } from '@shared/profileLookup'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
@@ -89,8 +90,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
-  const [projectMismatch, setProjectMismatch] = useState<{ sessionProjectName: string; activeProjectName: string } | null>(null)
-  const [projectMismatchDismissed, setProjectMismatchDismissed] = useState(false)
+  const [profileBannerDismissed, setProfileBannerDismissed] = useState(false)
   const [metadataOpen, setMetadataOpen] = useState(false)
   const [audioPanelOpen, setAudioPanelOpen] = useState(false)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -162,41 +162,20 @@ export function Draft({ sessionId }: { sessionId: string }) {
   }, [reloadSettings])
   useEffect(() => { refresh() }, [refresh])
 
-  // When the Draft view loads with a session whose project name no longer
-  // matches any current project, surface a warning banner so the user knows
-  // publishing is falling back to the active project. The per-session project
-  // override flows through `draftProject` below — we no longer mutate
-  // AppSettings.activeProjectId, which would leak the choice into the next
-  // NewSessionForm visit.
-  useEffect(() => {
-    const sessionProjectName = data?.session.project?.trim()
-    if (!sessionProjectName) {
-      setProjectMismatch(null)
-      return
-    }
-    if (!settings || settings.projects.length === 0) return
-    const matched = settings.projects.find(p => p.name === sessionProjectName)
-    if (matched) {
-      setProjectMismatch(null)
-    } else {
-      const active = settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
-      setProjectMismatch({ sessionProjectName, activeProjectName: active.name })
-    }
-  }, [data?.session.project, settings])
-
-  // Resolve the per-session project locally instead of mutating global active.
-  // BugList prefers this override over its activeProjectFrom(settings) fallback,
-  // so opening an old "Cytus" session's Draft doesn't bleed into the next
-  // session's NewSessionForm.
-  const draftProject: ProjectSettings | undefined = (() => {
-    if (!settings || settings.projects.length === 0) return undefined
-    const sessionProjectName = data?.session.project?.trim()
-    if (sessionProjectName) {
-      const matched = settings.projects.find(p => p.name === sessionProjectName)
-      if (matched) return matched
-    }
-    return settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
-  })()
+  // Resolve the per-session profile via the shared findProfileForSession
+  // helper. The result tells us BOTH which profile to surface to BugList AND
+  // whether the resolution genuinely fell through (reason === 'fallback') —
+  // only that case warrants the warning banner. profileId match (reason='id')
+  // and project-name match (reason='name') are silent successes.
+  //
+  // We never mutate AppSettings.activeProfileId here: opening an old session's
+  // Draft must not leak into the next NewSessionForm visit.
+  const profileLookup = useMemo(() => {
+    if (!data || !settings || settings.profiles.length === 0) return null
+    return findProfileForSession(settings, data.session)
+  }, [data, settings])
+  const showProfileWarning = profileLookup?.reason === 'fallback'
+  const draftProfile = profileLookup?.profile
 
   const analyzeAudio = useCallback(async () => {
     if (analyzingAudio || backgroundAnalyzingAudio) return
@@ -679,14 +658,14 @@ export function Draft({ sessionId }: { sessionId: string }) {
             </section>
           </div>
         </div>
-        {projectMismatch && !projectMismatchDismissed && (
+        {showProfileWarning && !profileBannerDismissed && (
           <div className="m-2 flex items-start gap-2 rounded border border-amber-700 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
             <span className="min-w-0 flex-1">
-              {t('draft.projectNotFound', { name: projectMismatch.sessionProjectName, active: projectMismatch.activeProjectName })}
+              {t('draft.projectNotFound', { name: session.project || '?', active: draftProfile?.name ?? '' })}
             </span>
             <button
               type="button"
-              onClick={() => setProjectMismatchDismissed(true)}
+              onClick={() => setProfileBannerDismissed(true)}
               className="shrink-0 rounded bg-amber-900 px-2 py-1 text-xs text-amber-100 hover:bg-amber-800"
             >
               {t('common.dismiss')}
@@ -713,7 +692,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             testNote={testNote}
             hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}
             markerToolbar={markerToolbar}
-            overrideProject={draftProject}
+            overrideProfile={draftProfile}
           />
         </div>
       </aside>

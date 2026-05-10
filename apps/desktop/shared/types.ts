@@ -176,7 +176,7 @@ export interface PublishTemplateConfig {
 
 export type PublishTemplateSettings = Partial<Record<PublishTemplateTarget, PublishTemplateConfig>>
 
-export interface ProjectSettings {
+export interface ProfileSettings {
   id: string                                // immutable; uuid
   name: string                              // user-visible; unique within app
   slack: SlackPublishSettings
@@ -218,8 +218,8 @@ export interface AppSettings {
   commonSession?: CommonSessionSettings
   recordingPreferences?: RecordingPreferences
   mentionIdentities: MentionIdentity[]
-  projects: ProjectSettings[]              // non-empty by invariant
-  activeProjectId: string                  // references projects[].id
+  profiles: ProfileSettings[]              // non-empty by invariant
+  activeProfileId: string                  // references profiles[].id
 }
 
 export interface Session {
@@ -227,6 +227,8 @@ export interface Session {
   buildVersion: string
   platform?: string
   project?: string
+  /** Loupe profile (publish config bundle) active when this session was recorded. Null on legacy sessions until backfill matches. */
+  profileId?: string | null
   testNote: string
   tester: string
   deviceId: string
@@ -461,11 +463,11 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; recordSystemAudio?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; platform?: string; project?: string; profileId?: string | null; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; recordSystemAudio?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     chooseVideoFile():                                             Promise<string | null>
     chooseAudioFile():                                             Promise<string | null>
-    importVideo(args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session>
+    importVideo(args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; profileId?: string | null; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session>
     markBug(args?: { severity?: BugSeverity; note?: string }):     Promise<Bug>
     stop():                                                        Promise<Session>
     discard(sessionId: string):                                    Promise<void>
@@ -527,10 +529,10 @@ export interface DesktopApi {
     setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>
     setCommonSession(settings: CommonSessionSettings):             Promise<AppSettings>
     setRecordingPreferences(settings: RecordingPreferences):       Promise<AppSettings>
-    addProject(args: { name: string; duplicateFromId?: string }):  Promise<AppSettings>
-    renameProject(id: string, newName: string):                    Promise<AppSettings>
-    deleteProject(id: string):                                     Promise<AppSettings>
-    setActiveProject(id: string):                                  Promise<AppSettings>
+    addProfile(args: { name: string; duplicateFromId?: string }):  Promise<AppSettings>
+    renameProfile(id: string, newName: string):                    Promise<AppSettings>
+    deleteProfile(id: string):                                     Promise<AppSettings>
+    setActiveProfile(id: string):                                  Promise<AppSettings>
     chooseWhisperModel():                                          Promise<AppSettings | null>
     chooseExportRoot():                                            Promise<AppSettings | null>
   }

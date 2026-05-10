@@ -17,9 +17,9 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
   const seenAccounts = new Set<string>()
   const tasks: Array<Promise<void>> = []
 
-  for (const project of settings.projects) {
-    const account = project.google.accountEmail
-    const refreshToken = project.google.refreshToken
+  for (const profile of settings.profiles) {
+    const account = profile.google.accountEmail
+    const refreshToken = profile.google.refreshToken
     if (!account || !refreshToken) continue
     if (seenAccounts.has(account)) continue
     seenAccounts.add(account)
@@ -27,17 +27,17 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
     const flightKey = `google:${account}`
     let task = inFlight.get(flightKey)
     if (!task) {
-      const projectId = project.id
+      const profileId = profile.id
       task = (async () => {
         try {
           const result = await deps.refreshGoogle({ refreshToken, accountEmail: account })
-          // Re-read the latest project shape so concurrent edits to other
+          // Re-read the latest profile shape so concurrent edits to other
           // google fields (e.g. driveFolderId) aren't clobbered by a stale
           // snapshot. Mirrors the failure branch.
-          const latest = store.get().projects.find(p => p.id === projectId)
+          const latest = store.get().profiles.find(p => p.id === profileId)
           if (!latest) return
-          // setProject triggers syncProjectToken → propagates to siblings sharing accountEmail.
-          store.setProject(projectId, {
+          // setProfile triggers syncProfileToken → propagates to siblings sharing accountEmail.
+          store.setProfile(profileId, {
             google: {
               ...latest.google,
               token: result.token,
@@ -48,10 +48,10 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
           })
         } catch (err: any) {
           const code = err?.code || err?.message || 'refresh_failed'
-          // Re-read the latest project shape so we don't clobber concurrent edits.
-          const latest = store.get().projects.find(p => p.id === projectId)
+          // Re-read the latest profile shape so we don't clobber concurrent edits.
+          const latest = store.get().profiles.find(p => p.id === profileId)
           if (latest) {
-            store.setProject(projectId, {
+            store.setProfile(profileId, {
               google: { ...latest.google, refreshError: { at: Date.now(), code: String(code) } },
             })
           }

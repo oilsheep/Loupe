@@ -101,6 +101,15 @@ describe('SessionManager', () => {
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.videoPath).toBe(paths.videoFile('sess-1'))
   })
 
+  it('persists profileId on session insert', async () => {
+    const session = await mgr.start({
+      deviceId: 'dev-x', connectionMode: 'usb', buildVersion: '1.0',
+      project: 'Cytus', profileId: 'pA', testNote: '', tester: 't',
+    })
+    const reloaded = db.getSession(session.id)!
+    expect(reloaded.profileId).toBe('pA')
+  })
+
   it('throws when starting while already active', async () => {
     await mgr.start({ deviceId: 'A', connectionMode: 'usb', buildVersion: '', testNote: '' })
     await expect(mgr.start({ deviceId: 'B', connectionMode: 'usb', buildVersion: '', testNote: '' }))

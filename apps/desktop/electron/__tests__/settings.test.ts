@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore, findProjectByIdOrActive } from '../settings'
+import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore, findProfileByIdOrActive } from '../settings'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { AppSettings } from '@shared/types'
 
@@ -14,14 +14,14 @@ const FALLBACK_DEFAULTS: AppSettings = {
   audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
   recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
   mentionIdentities: [],
-  projects: [{
+  profiles: [{
     id: 'default-fallback',
     name: 'Default',
     slack: { botToken: '', channelId: '' },
     gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' },
     google: { token: '' },
   }],
-  activeProjectId: 'default-fallback',
+  activeProfileId: 'default-fallback',
 }
 
 describe('SettingsStore', () => {
@@ -37,13 +37,13 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      expect(store.get().projects[0].slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
-      expect(store.get().projects[0].slack.channels).toEqual([])
-      expect(store.get().projects[0].gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
+      expect(store.get().profiles[0].slack).toMatchObject({ botToken: '', userToken: '', publishIdentity: 'user', channelId: '', mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null })
+      expect(store.get().profiles[0].slack.channels).toEqual([])
+      expect(store.get().profiles[0].gitlab).toEqual({ baseUrl: 'https://gitlab.com', token: '', authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: [], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null })
       expect(store.get().mentionIdentities).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -63,8 +63,8 @@ describe('SettingsStore', () => {
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
       expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true, recordSystemAudio: false })
@@ -86,12 +86,12 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      const settings = store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      const settings = store.setProfile(projectId, {
         slack: {
           botToken: ' xoxb-test ',
           channelId: ' C123 ',
@@ -101,7 +101,7 @@ describe('SettingsStore', () => {
       })
 
       expect(settings.exportRoot).toBe('/default')
-      expect(settings.projects[0].slack).toMatchObject({
+      expect(settings.profiles[0].slack).toMatchObject({
         botToken: ' xoxb-test ',
         userToken: '',
         publishIdentity: 'bot',
@@ -111,8 +111,8 @@ describe('SettingsStore', () => {
         mentionUsers: [],
         usersFetchedAt: null,
       })
-      expect(settings.projects[0].slack.channels).toEqual([])
-      expect(store.get().projects[0].slack.channelId).toBe(' C123 ')
+      expect(settings.profiles[0].slack.channels).toEqual([])
+      expect(store.get().profiles[0].slack.channelId).toBe(' C123 ')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -129,12 +129,12 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      const settings = store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      const settings = store.setProfile(projectId, {
         gitlab: {
           baseUrl: ' https://gitlab.example.com/ ',
           token: ' glpat-test ',
@@ -146,11 +146,11 @@ describe('SettingsStore', () => {
         },
       })
 
-      expect(settings.projects[0].slack.channelId).toBe('')
-      expect(settings.projects[0].gitlab).toEqual({
+      expect(settings.profiles[0].slack.channelId).toBe('')
+      expect(settings.profiles[0].gitlab).toEqual({
         baseUrl: 'https://gitlab.example.com',
         token: ' glpat-test ',
-        authType: 'pat',
+        authType: 'oauth',
         oauthClientId: '',
         oauthClientSecret: '',
         oauthRedirectUri: 'loupe://gitlab-oauth',
@@ -180,12 +180,12 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      store.setProfile(projectId, {
         slack: {
           botToken: '',
           channelId: '',
@@ -218,12 +218,12 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [{ id: 'miki-slack', displayName: 'Miki Slack', email: 'miki@example.com', slackUserId: 'U123' }],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      store.setProfile(projectId, {
         gitlab: {
           baseUrl: 'https://gitlab.example.com',
           token: 'glpat-test',
@@ -261,19 +261,19 @@ describe('SettingsStore', () => {
           { id: 'miki-gitlab', displayName: 'Miki GitLab', gitlabUsername: 'miki' },
           { id: 'miki-slack', displayName: 'Miki Slack', slackUserId: 'U123' },
         ],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      store.setProfile(projectId, {
         slack: {
           botToken: '',
           channelId: '',
           mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki Slack', realName: '', email: 'miki@example.com' }],
         },
       })
-      store.setProject(projectId, {
+      store.setProfile(projectId, {
         gitlab: {
           baseUrl: 'https://gitlab.example.com',
           token: 'glpat-test',
@@ -302,12 +302,12 @@ describe('SettingsStore', () => {
         severities: DEFAULT_SEVERITIES,
         audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
         mentionIdentities: [],
-        projects: FALLBACK_DEFAULTS.projects,
-        activeProjectId: FALLBACK_DEFAULTS.activeProjectId,
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      const projectId = store.get().projects[0].id
-      store.setProject(projectId, {
+      const projectId = store.get().profiles[0].id
+      store.setProfile(projectId, {
         slack: {
           botToken: '',
           channelId: '',
@@ -341,12 +341,12 @@ describe('multi-project migration', () => {
       }))
       const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
       const settings = store.get()
-      expect(settings.projects).toHaveLength(1)
-      expect(settings.projects[0].name).toBe('Default')
-      expect(settings.projects[0].slack.botToken).toBe('xoxb-legacy')
-      expect(settings.projects[0].gitlab.projectId).toBe('tech-center/cytus')
-      expect(settings.projects[0].google.accountEmail).toBe('farllee@rayark.com')
-      expect(settings.activeProjectId).toBe(settings.projects[0].id)
+      expect(settings.profiles).toHaveLength(1)
+      expect(settings.profiles[0].name).toBe('Default')
+      expect(settings.profiles[0].slack.botToken).toBe('xoxb-legacy')
+      expect(settings.profiles[0].gitlab.projectId).toBe('tech-center/cytus')
+      expect(settings.profiles[0].google.accountEmail).toBe('farllee@rayark.com')
+      expect(settings.activeProfileId).toBe(settings.profiles[0].id)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -358,17 +358,17 @@ describe('multi-project migration', () => {
       const filePath = join(tmp, 'settings.json')
       const existingId = '11111111-1111-1111-1111-111111111111'
       writeFileSync(filePath, JSON.stringify({
-        projects: [
+        profiles: [
           { id: existingId, name: 'Cytus', slack: { channelId: 'C-cytus' }, gitlab: { baseUrl: 'https://gitlab.rayark.com' }, google: {} },
         ],
-        activeProjectId: existingId,
+        activeProfileId: existingId,
       }))
       const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
       const settings = store.get()
-      expect(settings.projects).toHaveLength(1)
-      expect(settings.projects[0].id).toBe(existingId)
-      expect(settings.projects[0].name).toBe('Cytus')
-      expect(settings.activeProjectId).toBe(existingId)
+      expect(settings.profiles).toHaveLength(1)
+      expect(settings.profiles[0].id).toBe(existingId)
+      expect(settings.profiles[0].name).toBe('Cytus')
+      expect(settings.activeProfileId).toBe(existingId)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -381,18 +381,18 @@ describe('multi-project migration', () => {
       writeFileSync(file, JSON.stringify({
         exportRoot: '/exports',
         hotkeys: DEFAULT_HOTKEYS,
-        activeProjectId: 'p1',
-        projects: [
+        activeProfileId: 'p1',
+        profiles: [
           { id: 'p1', name: 'Default', slack: {}, gitlab: {}, google: {} },
         ],
       }))
       const store = new SettingsStore(file, FALLBACK_DEFAULTS)
 
       const settings = store.get()
-      expect(settings.projects[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
+      expect(settings.profiles[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
 
       const persisted = JSON.parse(readFileSync(file, 'utf8')) as AppSettings
-      expect(persisted.projects[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
+      expect(persisted.profiles[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -403,29 +403,29 @@ describe('multi-project migration', () => {
     try {
       const filePath = join(tmp, 'settings.json')
       writeFileSync(filePath, JSON.stringify({
-        projects: [
+        profiles: [
           { id: 'a', name: 'Cytus', slack: {}, gitlab: {}, google: {} },
           { id: 'b', name: 'Cytus', slack: {}, gitlab: {}, google: {} },
         ],
-        activeProjectId: 'a',
+        activeProfileId: 'a',
       }))
       const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
-      const projects = store.get().projects
+      const projects = store.get().profiles
       expect(projects.map(p => p.name)).toEqual(['Cytus', 'Cytus (2)'])
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 
-  it('falls back activeProjectId to the first project when stored id is invalid', () => {
+  it('falls back activeProfileId to the first project when stored id is invalid', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const filePath = join(tmp, 'settings.json')
       writeFileSync(filePath, JSON.stringify({
-        projects: [{ id: 'a', name: 'Default', slack: {}, gitlab: {}, google: {} }],
-        activeProjectId: 'nonexistent',
+        profiles: [{ id: 'a', name: 'Default', slack: {}, gitlab: {}, google: {} }],
+        activeProfileId: 'nonexistent',
       }))
-      expect(new SettingsStore(filePath, FALLBACK_DEFAULTS).get().activeProjectId).toBe('a')
+      expect(new SettingsStore(filePath, FALLBACK_DEFAULTS).get().activeProfileId).toBe('a')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -441,8 +441,8 @@ describe('multi-project migration', () => {
         google: { token: 'g-token' },
       }))
       const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
-      const first = store.get().projects[0].id
-      const second = store.get().projects[0].id
+      const first = store.get().profiles[0].id
+      const second = store.get().profiles[0].id
       expect(second).toBe(first)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
@@ -450,15 +450,15 @@ describe('multi-project migration', () => {
   })
 })
 
-describe('SettingsStore.addProject', () => {
-  it('adds a new project with a unique id and name; sets activeProjectId to the new project', () => {
+describe('SettingsStore.addProfile', () => {
+  it('adds a new project with a unique id and name; sets activeProfileId to the new project', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const after = store.addProject({ name: 'Cytus' })
-      expect(after.projects).toHaveLength(2)
-      expect(after.projects[1].name).toBe('Cytus')
-      expect(after.activeProjectId).toBe(after.projects[1].id)
+      const after = store.addProfile({ name: 'Cytus' })
+      expect(after.profiles).toHaveLength(2)
+      expect(after.profiles[1].name).toBe('Cytus')
+      expect(after.activeProfileId).toBe(after.profiles[1].id)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -468,7 +468,7 @@ describe('SettingsStore.addProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      expect(() => store.addProject({ name: 'Default' })).toThrow(/already exists|duplicate/i)
+      expect(() => store.addProfile({ name: 'Default' })).toThrow(/already exists|duplicate/i)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -478,15 +478,15 @@ describe('SettingsStore.addProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const original = store.get().projects[0]
+      const original = store.get().profiles[0]
       // Set up the source project with non-trivial values
-      store.setProject(original.id, {
+      store.setProfile(original.id, {
         slack: { ...original.slack, botToken: 'xoxb-fixture', channelId: 'C1' },
         gitlab: { ...original.gitlab, token: 'glpat-x', projectId: 'group/proj' },
         google: { ...original.google, token: 'g-tok', accountEmail: 'a@b.com' },
       })
-      const after = store.addProject({ name: 'Cytus', duplicateFromId: original.id })
-      const cytus = after.projects.find(p => p.name === 'Cytus')!
+      const after = store.addProfile({ name: 'Cytus', duplicateFromId: original.id })
+      const cytus = after.profiles.find(p => p.name === 'Cytus')!
       expect(cytus.slack.botToken).toBe('xoxb-fixture')
       expect(cytus.slack.channelId).toBe('C1')
       expect(cytus.gitlab.token).toBe('glpat-x')
@@ -500,14 +500,14 @@ describe('SettingsStore.addProject', () => {
   })
 })
 
-describe('SettingsStore.renameProject', () => {
+describe('SettingsStore.renameProfile', () => {
   it('renames the project name', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const id = store.get().projects[0].id
-      const after = store.renameProject(id, 'Renamed')
-      expect(after.projects[0].name).toBe('Renamed')
+      const id = store.get().profiles[0].id
+      const after = store.renameProfile(id, 'Renamed')
+      expect(after.profiles[0].name).toBe('Renamed')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -517,9 +517,9 @@ describe('SettingsStore.renameProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      store.addProject({ name: 'Cytus' })
-      const defaultId = store.get().projects.find(p => p.name === 'Default')!.id
-      expect(() => store.renameProject(defaultId, 'Cytus')).toThrow(/already exists|duplicate/i)
+      store.addProfile({ name: 'Cytus' })
+      const defaultId = store.get().profiles.find(p => p.name === 'Default')!.id
+      expect(() => store.renameProfile(defaultId, 'Cytus')).toThrow(/already exists|duplicate/i)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -529,7 +529,7 @@ describe('SettingsStore.renameProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      expect(() => store.renameProject('nonexistent', 'X')).toThrow(/not found|unknown/i)
+      expect(() => store.renameProfile('nonexistent', 'X')).toThrow(/not found|unknown/i)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -539,10 +539,10 @@ describe('SettingsStore.renameProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const id = store.get().projects[0].id
+      const id = store.get().profiles[0].id
       const longName = 'A'.repeat(80)
-      const after = store.renameProject(id, longName)
-      const canonical = after.projects.find(p => p.id === id)!.name
+      const after = store.renameProfile(id, longName)
+      const canonical = after.profiles.find(p => p.id === id)!.name
       expect(canonical.length).toBe(50)
       expect(canonical).toBe('A'.repeat(50))
     } finally {
@@ -551,16 +551,16 @@ describe('SettingsStore.renameProject', () => {
   })
 })
 
-describe('findProjectByIdOrActive', () => {
+describe('findProfileByIdOrActive', () => {
   it('returns the project with the given id', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      store.addProject({ name: 'Cytus' })
+      store.addProfile({ name: 'Cytus' })
       const settings = store.get()
       // Pick a non-active project to make the difference observable.
-      const inactive = settings.projects.find(p => p.id !== settings.activeProjectId)!
-      expect(findProjectByIdOrActive(settings, inactive.id).id).toBe(inactive.id)
+      const inactive = settings.profiles.find(p => p.id !== settings.activeProfileId)!
+      expect(findProfileByIdOrActive(settings, inactive.id).id).toBe(inactive.id)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -570,25 +570,25 @@ describe('findProjectByIdOrActive', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      store.addProject({ name: 'Cytus' })
+      store.addProfile({ name: 'Cytus' })
       const settings = store.get()
-      expect(findProjectByIdOrActive(settings, 'nonexistent').id).toBe(settings.activeProjectId)
+      expect(findProfileByIdOrActive(settings, 'nonexistent').id).toBe(settings.activeProfileId)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 })
 
-describe('SettingsStore.deleteProject', () => {
-  it('deletes a project; updates activeProjectId if it was active', () => {
+describe('SettingsStore.deleteProfile', () => {
+  it('deletes a project; updates activeProfileId if it was active', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const cytus = store.addProject({ name: 'Cytus' }).projects.find(p => p.name === 'Cytus')!
-      // activeProjectId is now Cytus's id (addProject made it active)
-      const after = store.deleteProject(cytus.id)
-      expect(after.projects.find(p => p.id === cytus.id)).toBeUndefined()
-      expect(after.activeProjectId).toBe(after.projects[0].id)  // first remaining
+      const cytus = store.addProfile({ name: 'Cytus' }).profiles.find(p => p.name === 'Cytus')!
+      // activeProfileId is now Cytus's id (addProfile made it active)
+      const after = store.deleteProfile(cytus.id)
+      expect(after.profiles.find(p => p.id === cytus.id)).toBeUndefined()
+      expect(after.activeProfileId).toBe(after.profiles[0].id)  // first remaining
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -598,23 +598,23 @@ describe('SettingsStore.deleteProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const onlyId = store.get().projects[0].id
-      expect(() => store.deleteProject(onlyId)).toThrow(/cannot delete the last|at least one/i)
+      const onlyId = store.get().profiles[0].id
+      expect(() => store.deleteProfile(onlyId)).toThrow(/cannot delete the last|at least one/i)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 })
 
-describe('SettingsStore.setActiveProject', () => {
-  it('updates activeProjectId', () => {
+describe('SettingsStore.setActiveProfile', () => {
+  it('updates activeProfileId', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const cytus = store.addProject({ name: 'Cytus' }).projects.find(p => p.name === 'Cytus')!
-      const defaultId = store.get().projects.find(p => p.name === 'Default')!.id
-      const after = store.setActiveProject(defaultId)
-      expect(after.activeProjectId).toBe(defaultId)
+      const cytus = store.addProfile({ name: 'Cytus' }).profiles.find(p => p.name === 'Cytus')!
+      const defaultId = store.get().profiles.find(p => p.name === 'Default')!.id
+      const after = store.setActiveProfile(defaultId)
+      expect(after.activeProfileId).toBe(defaultId)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
@@ -624,55 +624,84 @@ describe('SettingsStore.setActiveProject', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      expect(() => store.setActiveProject('nonexistent')).toThrow(/not found|unknown/i)
+      expect(() => store.setActiveProfile('nonexistent')).toThrow(/not found|unknown/i)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 })
 
-describe('SettingsStore.setProject', () => {
+describe('SettingsStore.setProfile', () => {
   it('merges the patch into the named project', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const id = store.get().projects[0].id
-      const after = store.setProject(id, {
-        slack: { ...store.get().projects[0].slack, channelId: 'C-new' },
+      const id = store.get().profiles[0].id
+      const after = store.setProfile(id, {
+        slack: { ...store.get().profiles[0].slack, channelId: 'C-new' },
       })
-      expect(after.projects[0].slack.channelId).toBe('C-new')
+      expect(after.profiles[0].slack.channelId).toBe('C-new')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
   })
 })
 
-describe('SettingsStore.setProject — token sync', () => {
+describe('legacy projects[] migration to profiles[]', () => {
+  it('reads legacy projects/activeProjectId and writes back as profiles/activeProfileId', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-migrate-'))
+    try {
+      const filePath = join(tmp, 'settings.json')
+      writeFileSync(filePath, JSON.stringify({
+        exportRoot: '/x',
+        projects: [{ id: 'p1', name: 'OldStyle', slack: { botToken: '', channelId: '' }, gitlab: { baseUrl: 'https://gitlab.com', token: '', projectId: '', mode: 'single-issue' }, google: { token: '' } }],
+        activeProjectId: 'p1',
+      }))
+      const store = new SettingsStore(filePath, FALLBACK_DEFAULTS)
+      const settings = store.get()
+      expect(settings.profiles[0].id).toBe('p1')
+      expect(settings.profiles[0].name).toBe('OldStyle')
+      expect(settings.activeProfileId).toBe('p1')
+
+      // Trigger a write so we can verify the legacy keys are gone on disk
+      store.setProfile('p1', { slack: { ...settings.profiles[0].slack } })
+      const persisted = JSON.parse(readFileSync(filePath, 'utf8'))
+      expect(persisted.profiles).toBeDefined()
+      expect(persisted.activeProfileId).toBeDefined()
+      expect(persisted.projects).toBeUndefined()
+      expect(persisted.activeProjectId).toBeUndefined()
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('SettingsStore.setProfile — token sync', () => {
   it('propagates Google token to siblings sharing the same accountEmail', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const defaultId = store.get().projects[0].id
+      const defaultId = store.get().profiles[0].id
       // Set up Default with a Google account
-      store.setProject(defaultId, {
-        google: { ...store.get().projects[0].google, accountEmail: 'shared@example.com', token: 'old-token', refreshToken: 'old-refresh' },
+      store.setProfile(defaultId, {
+        google: { ...store.get().profiles[0].google, accountEmail: 'shared@example.com', token: 'old-token', refreshToken: 'old-refresh' },
       })
       // Add Cytus with same email
-      store.addProject({ name: 'Cytus', duplicateFromId: defaultId })
-      const cytusId = store.get().projects.find(p => p.name === 'Cytus')!.id
+      store.addProfile({ name: 'Cytus', duplicateFromId: defaultId })
+      const cytusId = store.get().profiles.find(p => p.name === 'Cytus')!.id
       // Add Deemo with DIFFERENT email
-      store.addProject({ name: 'Deemo' })
-      const deemoId = store.get().projects.find(p => p.name === 'Deemo')!.id
-      store.setProject(deemoId, {
-        google: { ...store.get().projects.find(p => p.id === deemoId)!.google, accountEmail: 'other@example.com', token: 'other-token' },
+      store.addProfile({ name: 'Deemo' })
+      const deemoId = store.get().profiles.find(p => p.name === 'Deemo')!.id
+      store.setProfile(deemoId, {
+        google: { ...store.get().profiles.find(p => p.id === deemoId)!.google, accountEmail: 'other@example.com', token: 'other-token' },
       })
       // Now refresh Default's Google token — should sync to Cytus but not Deemo.
-      const after = store.setProject(defaultId, {
-        google: { ...store.get().projects[0].google, token: 'new-token', tokenExpiresAt: 999 },
+      const after = store.setProfile(defaultId, {
+        google: { ...store.get().profiles[0].google, token: 'new-token', tokenExpiresAt: 999 },
       })
-      const def = after.projects.find(p => p.id === defaultId)!
-      const cyt = after.projects.find(p => p.id === cytusId)!
-      const dee = after.projects.find(p => p.id === deemoId)!
+      const def = after.profiles.find(p => p.id === defaultId)!
+      const cyt = after.profiles.find(p => p.id === cytusId)!
+      const dee = after.profiles.find(p => p.id === deemoId)!
       expect(def.google.token).toBe('new-token')
       expect(cyt.google.token).toBe('new-token')
       expect(dee.google.token).toBe('other-token')
@@ -685,22 +714,22 @@ describe('SettingsStore.setProject — token sync', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const store = new SettingsStore(join(tmp, 'settings.json'), FALLBACK_DEFAULTS)
-      const defaultId = store.get().projects[0].id
+      const defaultId = store.get().profiles[0].id
       // Set both projects to share an account AND have a refreshError
-      store.setProject(defaultId, {
-        google: { ...store.get().projects[0].google, accountEmail: 'shared@example.com', token: 't1', refreshError: { at: 1, code: 'invalid_grant' } },
+      store.setProfile(defaultId, {
+        google: { ...store.get().profiles[0].google, accountEmail: 'shared@example.com', token: 't1', refreshError: { at: 1, code: 'invalid_grant' } },
       })
-      store.addProject({ name: 'Cytus', duplicateFromId: defaultId })
-      const cytusId = store.get().projects.find(p => p.name === 'Cytus')!.id
+      store.addProfile({ name: 'Cytus', duplicateFromId: defaultId })
+      const cytusId = store.get().profiles.find(p => p.name === 'Cytus')!.id
       // Both should now have refreshError set
-      expect(store.get().projects.find(p => p.id === defaultId)!.google.refreshError).toBeDefined()
-      expect(store.get().projects.find(p => p.id === cytusId)!.google.refreshError).toBeDefined()
+      expect(store.get().profiles.find(p => p.id === defaultId)!.google.refreshError).toBeDefined()
+      expect(store.get().profiles.find(p => p.id === cytusId)!.google.refreshError).toBeDefined()
       // Now refresh Default's Google: clear refreshError + new token
-      store.setProject(defaultId, {
-        google: { ...store.get().projects[0].google, token: 'fresh-token', refreshError: undefined },
+      store.setProfile(defaultId, {
+        google: { ...store.get().profiles[0].google, token: 'fresh-token', refreshError: undefined },
       })
       // Cytus's refreshError should ALSO be cleared via sync
-      const cytusGoogle = store.get().projects.find(p => p.id === cytusId)!.google
+      const cytusGoogle = store.get().profiles.find(p => p.id === cytusId)!.google
       expect(cytusGoogle.refreshError).toBeUndefined()
       expect(cytusGoogle.token).toBe('fresh-token')
     } finally {

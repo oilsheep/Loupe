@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   mic_audio_path TEXT,
   mic_audio_duration_ms INTEGER,
   mic_audio_start_offset_ms INTEGER,
-  mic_audio_source TEXT
+  mic_audio_source TEXT,
+  profile_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS bugs (
@@ -86,6 +87,7 @@ function rowToSession(r: any): Session {
     micAudioDurationMs: r.mic_audio_duration_ms ?? null,
     micAudioStartOffsetMs: r.mic_audio_start_offset_ms ?? null,
     micAudioSource: r.mic_audio_source ?? null,
+    profileId: (r.profile_id as string | null) ?? null,
   }
 }
 function rowToBug(r: any): Bug {
@@ -209,6 +211,7 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('mic_audio_duration_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_duration_ms INTEGER`)
   if (!sessionCols.includes('mic_audio_start_offset_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_start_offset_ms INTEGER`)
   if (!sessionCols.includes('mic_audio_source')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_source TEXT`)
+  if (!sessionCols.includes('profile_id')) db.exec(`ALTER TABLE sessions ADD COLUMN profile_id TEXT`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -321,9 +324,9 @@ export function openDb(file: string) {
 
   const insertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, build_version, platform, project, test_note, tester, device_id, device_model, android_version,
-                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source)
+                          ram_total_gb, graphics_device, connection_mode, status, duration_ms, started_at, ended_at, video_path, pc_recording_enabled, pc_video_path, mic_audio_path, mic_audio_duration_ms, mic_audio_start_offset_ms, mic_audio_source, profile_id)
     VALUES (@id, @buildVersion, @platform, @project, @testNote, @tester, @deviceId, @deviceModel, @androidVersion,
-            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs, @micAudioSource)
+            @ramTotalGb, @graphicsDevice, @connectionMode, @status, @durationMs, @startedAt, @endedAt, @videoPath, @pcRecordingEnabled, @pcVideoPath, @micAudioPath, @micAudioDurationMs, @micAudioStartOffsetMs, @micAudioSource, @profileId)
     ON CONFLICT(id) DO UPDATE SET
       build_version=excluded.build_version,
       platform=excluded.platform,
@@ -346,7 +349,8 @@ export function openDb(file: string) {
       mic_audio_path=excluded.mic_audio_path,
       mic_audio_duration_ms=excluded.mic_audio_duration_ms,
       mic_audio_start_offset_ms=excluded.mic_audio_start_offset_ms,
-      mic_audio_source=excluded.mic_audio_source
+      mic_audio_source=excluded.mic_audio_source,
+      profile_id=excluded.profile_id
   `)
   const finalizeSessionStmt = db.prepare(`
     UPDATE sessions SET status='draft', duration_ms=@durationMs, ended_at=@endedAt WHERE id=@id
@@ -364,6 +368,8 @@ export function openDb(file: string) {
     UPDATE sessions SET mic_audio_start_offset_ms=@micAudioStartOffsetMs WHERE id=@id
   `)
   const renameSessionProjectStmt = db.prepare(`UPDATE sessions SET project = @newName WHERE project = @oldName`)
+  const setSessionProfileIdStmt = db.prepare(`UPDATE sessions SET profile_id = @profileId WHERE id = @id`)
+  const listSessionsWithoutProfileIdStmt = db.prepare(`SELECT * FROM sessions WHERE profile_id IS NULL OR profile_id = '' ORDER BY started_at DESC`)
   const rewriteSessionPathsStmt = db.prepare(`
     UPDATE sessions SET
       video_path     = CASE WHEN video_path     LIKE @oldPrefix THEN @newRoot || SUBSTR(video_path,     LENGTH(@oldRoot) + 1) ELSE video_path     END,
@@ -446,6 +452,7 @@ export function openDb(file: string) {
         micAudioDurationMs: s.micAudioDurationMs ?? null,
         micAudioStartOffsetMs: s.micAudioStartOffsetMs ?? null,
         micAudioSource: s.micAudioSource ?? null,
+        profileId: s.profileId ?? null,
       })
     },
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
@@ -471,6 +478,12 @@ export function openDb(file: string) {
     renameSessionProject(oldName: string, newName: string): { rowsChanged: number } {
       const result = renameSessionProjectStmt.run({ oldName, newName })
       return { rowsChanged: Number(result.changes ?? 0) }
+    },
+    setSessionProfileId(id: string, profileId: string): void {
+      setSessionProfileIdStmt.run({ id, profileId })
+    },
+    listSessionsWithoutProfileId(): Session[] {
+      return (listSessionsWithoutProfileIdStmt.all() as any[]).map(rowToSession)
     },
     rewriteSessionAssetRoots(oldRoot: string, newRoot: string): { rowsChanged: number } {
       // Use LIKE with an escaped prefix so we match `<oldRoot>/...` exactly.

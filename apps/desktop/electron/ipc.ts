@@ -22,7 +22,8 @@ import { publishManifestToRemote, type RemotePublishResult } from './remote-publ
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
 import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
-import { findActiveProject, findProjectByIdOrActive, findProjectForSession, type SettingsStore } from './settings'
+import { findActiveProfile, findProfileByIdOrActive, type SettingsStore } from './settings'
+import { findProfileForSession } from '@shared/profileLookup'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
@@ -128,10 +129,10 @@ export const CHANNEL = {
   settingsSetAudioAnalysis:'settings:setAudioAnalysis',
   settingsSetCommonSession:'settings:setCommonSession',
   settingsSetRecordingPreferences:'settings:setRecordingPreferences',
-  settingsAddProject:      'settings:addProject',
-  settingsRenameProject:   'settings:renameProject',
-  settingsDeleteProject:   'settings:deleteProject',
-  settingsSetActiveProject:'settings:setActiveProject',
+  settingsAddProfile:      'settings:addProfile',
+  settingsRenameProfile:   'settings:renameProfile',
+  settingsDeleteProfile:   'settings:deleteProfile',
+  settingsSetActiveProfile:'settings:setActiveProfile',
   settingsChooseWhisperModel:'settings:chooseWhisperModel',
   settingsChooseExportRoot:'settings:chooseExportRoot',
   audioAnalysisAnalyzeSession:'audioAnalysis:analyzeSession',
@@ -426,7 +427,7 @@ function clearExpiredSlackToken(settings: SlackPublishSettings): SlackPublishSet
 function maybeClearExpiredSlackTokenForProject(settings: SettingsStore, projectId: string, slack: SlackPublishSettings, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err)
   if (/token_expired|invalid_auth|not_authed|account_inactive/i.test(message)) {
-    settings.setProject(projectId, { slack: clearExpiredSlackToken(slack) })
+    settings.setProfile(projectId, { slack: clearExpiredSlackToken(slack) })
   }
 }
 
@@ -2026,10 +2027,10 @@ export function registerIpc(deps: IpcDeps): void {
       const projectId = pendingSlackOAuth.projectId
       pendingSlackOAuth = null
       const settingsAtStart = deps.settings.get()
-      const targetProject = settingsAtStart.projects.find(p => p.id === projectId) ?? findActiveProject(settingsAtStart)
-      const current = targetProject.slack
+      const targetProfile = settingsAtStart.profiles.find(p => p.id === projectId) ?? findActiveProfile(settingsAtStart)
+      const current = targetProfile.slack
       const oauth = await exchangeSlackOAuthCode({ code: callback.code, codeVerifier, settings: current })
-      let settings = deps.settings.setProject(projectId, { slack: {
+      let settings = deps.settings.setProfile(projectId, { slack: {
         ...current,
         userToken: oauth.userToken,
         publishIdentity: 'user',
@@ -2040,10 +2041,10 @@ export function registerIpc(deps: IpcDeps): void {
         oauthUserScopes: oauth.scopes,
       } })
       try {
-        const updatedProject = settings.projects.find(p => p.id === projectId) ?? findActiveProject(settings)
-        const directory = await refreshSlackDirectory(updatedProject.slack, oauth.userToken)
-        settings = deps.settings.setProject(projectId, { slack: {
-          ...updatedProject.slack,
+        const updatedProfile = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
+        const directory = await refreshSlackDirectory(updatedProfile.slack, oauth.userToken)
+        settings = deps.settings.setProfile(projectId, { slack: {
+          ...updatedProfile.slack,
           ...directory,
         } })
       } catch (err) {
@@ -2209,7 +2210,7 @@ export function registerIpc(deps: IpcDeps): void {
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
-  ipcMain.handle(CHANNEL.sessionImportVideo, async (_e, args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session> => {
+  ipcMain.handle(CHANNEL.sessionImportVideo, async (_e, args: { inputPath: string; audioPath?: string; audioStartOffsetMs?: number; buildVersion: string; platform?: string; project?: string; profileId?: string | null; testNote: string; tester?: string; analyzeAudio?: boolean }): Promise<Session> => {
     return deps.manager.importVideo(args)
   })
   ipcMain.handle(CHANNEL.sessionMarkBug, async (_e, args) => deps.manager.markBug(args))
@@ -2368,15 +2369,15 @@ export function registerIpc(deps: IpcDeps): void {
     deps.setHotkeys(settings.hotkeys)
     return settings
   })
-  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, projectId: string, slack: SlackPublishSettings) => {
-    let settings = deps.settings.setProject(projectId, { slack })
-    const project = findProjectByIdOrActive(settings, projectId)
-    const token = slackApiTokenForUsers(project.slack)
-    if (token && (project.slack.mentionUsers ?? []).length === 0 && (project.slack.channels ?? []).length === 0) {
+  ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, profileId: string, slack: SlackPublishSettings) => {
+    let settings = deps.settings.setProfile(profileId, { slack })
+    const profile = findProfileByIdOrActive(settings, profileId)
+    const token = slackApiTokenForUsers(profile.slack)
+    if (token && (profile.slack.mentionUsers ?? []).length === 0 && (profile.slack.channels ?? []).length === 0) {
       try {
-        const directory = await refreshSlackDirectory(project.slack, token)
-        settings = deps.settings.setProject(projectId, { slack: {
-          ...project.slack,
+        const directory = await refreshSlackDirectory(profile.slack, token)
+        settings = deps.settings.setProfile(profileId, { slack: {
+          ...profile.slack,
           ...directory,
         } })
       } catch (err) {
@@ -2385,12 +2386,12 @@ export function registerIpc(deps: IpcDeps): void {
     }
     return settings
   })
-  ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, projectId: string, gitlab: GitLabPublishSettings) => deps.settings.setProject(projectId, { gitlab }))
-  ipcMain.handle(CHANNEL.settingsConnectGitLabOAuth, async (_e, projectId: string, gitlab: GitLabPublishSettings) => {
-    const saved = deps.settings.setProject(projectId, { gitlab })
-    const savedProject = findProjectByIdOrActive(saved, projectId)
-    const token = await connectGitLabOAuth(savedProject.gitlab)
-    return deps.settings.setProject(projectId, { gitlab: { ...savedProject.gitlab, token, authType: 'oauth' } })
+  ipcMain.handle(CHANNEL.settingsSetGitLab, async (_e, profileId: string, gitlab: GitLabPublishSettings) => deps.settings.setProfile(profileId, { gitlab }))
+  ipcMain.handle(CHANNEL.settingsConnectGitLabOAuth, async (_e, profileId: string, gitlab: GitLabPublishSettings) => {
+    const saved = deps.settings.setProfile(profileId, { gitlab })
+    const savedProfile = findProfileByIdOrActive(saved, profileId)
+    const token = await connectGitLabOAuth(savedProfile.gitlab)
+    return deps.settings.setProfile(profileId, { gitlab: { ...savedProfile.gitlab, token, authType: 'oauth' } })
   })
   ipcMain.handle(CHANNEL.settingsCancelGitLabOAuth, async () => {
     gitlabOAuthCancel?.()
@@ -2399,47 +2400,47 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsGetBundledGitLabOAuthInstances, async () => {
     return getBundledOAuthInstances()
   })
-  ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, _projectId: string, gitlab: GitLabPublishSettings) => {
+  ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, _profileId: string, gitlab: GitLabPublishSettings) => {
     return fetchGitLabProjects(gitlab)
   })
-  ipcMain.handle(CHANNEL.settingsSetGoogle, async (_e, projectId: string, google: GooglePublishSettings) => deps.settings.setProject(projectId, { google }))
-  ipcMain.handle(CHANNEL.settingsConnectGoogleOAuth, async (_e, projectId: string, google: GooglePublishSettings) => {
-    const saved = deps.settings.setProject(projectId, { google })
-    const savedProject = findProjectByIdOrActive(saved, projectId)
-    const connected = await connectGoogleOAuth(savedProject.google)
-    return deps.settings.setProject(projectId, { google: connected })
+  ipcMain.handle(CHANNEL.settingsSetGoogle, async (_e, profileId: string, google: GooglePublishSettings) => deps.settings.setProfile(profileId, { google }))
+  ipcMain.handle(CHANNEL.settingsConnectGoogleOAuth, async (_e, profileId: string, google: GooglePublishSettings) => {
+    const saved = deps.settings.setProfile(profileId, { google })
+    const savedProfile = findProfileByIdOrActive(saved, profileId)
+    const connected = await connectGoogleOAuth(savedProfile.google)
+    return deps.settings.setProfile(profileId, { google: connected })
   })
   ipcMain.handle(CHANNEL.settingsCancelGoogleOAuth, async () => {
     googleOAuthCancel?.()
     googleOAuthCancel = null
   })
-  ipcMain.handle(CHANNEL.settingsListGoogleDriveFolders, async (_e, projectId: string, google: GooglePublishSettings) => {
+  ipcMain.handle(CHANNEL.settingsListGoogleDriveFolders, async (_e, profileId: string, google: GooglePublishSettings) => {
     const refreshed = await refreshGoogleAccessToken(google)
     const folders = await listGoogleDriveFolders(refreshed)
-    deps.settings.setProject(projectId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
+    deps.settings.setProfile(profileId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
     return folders
   })
-  ipcMain.handle(CHANNEL.settingsCreateGoogleDriveFolder, async (_e, projectId: string, google: GooglePublishSettings, name: string) => {
+  ipcMain.handle(CHANNEL.settingsCreateGoogleDriveFolder, async (_e, profileId: string, google: GooglePublishSettings, name: string) => {
     const refreshed = await refreshGoogleAccessToken(google)
     const folder = await createGoogleDriveFolder(refreshed, name)
-    deps.settings.setProject(projectId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt, driveFolderId: folder.id, driveFolderName: folder.name } })
+    deps.settings.setProfile(profileId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt, driveFolderId: folder.id, driveFolderName: folder.name } })
     return folder
   })
-  ipcMain.handle(CHANNEL.settingsListGoogleSpreadsheets, async (_e, projectId: string, google: GooglePublishSettings) => {
+  ipcMain.handle(CHANNEL.settingsListGoogleSpreadsheets, async (_e, profileId: string, google: GooglePublishSettings) => {
     const refreshed = await refreshGoogleAccessToken(google)
     const sheets = await listGoogleSpreadsheets(refreshed)
-    deps.settings.setProject(projectId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
+    deps.settings.setProfile(profileId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
     return sheets
   })
-  ipcMain.handle(CHANNEL.settingsListGoogleSheetTabs, async (_e, projectId: string, google: GooglePublishSettings) => {
+  ipcMain.handle(CHANNEL.settingsListGoogleSheetTabs, async (_e, profileId: string, google: GooglePublishSettings) => {
     const refreshed = await refreshGoogleAccessToken(google)
     const tabs = await listGoogleSheetTabs(refreshed)
-    deps.settings.setProject(projectId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
+    deps.settings.setProfile(profileId, { google: { ...google, token: refreshed.token, tokenExpiresAt: refreshed.tokenExpiresAt } })
     return tabs
   })
   ipcMain.handle(CHANNEL.settingsSetMentionIdentities, async (_e, identities: MentionIdentity[]) => deps.settings.setMentionIdentities(identities))
-  ipcMain.handle(CHANNEL.settingsSetMarkerFieldPresets, async (_e, projectId: string, presets) => deps.settings.setProject(projectId, { markerFieldPresets: presets }))
-  ipcMain.handle(CHANNEL.settingsSetPublishTemplates, async (_e, projectId: string, templates) => deps.settings.setProject(projectId, { publishTemplates: templates }))
+  ipcMain.handle(CHANNEL.settingsSetMarkerFieldPresets, async (_e, profileId: string, presets) => deps.settings.setProfile(profileId, { markerFieldPresets: presets }))
+  ipcMain.handle(CHANNEL.settingsSetPublishTemplates, async (_e, profileId: string, templates) => deps.settings.setProfile(profileId, { publishTemplates: templates }))
   ipcMain.handle(CHANNEL.settingsExportMentionIdentities, async (): Promise<string | null> => {
     const win = deps.getWindow()
     const result = await (win
@@ -2487,7 +2488,7 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async (_e, projectId: string) => {
     const settings = deps.settings.get()
-    const project = settings.projects.find(p => p.id === projectId) ?? findActiveProject(settings)
+    const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
     const token = slackApiTokenForUsers(project.slack)
     let directory: Partial<SlackPublishSettings>
     try {
@@ -2498,7 +2499,7 @@ export function registerIpc(deps: IpcDeps): void {
       maybeClearExpiredSlackTokenForProject(deps.settings, projectId, project.slack, err)
       throw friendlySlackDirectoryError(project.slack, err)
     }
-    deps.settings.setProject(projectId, { slack: {
+    deps.settings.setProfile(projectId, { slack: {
       ...project.slack,
       ...directory,
     } })
@@ -2506,9 +2507,9 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsRefreshGitLabUsers, async (_e, projectId: string) => {
     const settings = deps.settings.get()
-    const project = settings.projects.find(p => p.id === projectId) ?? findActiveProject(settings)
+    const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
     const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(project.gitlab)
-    deps.settings.setProject(projectId, { gitlab: {
+    deps.settings.setProfile(projectId, { gitlab: {
       ...project.gitlab,
       mentionUsers,
       usersFetchedAt: new Date().toISOString(),
@@ -2518,7 +2519,7 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async (_e, projectId: string) => {
     const settings = deps.settings.get()
-    const project = settings.projects.find(p => p.id === projectId) ?? findActiveProject(settings)
+    const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
     let directory: Partial<SlackPublishSettings>
     try {
       directory = await refreshSlackChannelsOnly(project.slack, slackApiTokenForUsers(project.slack))
@@ -2526,14 +2527,14 @@ export function registerIpc(deps: IpcDeps): void {
       maybeClearExpiredSlackTokenForProject(deps.settings, projectId, project.slack, err)
       throw friendlySlackDirectoryError(project.slack, err)
     }
-    return deps.settings.setProject(projectId, { slack: {
+    return deps.settings.setProfile(projectId, { slack: {
       ...project.slack,
       ...directory,
     } })
   })
   ipcMain.handle(CHANNEL.settingsStartSlackUserOAuth, async (_e, projectId: string, slack: SlackPublishSettings) => {
-    const settings = deps.settings.setProject(projectId, { slack })
-    const project = settings.projects.find(p => p.id === projectId) ?? findActiveProject(settings)
+    const settings = deps.settings.setProfile(projectId, { slack })
+    const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
     const state = randomBytes(18).toString('base64url')
     const pkce = createSlackPkce()
     pendingSlackOAuth = { state, codeVerifier: pkce.codeVerifier, createdAt: Date.now(), projectId }
@@ -2545,21 +2546,16 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetAudioAnalysis, async (_e, audioAnalysis: AudioAnalysisSettings) => deps.settings.setAudioAnalysis(audioAnalysis))
   ipcMain.handle(CHANNEL.settingsSetCommonSession, async (_e, commonSession) => deps.settings.setCommonSession(commonSession))
   ipcMain.handle(CHANNEL.settingsSetRecordingPreferences, async (_e, recordingPreferences: RecordingPreferences) => deps.settings.setRecordingPreferences(recordingPreferences))
-  ipcMain.handle(CHANNEL.settingsAddProject, async (_e, args: { name: string; duplicateFromId?: string }) => deps.settings.addProject(args))
-  ipcMain.handle(CHANNEL.settingsRenameProject, async (_e, id: string, newName: string) => {
-    const before = deps.settings.get().projects.find(p => p.id === id)
-    if (!before) throw new Error(`Project not found: ${id}`)
-    const oldName = before.name
-    const after = deps.settings.renameProject(id, newName)
-    // Read the canonical post-rename name (settings applies trim + 50-char truncation).
-    const newCanonicalName = after.projects.find(p => p.id === id)!.name
-    if (oldName !== newCanonicalName) {
-      deps.db.renameSessionProject(oldName, newCanonicalName)
-    }
-    return after
+  ipcMain.handle(CHANNEL.settingsAddProfile, async (_e, args: { name: string; duplicateFromId?: string }) => deps.settings.addProfile(args))
+  ipcMain.handle(CHANNEL.settingsRenameProfile, async (_e, id: string, newName: string) => {
+    // Profile rename is decoupled from Session.project (the game label).
+    // db.renameSessionProject is intentionally NOT cascaded here: under the
+    // separated Profile/Project model a profile rename only relabels the
+    // publish-config bundle, never historical session game labels.
+    return deps.settings.renameProfile(id, newName)
   })
-  ipcMain.handle(CHANNEL.settingsDeleteProject, async (_e, id: string) => deps.settings.deleteProject(id))
-  ipcMain.handle(CHANNEL.settingsSetActiveProject, async (_e, id: string) => deps.settings.setActiveProject(id))
+  ipcMain.handle(CHANNEL.settingsDeleteProfile, async (_e, id: string) => deps.settings.deleteProfile(id))
+  ipcMain.handle(CHANNEL.settingsSetActiveProfile, async (_e, id: string) => deps.settings.setActiveProfile(id))
   ipcMain.handle(CHANNEL.settingsChooseWhisperModel, async (): Promise<ReturnType<SettingsStore['get']> | null> => {
     const win = deps.getWindow()
     const pick = await (win
@@ -2788,7 +2784,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProjectForSession(deps.settings.get(), session.project).project.markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
@@ -2943,7 +2939,7 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProjectForSession(deps.settings.get(), session.project).project.markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },

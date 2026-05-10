@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
-import type { ProjectSettings } from '@shared/types'
+import type { ProfileSettings } from '@shared/types'
 
-export interface AddProjectDialogProps {
+export interface AddProfileDialogProps {
   open: boolean
-  existingProjects: ProjectSettings[]
+  existingProfiles: ProfileSettings[]
   onClose: () => void
   onSubmit: (args: { name: string; duplicateFromId?: string }) => Promise<void>
 }
 
-export function AddProjectDialog({ open, existingProjects, onClose, onSubmit }: AddProjectDialogProps) {
+export function AddProfileDialog({ open, existingProfiles, onClose, onSubmit }: AddProfileDialogProps) {
   const { t } = useI18n()
   const [name, setName] = useState('')
   const [duplicateFromId, setDuplicateFromId] = useState<string>('')
@@ -30,11 +30,11 @@ export function AddProjectDialog({ open, existingProjects, onClose, onSubmit }: 
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
-      setError(t('preferences.projectNameRequired'))
+      setError(t('preferences.profileNameRequired'))
       return
     }
-    if (existingProjects.some(p => p.name === trimmed)) {
-      setError(t('preferences.projectNameTaken'))
+    if (existingProfiles.some(p => p.name === trimmed)) {
+      setError(t('preferences.profileNameTaken'))
       return
     }
     setSubmitting(true)
@@ -54,9 +54,9 @@ export function AddProjectDialog({ open, existingProjects, onClose, onSubmit }: 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <form onSubmit={submit} className="w-96 rounded border border-zinc-700 bg-zinc-900 p-4">
-        <h2 className="text-sm font-semibold text-zinc-200">{t('preferences.addProjectTitle')}</h2>
+        <h2 className="text-sm font-semibold text-zinc-200">{t('preferences.addProfileTitle')}</h2>
         <label className="mt-3 block text-xs text-zinc-500">
-          {t('preferences.projectName')}
+          {t('preferences.profileName')}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -73,7 +73,7 @@ export function AddProjectDialog({ open, existingProjects, onClose, onSubmit }: 
             className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
           >
             <option value="">{t('preferences.startBlank')}</option>
-            {existingProjects.map(p => (
+            {existingProfiles.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>

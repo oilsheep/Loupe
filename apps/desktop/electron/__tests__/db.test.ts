@@ -296,3 +296,41 @@ describe('renameSessionProject', () => {
     db.close()
   })
 })
+
+describe('profile_id column migration', () => {
+  it('adds profile_id column if missing', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'loupe.db'))
+    const cols = (db.raw.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map(c => c.name)
+    expect(cols).toContain('profile_id')
+    db.close()
+  })
+
+  it('is idempotent on second open (does not re-add column)', () => {
+    const dir = makeTmp()
+    const dbPath = join(dir, 'loupe.db')
+    openDb(dbPath).close()
+    const db2 = openDb(dbPath)
+    const cols = (db2.raw.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map(c => c.name)
+    expect(cols.filter(c => c === 'profile_id').length).toBe(1)
+    db2.close()
+  })
+})
+
+describe('setSessionProfileId / listSessionsWithoutProfileId', () => {
+  it('sets profile_id and lists sessions still missing one', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'loupe.db'))
+    db.insertSession({ ...makeSession('s1', '/r') } as Session)
+    db.setSessionProfileId('s1', 'profile-A')
+    const reloaded = db.getSession('s1')!
+    expect(reloaded.profileId).toBe('profile-A')
+
+    db.insertSession({ ...makeSession('s2', '/r') } as Session)
+    const orphans = db.listSessionsWithoutProfileId()
+    expect(orphans.map(o => o.id)).toContain('s2')
+    expect(orphans.map(o => o.id)).not.toContain('s1')
+
+    db.close()
+  })
+})

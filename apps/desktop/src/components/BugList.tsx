@@ -1,22 +1,22 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
-// Resolve the project to read from. Prefer the per-session override (e.g. when
-// Draft opens an old session whose project differs from the global active),
-// otherwise fall back to the global active project.
-function activeProjectFrom(settings: AppSettings, override?: ProjectSettings): ProjectSettings {
+// Resolve the profile to read from. Prefer the per-session override (e.g. when
+// Draft opens an old session whose profile differs from the global active),
+// otherwise fall back to the global active profile.
+function activeProfileFrom(settings: AppSettings, override?: ProfileSettings): ProfileSettings {
   if (override) return override
-  return settings.projects.find(p => p.id === settings.activeProjectId) ?? settings.projects[0]
+  return settings.profiles.find(p => p.id === settings.activeProfileId) ?? settings.profiles[0]
 }
 
-// Resolve the project id to write back to via setSlack/setGitLab/etc. Routes
+// Resolve the profile id to write back to via setSlack/setGitLab/etc. Routes
 // per-session writes (e.g. refreshing channels from an old session's Draft) to
-// that session's project, not the currently-active one.
-function targetProjectId(settings: AppSettings, override?: ProjectSettings): string {
-  return override?.id ?? settings.activeProjectId
+// that session's profile, not the currently-active one.
+function targetProfileId(settings: AppSettings, override?: ProfileSettings): string {
+  return override?.id ?? settings.activeProfileId
 }
 
 interface Props {
@@ -39,11 +39,11 @@ interface Props {
   testNote?: string
   hasSessionMicTrack?: boolean
   markerToolbar?: ReactNode
-  // Per-session project override. Read sites prefer this over
-  // activeProjectFrom(settings); write sites (setSlack/setGitLab/etc.) route to
-  // this project's id when present, so refreshing Slack channels for an old
-  // session correctly updates that session's project.
-  overrideProject?: ProjectSettings
+  // Per-session profile override. Read sites prefer this over
+  // activeProfileFrom(settings); write sites (setSlack/setGitLab/etc.) route to
+  // this profile's id when present, so refreshing Slack channels for an old
+  // session correctly updates that session's profile.
+  overrideProfile?: ProfileSettings
 }
 
 export interface BugListHandle {
@@ -393,6 +393,9 @@ interface ExportConfirmDialogProps {
   tester: string
   testNote: string
   commonSession: CommonSessionSettings
+  profiles: ProfileSettings[]
+  selectedProfileId: string
+  onSelectedProfileIdChange(value: string): void
   includeLogcat: boolean
   includeMicTrack: boolean
   includeOriginalFiles: boolean
@@ -464,6 +467,9 @@ function ExportConfirmDialog({
   tester,
   testNote,
   commonSession,
+  profiles,
+  selectedProfileId,
+  onSelectedProfileIdChange,
   includeLogcat,
   includeMicTrack,
   includeOriginalFiles,
@@ -658,6 +664,22 @@ function ExportConfirmDialog({
             <div className="text-xs font-medium text-zinc-300">{t('publish.title')}</div>
             <div className="mt-1 text-xs text-zinc-500">{t('publish.localAlways')}</div>
           </div>
+
+          {profiles.length > 0 && (
+            <label className="block text-xs text-zinc-400">
+              {t('export.profile')}
+              <select
+                aria-label={t('export.profile')}
+                value={selectedProfileId}
+                onChange={(e) => onSelectedProfileIdChange(e.target.value)}
+                className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <section className={`rounded border p-3 ${isSlack ? 'border-blue-700 bg-blue-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
             <div className="flex items-center justify-between gap-3">
@@ -1498,8 +1520,37 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, overrideProject }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, overrideProfile: propOverrideProfile }: Props, ref) {
   const { t } = useI18n()
+  // Per-publish profile override controlled by the Export dialog's Profile
+  // dropdown. Defaults to the prop (which Draft computes via
+  // findProfileForSession), but the user can switch to any other profile here
+  // for THIS publish only — we never call api.settings.setActiveProfile, so
+  // this never leaks to the global active profile (same scoping principle as
+  // the per-session draftProfile from Draft). Read sites use `overrideProfile`
+  // (the merged value) below.
+  const [localOverrideProfile, setLocalOverrideProfile] = useState<ProfileSettings | undefined>(propOverrideProfile)
+  // If the prop changes (Draft re-resolves the session to a DIFFERENT profile),
+  // reset the local dropdown override so the prop wins again. We compare by id
+  // against the previous prop (tracked in a ref) — not by object reference —
+  // because Draft computes propOverrideProfile via useMemo, which returns a
+  // NEW reference on every settings reload (e.g. reloadSettings or
+  // onAppSettingsUpdated) even when the resolved profile id is unchanged.
+  // Without the id-vs-previous-prop check, the user's manually-chosen dropdown
+  // choice would silently revert whenever settings update while the export
+  // dialog is open. (Comparing prop.id against localOverrideProfile.id is
+  // wrong: once the user has switched to pB, that compare always yields
+  // "different" and clobbers the user's choice on every prop reference change.)
+  const prevPropProfileIdRef = useRef<string | undefined>(propOverrideProfile?.id)
+  useEffect(() => {
+    if (propOverrideProfile?.id !== prevPropProfileIdRef.current) {
+      prevPropProfileIdRef.current = propOverrideProfile?.id
+      setLocalOverrideProfile(propOverrideProfile)
+    }
+  }, [propOverrideProfile])
+  const overrideProfile = localOverrideProfile ?? propOverrideProfile
+  const [allProfiles, setAllProfiles] = useState<ProfileSettings[]>([])
+  const [globalActiveProfileId, setGlobalActiveProfileId] = useState<string>('')
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(Date.now())
   const [logcatPreview, setLogcatPreview] = useState<Record<string, string>>({})
@@ -1587,7 +1638,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   useEffect(() => {
     const apply = (settings: AppSettings) => {
-      const active = activeProjectFrom(settings, overrideProject)
+      const active = activeProfileFrom(settings, overrideProfile)
+      setAllProfiles(settings.profiles)
+      setGlobalActiveProfileId(settings.activeProfileId)
       setSeverities(settings.severities)
       setSlackSettings(active.slack)
       const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
@@ -1608,12 +1661,12 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     }
     api.settings.get().then(apply).catch(() => {})
     return api.onAppSettingsUpdated(apply)
-  }, [api, overrideProject])
+  }, [api, overrideProfile])
 
   useEffect(() => api.onSlackOAuthCompleted((result) => {
     setSlackConnecting(false)
     if (result.ok && result.settings) {
-      const active = activeProjectFrom(result.settings, overrideProject)
+      const active = activeProfileFrom(result.settings, overrideProfile)
       setSlackSettings(active.slack)
       applySlackDirectory(result.settings)
       setSlackChannelId(channelIdFromSettings(active.slack))
@@ -1624,7 +1677,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     } else {
       setSlackDirectoryError(result.error || 'Slack connection failed.')
     }
-  }), [api, overrideProject])
+  }), [api, overrideProfile])
 
   useEffect(() => {
     const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)
@@ -1684,7 +1737,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   }, [bugs])
 
   function applySlackDirectory(settings: Awaited<ReturnType<DesktopApi['settings']['get']>>): void {
-    const active = activeProjectFrom(settings, overrideProject)
+    const active = activeProfileFrom(settings, overrideProfile)
     const fetchedUsers = (active.slack.mentionUsers ?? []).filter(user => !user.deleted && !user.isBot)
     const fetchedIds = new Set(fetchedUsers.map(user => user.id))
     const fallbackUsers = (active.slack.mentionUserIds ?? [])
@@ -1703,11 +1756,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     const refreshPromise = (async () => {
       const current = await api.settings.get()
       const settings = await withTimeout(
-        api.settings.refreshSlackChannels(targetProjectId(current, overrideProject)),
+        api.settings.refreshSlackChannels(targetProfileId(current, overrideProfile)),
         15000,
         'Slack channel loading timed out. Try Refresh again in a minute.',
       )
-      const active = activeProjectFrom(settings, overrideProject)
+      const active = activeProfileFrom(settings, overrideProfile)
       setSlackSettings(active.slack)
       applySlackDirectory(settings)
       setSlackChannelId(channelIdFromSettings(active.slack))
@@ -1728,6 +1781,39 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     } finally {
       slackDirectoryRefreshPromiseRef.current = null
       setSlackDirectoryRefreshing(false)
+    }
+  }
+
+  function applyProfileToExportDialog(settings: AppSettings, profile: ProfileSettings | undefined) {
+    const active = activeProfileFrom(settings, profile)
+    setSlackSettings(active.slack)
+    setSlackChannelId(channelIdFromSettings(active.slack))
+    setSlackMentionIds(active.slack.mentionUserIds ?? [])
+    setSlackManualMentionInput(formatManualSlackMentions(active.slack.mentionUserIds ?? []))
+    applySlackDirectory(settings)
+    setGitLabSettings(active.gitlab)
+    setGitLabProjectId(active.gitlab.projectId)
+    setGitLabMode(active.gitlab.mode)
+    setGoogleSettings(active.google)
+  }
+
+  async function handleProfileDropdownChange(nextProfileId: string) {
+    const next = allProfiles.find(p => p.id === nextProfileId)
+    if (!next) return
+    setLocalOverrideProfile(next)
+    // Reset publish toggles since the new profile may have different
+    // connectivity. The user can re-toggle whatever they want.
+    setPublishSlack(false)
+    setPublishGitLab(false)
+    setPublishGoogleDrive(false)
+    setSlackDirectoryError('')
+    setGitLabProjectsError('')
+    setGitLabProjects([])
+    try {
+      const settings = await api.settings.get()
+      applyProfileToExportDialog(settings, next)
+    } catch {
+      // ignore — the apply effect will reload eventually
     }
   }
 
@@ -1760,16 +1846,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setPublishGitLab(false)
     setPublishGoogleDrive(false)
     setSlackThreadMode('per-marker-thread')
-    const active = activeProjectFrom(settings, overrideProject)
-    setSlackSettings(active.slack)
-    setSlackChannelId(channelIdFromSettings(active.slack))
-    setSlackMentionIds(active.slack.mentionUserIds ?? [])
-    setSlackManualMentionInput(formatManualSlackMentions(active.slack.mentionUserIds ?? []))
-    applySlackDirectory(settings)
-    setGitLabSettings(active.gitlab)
-    setGitLabProjectId(active.gitlab.projectId)
-    setGitLabMode(active.gitlab.mode)
-    setGoogleSettings(active.google)
+    applyProfileToExportDialog(settings, overrideProfile)
     setExportError('')
     setExportProgress(null)
     setExportId(null)
@@ -1783,11 +1860,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setExportError('')
     try {
       const settings = await api.settings.get()
-      const active = activeProjectFrom(settings, overrideProject)
+      const active = activeProfileFrom(settings, overrideProfile)
       const oauthSlack = { ...active.slack, publishIdentity: 'user' as const }
       setSlackSettings(oauthSlack)
-      const nextSettings = await api.settings.startSlackUserOAuth(targetProjectId(settings, overrideProject), oauthSlack)
-      const nextActive = activeProjectFrom(nextSettings, overrideProject)
+      const nextSettings = await api.settings.startSlackUserOAuth(targetProfileId(settings, overrideProfile), oauthSlack)
+      const nextActive = activeProfileFrom(nextSettings, overrideProfile)
       setSlackSettings(nextActive.slack)
       applySlackDirectory(nextSettings)
       setSlackChannelId(channelIdFromSettings(nextActive.slack))
@@ -1810,7 +1887,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   async function refreshGitLabProjectsForExport() {
     const current = await api.settings.get()
-    const sourceSettings = gitlabSettings ?? activeProjectFrom(current, overrideProject).gitlab
+    const sourceSettings = gitlabSettings ?? activeProfileFrom(current, overrideProfile).gitlab
     const nextGitLab = {
       ...sourceSettings,
       projectId: gitlabProjectId.trim() || sourceSettings.projectId,
@@ -1820,7 +1897,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setGitLabProjectsError('')
     try {
       const projects = await withTimeout(
-        api.settings.listGitLabProjects(targetProjectId(current, overrideProject), nextGitLab),
+        api.settings.listGitLabProjects(targetProfileId(current, overrideProfile), nextGitLab),
         15000,
         'GitLab project loading timed out. Try Refresh again in a minute.',
       )
@@ -1910,24 +1987,24 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           ...manualMentions,
         ]))
         const nextSlack: SlackPublishSettings = {
-          ...activeProjectFrom(currentSettings, overrideProject).slack,
+          ...activeProfileFrom(currentSettings, overrideProfile).slack,
           channelId: slackChannelId.trim(),
           mentionUserIds: nextMentionIds,
           mentionAliases: slackAliases,
         }
-        currentSettings = await api.settings.setSlack(targetProjectId(currentSettings, overrideProject), nextSlack)
-        const nextActive = activeProjectFrom(currentSettings, overrideProject)
+        currentSettings = await api.settings.setSlack(targetProfileId(currentSettings, overrideProfile), nextSlack)
+        const nextActive = activeProfileFrom(currentSettings, overrideProfile)
         setSlackMentionIds(nextActive.slack.mentionUserIds ?? [])
         setSlackManualMentionInput(formatManualSlackMentions(nextActive.slack.mentionUserIds ?? []))
       }
       if (publishGitLab && gitlabProjectId.trim()) {
         const nextGitLab: GitLabPublishSettings = {
-          ...activeProjectFrom(currentSettings, overrideProject).gitlab,
+          ...activeProfileFrom(currentSettings, overrideProfile).gitlab,
           projectId: gitlabProjectId.trim(),
           mode: gitlabMode,
         }
-        currentSettings = await api.settings.setGitLab(targetProjectId(currentSettings, overrideProject), nextGitLab)
-        const nextActive = activeProjectFrom(currentSettings, overrideProject)
+        currentSettings = await api.settings.setGitLab(targetProfileId(currentSettings, overrideProfile), nextGitLab)
+        const nextActive = activeProfileFrom(currentSettings, overrideProfile)
         setGitLabSettings(nextActive.gitlab)
         setGitLabProjectId(nextActive.gitlab.projectId)
         setGitLabMode(nextActive.gitlab.mode)
@@ -2047,6 +2124,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           tester={exportTester}
           testNote={exportTestNote}
           commonSession={commonSession}
+          profiles={allProfiles}
+          selectedProfileId={overrideProfile?.id ?? allProfiles.find(p => p.id === globalActiveProfileId)?.id ?? allProfiles[0]?.id ?? ''}
+          onSelectedProfileIdChange={(id) => { void handleProfileDropdownChange(id) }}
           includeLogcat={exportIncludeLogcat}
           includeMicTrack={exportIncludeMicTrack}
           includeOriginalFiles={exportIncludeOriginalFiles}

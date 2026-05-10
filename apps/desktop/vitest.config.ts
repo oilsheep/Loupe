@@ -10,6 +10,6 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
-    include: ['electron/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.{ts,tsx}'],
+    include: ['electron/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.{ts,tsx}', 'shared/__tests__/**/*.test.ts'],
   },
 })

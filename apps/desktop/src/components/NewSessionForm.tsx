@@ -82,6 +82,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
 
   const [build, setBuild] = useState('')
   const [platform, setPlatform] = useState('')
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('')
   const [project, setProject] = useState('')
   const [note, setNote] = useState('')
   const [tester, setTester] = useState('')
@@ -148,8 +149,9 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         setPlatform(loaded.commonSession.lastPlatform)
         setTester(loaded.commonSession.lastTester)
       }
-      if (loaded.projects.length > 0) {
-        const active = loaded.projects.find(p => p.id === loaded.activeProjectId) ?? loaded.projects[0]
+      if (loaded.profiles.length > 0) {
+        const active = loaded.profiles.find(p => p.id === loaded.activeProfileId) ?? loaded.profiles[0]
+        setSelectedProfileId(active.id)
         setProject(active.name)
       }
     }).catch(() => {
@@ -230,6 +232,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         buildVersion: build.trim(),
         platform: platform.trim(),
         project: project.trim(),
+        profileId: selectedProfileId || null,
         testNote: note.trim(),
         tester: tester.trim(),
         recordPcScreen,
@@ -306,15 +309,18 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
     setCommonSession(saved.commonSession ?? next)
   }
 
-  async function selectProject(projectId: string) {
-    const found = settings?.projects.find(p => p.id === projectId)
-    if (!found) return
-    setProject(found.name)
+  async function onProfileChange(profileId: string) {
+    const next = settings?.profiles.find(p => p.id === profileId)
+    if (!next) return
+    const current = settings?.profiles.find(p => p.id === selectedProfileId)
+    const wasClean = project.trim() === (current?.name?.trim() ?? '')
+    setSelectedProfileId(profileId)
+    if (wasClean) setProject(next.name)
     try {
-      const saved = await api.settings.setActiveProject(projectId)
+      const saved = await api.settings.setActiveProfile(profileId)
       setSettings(saved)
     } catch (err) {
-      console.warn('failed to set active project:', err)
+      console.warn('failed to set active profile:', err)
     }
   }
 
@@ -457,17 +463,30 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         </label>
 
         <label className="text-xs font-semibold text-zinc-200">
-          Project
+          {t('new.profile')}
           <select
-            value={settings?.activeProjectId ?? ''}
-            onChange={e => { void selectProject(e.target.value) }}
-            data-testid="project-select"
+            aria-label={t('new.profile')}
+            value={selectedProfileId}
+            onChange={e => { void onProfileChange(e.target.value) }}
+            data-testid="profile-select"
             className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
           >
-            {(settings?.projects ?? []).map(p => (
+            {(settings?.profiles ?? []).map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+        </label>
+
+        <label className="text-xs font-semibold text-zinc-200">
+          {t('new.project')}
+          <input
+            aria-label={t('new.project')}
+            value={project}
+            onChange={e => setProject(e.target.value)}
+            placeholder={t('new.projectPlaceholder')}
+            data-testid="project-input"
+            className="mt-1 w-full rounded bg-zinc-900 px-3 py-2 text-sm font-normal text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+          />
         </label>
 
         <label className="text-xs font-semibold text-zinc-200">

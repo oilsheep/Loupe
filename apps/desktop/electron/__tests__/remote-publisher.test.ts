@@ -28,14 +28,14 @@ function settings(): AppSettings {
     },
     audioAnalysis: { enabled: true, engine: 'whisper-cpp', modelPath: '', language: 'auto', triggerKeywords: '記錄, 紀錄, record, mark', showTriggerWords: false },
     mentionIdentities: [],
-    projects: [{
+    profiles: [{
       id: 'test-project',
       name: 'Default',
       slack: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
       gitlab: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: ['loupe'], confidential: false, mentionUsernames: [] },
       google: { token: 'ya29-test', refreshToken: '', tokenExpiresAt: Date.now() + 3600_000, accountEmail: 'qa@example.com', oauthClientId: 'google-client', oauthClientSecret: '', oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback', driveFolderId: 'folder-root', driveFolderName: 'Loupe', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     }],
-    activeProjectId: 'test-project',
+    activeProfileId: 'test-project',
   }
 }
 
@@ -234,7 +234,7 @@ describe('remote publisher', () => {
       publish: { target: 'google-drive' },
     })
     const appSettings = settings()
-    appSettings.projects[0].google = { ...appSettings.projects[0].google, token: '', refreshToken: '', driveFolderId: '' }
+    appSettings.profiles[0].google = { ...appSettings.profiles[0].google, token: '', refreshToken: '', driveFolderId: '' }
 
     await expect(publishManifestToRemote({
       manifest,

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
-import { AddProjectDialog } from './AddProjectDialog'
+import { AddProfileDialog } from './AddProfileDialog'
 
 export function identityIdFromName(value: string): string {
   return value
@@ -253,12 +253,12 @@ interface PreferencesDialogProps {
   audioAnalysis: AudioAnalysisSettings
   audioAnalysisSaved: boolean
   commonSession: CommonSessionSettings
-  projects: ProjectSettings[]
-  selectedProject: ProjectSettings
-  onSwitchProject(id: string): void | Promise<void>
-  onAddProject(args: { name: string; duplicateFromId?: string }): Promise<void>
-  onRenameProject(id: string, newName: string): Promise<void>
-  onDeleteProject(id: string): Promise<void>
+  profiles: ProfileSettings[]
+  selectedProfile: ProfileSettings
+  onSwitchProfile(id: string): void | Promise<void>
+  onAddProfile(args: { name: string; duplicateFromId?: string }): Promise<void>
+  onRenameProfile(id: string, newName: string): Promise<void>
+  onDeleteProfile(id: string): Promise<void>
   slack: SlackPublishSettings
   slackSaved: boolean
   startingSlackOAuth: boolean
@@ -359,12 +359,12 @@ export function PreferencesDialog({
   audioAnalysis,
   audioAnalysisSaved,
   commonSession,
-  projects,
-  selectedProject,
-  onSwitchProject,
-  onAddProject,
-  onRenameProject,
-  onDeleteProject,
+  profiles,
+  selectedProfile,
+  onSwitchProfile,
+  onAddProfile,
+  onRenameProfile,
+  onDeleteProfile,
   slack,
   slackSaved,
   startingSlackOAuth,
@@ -464,6 +464,7 @@ export function PreferencesDialog({
     : undefined
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [topTab, setTopTab] = useState<'profile' | 'global'>('profile')
 
   useEffect(() => {
     setCustomSlots(visibleCustomSeverities(severities))
@@ -541,18 +542,42 @@ export function PreferencesDialog({
           </button>
         </div>
 
+        <div role="tablist" className="flex shrink-0 border-b border-zinc-800 px-4">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={topTab === 'profile'}
+            onClick={() => setTopTab('profile')}
+            className={`px-3 py-2 text-xs font-medium ${topTab === 'profile' ? 'border-b-2 border-blue-600 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'}`}
+            data-testid="preferences-tab-profile"
+          >
+            {t('preferences.tabs.profile')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={topTab === 'global'}
+            onClick={() => setTopTab('global')}
+            className={`px-3 py-2 text-xs font-medium ${topTab === 'global' ? 'border-b-2 border-blue-600 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'}`}
+            data-testid="preferences-tab-global"
+          >
+            {t('preferences.tabs.global')}
+          </button>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {topTab === 'profile' && (
           <div className="mb-3 flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <span className="text-xs text-zinc-500">{t('preferences.projectSwitcher')}</span>
+            <span className="text-xs text-zinc-500">{t('preferences.profileSwitcher')}</span>
             <select
-              value={selectedProject.id}
+              value={selectedProfile.id}
               onChange={(e) => {
                 if (e.target.value === '__add__') {
                   setShowAddDialog(true)
                 } else {
                   void (async () => {
                     try {
-                      await onSwitchProject(e.target.value)
+                      await onSwitchProfile(e.target.value)
                     } catch (err: any) {
                       window.alert(err?.message ?? String(err))
                     }
@@ -560,56 +585,58 @@ export function PreferencesDialog({
                 }
               }}
               className="rounded bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
-              data-testid="preferences-project-switcher"
+              data-testid="preferences-profile-switcher"
             >
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              <option value="__add__">{t('preferences.addProjectTitle')}</option>
+              {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="__add__">{t('preferences.addProfileTitle')}</option>
             </select>
             <button
               type="button"
               onClick={async () => {
-                const newName = window.prompt(t('preferences.renamePromptTitle'), selectedProject.name)
+                const newName = window.prompt(t('preferences.renamePromptTitle'), selectedProfile.name)
                 if (!newName?.trim()) return
                 try {
-                  await onRenameProject(selectedProject.id, newName.trim())
+                  await onRenameProfile(selectedProfile.id, newName.trim())
                 } catch (err: any) {
                   window.alert(err?.message ?? String(err))
                 }
               }}
               className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
             >
-              {t('preferences.renameProject')}
+              {t('preferences.renameProfile')}
             </button>
             <button
               type="button"
               onClick={async () => {
-                if (projects.length <= 1) return
-                const ok = window.confirm(t('preferences.confirmDeleteProject').replace('{name}', selectedProject.name))
+                if (profiles.length <= 1) return
+                const ok = window.confirm(t('preferences.confirmDeleteProfile').replace('{name}', selectedProfile.name))
                 if (!ok) return
                 try {
-                  await onDeleteProject(selectedProject.id)
+                  await onDeleteProfile(selectedProfile.id)
                 } catch (err: any) {
                   window.alert(err?.message ?? String(err))
                 }
               }}
-              disabled={projects.length <= 1}
-              title={projects.length <= 1 ? t('preferences.cannotDeleteLast') : undefined}
+              disabled={profiles.length <= 1}
+              title={profiles.length <= 1 ? t('preferences.cannotDeleteLast') : undefined}
               className="rounded bg-zinc-800 px-2 py-1 text-xs text-red-300 disabled:opacity-50"
             >
-              {t('preferences.deleteProject')}
+              {t('preferences.deleteProfile')}
             </button>
           </div>
+          )}
 
-          <AddProjectDialog
+          <AddProfileDialog
             open={showAddDialog}
-            existingProjects={projects}
+            existingProfiles={profiles}
             onClose={() => setShowAddDialog(false)}
             onSubmit={async (args) => {
-              await onAddProject(args)
+              await onAddProfile(args)
               setShowAddDialog(false)
             }}
           />
 
+          {topTab === 'global' && (
           <section className="grid gap-3 border-b border-zinc-800 pb-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{t('preferences.general')}</div>
@@ -642,7 +669,9 @@ export function PreferencesDialog({
               </label>
             </div>
           </section>
+          )}
 
+          {topTab === 'global' && (
           <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{zh ? '\u5e38\u7528\u8cc7\u8a0a' : 'Common session info'}</div>
@@ -671,7 +700,9 @@ export function PreferencesDialog({
               ))}
             </div>
           </section>
+          )}
 
+          {topTab === 'global' && (
           <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{zh ? '語音辨識' : 'Speech recognition'}</div>
@@ -727,7 +758,9 @@ export function PreferencesDialog({
               {audioAnalysisSaved && <div className="text-xs text-emerald-300">{t('common.saved')}</div>}
             </div>
           </section>
+          )}
 
+          {topTab === 'global' && (
           <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{t('preferences.markerDefaults')}</div>
@@ -812,14 +845,21 @@ export function PreferencesDialog({
                 </div>
               </div>
 
-              <div className="border-t border-zinc-800 pt-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-medium text-zinc-300">{zh ? 'Marker 客製欄位 preset' : 'Marker field presets'}</div>
-                    <div className="mt-1 text-[11px] leading-4 text-zinc-500">
-                      {zh ? '團隊可先定義 key、預設值與選項。Marker 上仍可自由新增或手填 value。' : 'Define shared keys, defaults, and options. Markers can still add free-form fields.'}
-                    </div>
-                  </div>
+            </div>
+          </section>
+          )}
+
+          {topTab === 'profile' && (
+          <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">{zh ? 'Marker 客製欄位 preset' : 'Marker field presets'}</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">
+                {zh ? '團隊可先定義 key、預設值與選項。Marker 上仍可自由新增或手填 value。' : 'Define shared keys, defaults, and options. Markers can still add free-form fields.'}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <div className="mb-2 flex items-center justify-end gap-2">
                   <button type="button" onClick={addMarkerFieldPreset} className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700" title={t('common.add')}>
                     +
                   </button>
@@ -917,7 +957,9 @@ export function PreferencesDialog({
               </div>
             </div>
           </section>
+          )}
 
+          {topTab === 'profile' && (
           <section className="grid gap-3 pt-4 lg:grid-cols-[220px_1fr]">
             <div>
               <div className="text-sm font-medium text-zinc-200">{t('preferences.publish')}</div>
@@ -1420,73 +1462,80 @@ export function PreferencesDialog({
                 </div>
               </details>
 
-              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 text-xs font-medium text-zinc-300">
-                  <span>{t('settings.mentionIdentities.title')}</span>
-                  <span className="text-[11px] font-normal text-zinc-500">{t('settings.mentionIdentities.subtitle')}</span>
-                </summary>
-                <div className="mt-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0 text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
-                    <button type="button" onClick={() => onAddMentionIdentity()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">{t('settings.mentionIdentities.addPerson')}</button>
-                  </div>
-                  <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
-                    <div className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
-                      <div>{t('settings.mentionIdentities.displayName')}</div>
-                      <div>{t('settings.mentionIdentities.email')}</div>
-                      <div>{t('settings.mentionIdentities.slackUserId')}</div>
-                      <div>{t('settings.mentionIdentities.gitlabUsername')}</div>
-                      <div>{t('settings.mentionIdentities.googleEmail')}</div>
-                      <div />
-                    </div>
-                    {mentionIdentities.length === 0 ? (
-                      <div className="px-2 py-3 text-xs text-zinc-500">{t('settings.mentionIdentities.empty')}</div>
-                    ) : mentionIdentities.map((identity, index) => (
-                      <div key={`${identity.id}-${index}`} className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] items-start gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
-                        <div className="min-w-0">
-                          <input value={identity.displayName} onChange={(e) => onUpdateMentionIdentity(index, { displayName: e.target.value })} className="w-full min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
-                          <div className="mt-1 flex min-h-5 flex-wrap gap-1">
-                            <MentionIdentityBadges identity={identity} />
-                          </div>
-                        </div>
-                        <input value={identity.email ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { email: e.target.value.trim().toLowerCase() || undefined })} placeholder="name@example.com" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
-                        <input value={identity.slackUserId ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { slackUserId: e.target.value.trim() || undefined })} placeholder="U123..." className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
-                        <input value={identity.gitlabUsername ? `@${identity.gitlabUsername}` : ''} onChange={(e) => onUpdateMentionIdentity(index, { gitlabUsername: e.target.value.trim().replace(/^@/, '') || undefined })} placeholder="@username" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
-                        <input value={identity.googleEmail ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { googleEmail: e.target.value.trim().toLowerCase() || undefined })} placeholder="name@example.com" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
-                        <button type="button" onClick={() => onRemoveMentionIdentity(index)} className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:bg-red-950 hover:text-red-100">{t('common.remove')}</button>
-                      </div>
-                    ))}
-                  </div>
-                  {activeSlackUsers.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {activeSlackUsers.filter(user => !mentionIdentities.some(identity => identity.slackUserId === user.id)).slice(0, 12).map(user => {
-                        const label = user.displayName || user.realName || user.name || user.id
-                        return <button key={user.id} type="button" onClick={() => onAddMentionIdentity({ displayName: label, email: user.email, slackUserId: user.id })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addSlack', { name: label })}</button>
-                      })}
-                    </div>
-                  )}
-                  {activeGitLabUsers.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {activeGitLabUsers.filter(user => !mentionIdentities.some(identity => identity.gitlabUsername === user.username)).slice(0, 12).map(user => (
-                        <button key={user.username} type="button" onClick={() => onAddMentionIdentity({ displayName: user.name || user.username, email: user.email, gitlabUsername: user.username })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addGitLab', { username: user.username })}</button>
-                      ))}
-                    </div>
-                  )}
-                  {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}
-                  {mentionIdentitiesStatus && <div className="mt-2 truncate text-xs text-emerald-300">{mentionIdentitiesStatus}</div>}
-                  <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                    {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
-                    <button type="button" onClick={onImportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.import')}</button>
-                    <button type="button" onClick={onExportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.export')}</button>
-                    <button type="button" onClick={onSaveMentionIdentities} disabled={savingMentionIdentities} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                      {savingMentionIdentities ? t('common.saving') : t('settings.mentionIdentities.save')}
-                    </button>
-                  </div>
-                </div>
-              </details>
             </div>
           </section>
+          )}
 
+          {topTab === 'global' && (
+          <section className="grid gap-3 border-b border-zinc-800 py-4 lg:grid-cols-[220px_1fr]">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">{t('settings.mentionIdentities.title')}</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{t('settings.mentionIdentities.subtitle')}</div>
+            </div>
+            <div className="min-w-0 space-y-3">
+              <div className="mt-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
+                  <button type="button" onClick={() => onAddMentionIdentity()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">{t('settings.mentionIdentities.addPerson')}</button>
+                </div>
+                <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
+                  <div className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
+                    <div>{t('settings.mentionIdentities.displayName')}</div>
+                    <div>{t('settings.mentionIdentities.email')}</div>
+                    <div>{t('settings.mentionIdentities.slackUserId')}</div>
+                    <div>{t('settings.mentionIdentities.gitlabUsername')}</div>
+                    <div>{t('settings.mentionIdentities.googleEmail')}</div>
+                    <div />
+                  </div>
+                  {mentionIdentities.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-zinc-500">{t('settings.mentionIdentities.empty')}</div>
+                  ) : mentionIdentities.map((identity, index) => (
+                    <div key={`${identity.id}-${index}`} className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] items-start gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                      <div className="min-w-0">
+                        <input value={identity.displayName} onChange={(e) => onUpdateMentionIdentity(index, { displayName: e.target.value })} className="w-full min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
+                        <div className="mt-1 flex min-h-5 flex-wrap gap-1">
+                          <MentionIdentityBadges identity={identity} />
+                        </div>
+                      </div>
+                      <input value={identity.email ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { email: e.target.value.trim().toLowerCase() || undefined })} placeholder="name@example.com" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <input value={identity.slackUserId ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { slackUserId: e.target.value.trim() || undefined })} placeholder="U123..." className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <input value={identity.gitlabUsername ? `@${identity.gitlabUsername}` : ''} onChange={(e) => onUpdateMentionIdentity(index, { gitlabUsername: e.target.value.trim().replace(/^@/, '') || undefined })} placeholder="@username" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <input value={identity.googleEmail ?? ''} onChange={(e) => onUpdateMentionIdentity(index, { googleEmail: e.target.value.trim().toLowerCase() || undefined })} placeholder="name@example.com" className="min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
+                      <button type="button" onClick={() => onRemoveMentionIdentity(index)} className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:bg-red-950 hover:text-red-100">{t('common.remove')}</button>
+                    </div>
+                  ))}
+                </div>
+                {activeSlackUsers.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {activeSlackUsers.filter(user => !mentionIdentities.some(identity => identity.slackUserId === user.id)).slice(0, 12).map(user => {
+                      const label = user.displayName || user.realName || user.name || user.id
+                      return <button key={user.id} type="button" onClick={() => onAddMentionIdentity({ displayName: label, email: user.email, slackUserId: user.id })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addSlack', { name: label })}</button>
+                    })}
+                  </div>
+                )}
+                {activeGitLabUsers.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {activeGitLabUsers.filter(user => !mentionIdentities.some(identity => identity.gitlabUsername === user.username)).slice(0, 12).map(user => (
+                      <button key={user.username} type="button" onClick={() => onAddMentionIdentity({ displayName: user.name || user.username, email: user.email, gitlabUsername: user.username })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addGitLab', { username: user.username })}</button>
+                    ))}
+                  </div>
+                )}
+                {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}
+                {mentionIdentitiesStatus && <div className="mt-2 truncate text-xs text-emerald-300">{mentionIdentitiesStatus}</div>}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {mentionIdentitiesSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
+                  <button type="button" onClick={onImportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.import')}</button>
+                  <button type="button" onClick={onExportMentionIdentities} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('common.export')}</button>
+                  <button type="button" onClick={onSaveMentionIdentities} disabled={savingMentionIdentities} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                    {savingMentionIdentities ? t('common.saving') : t('settings.mentionIdentities.save')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+          )}
+
+          {topTab === 'global' && (
           <section className="mt-4 border-t border-zinc-800 pt-4">
             <div className="text-sm font-medium text-zinc-200">{t('legal.title')}</div>
             <div className="mt-1 text-xs leading-5 text-zinc-500">{t('legal.noticeBody')}</div>
@@ -1507,6 +1556,7 @@ export function PreferencesDialog({
               ))}
             </div>
           </section>
+          )}
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ import { Scrcpy } from './scrcpy'
 import { LogcatBuffer } from './logcat'
 import { SessionManager } from './session'
 import { openDb } from './db'
+import { backfillProfileIds } from './profile-backfill'
 import { createPaths, resolveAppRoots } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
@@ -16,7 +17,7 @@ import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { refreshAllExpiringTokens, type RefreshDeps } from './token-refresh'
 import { refreshGoogleAccessToken } from './google-publisher'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
-import type { HotkeySettings, ProjectSettings } from '@shared/types'
+import type { HotkeySettings, ProfileSettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let win: BrowserWindow | null = null
@@ -231,11 +232,11 @@ app.whenReady().then(async () => {
   })
   console.log(`Loupe: configRoot=${roots.configRoot} sessionsRoot=${roots.sessionsRoot}`)
   const paths = createPaths(roots); paths.ensureRoot()
-  const defaultProject: ProjectSettings = {
+  const defaultProfile: ProfileSettings = {
     id: randomUUID(),
     name: 'Default',
     slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
-    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'pat', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
     publishTemplates: {},
@@ -249,10 +250,18 @@ app.whenReady().then(async () => {
     commonSession: DEFAULT_COMMON_SESSION,
     recordingPreferences: DEFAULT_RECORDING_PREFERENCES,
     mentionIdentities: [],
-    projects: [defaultProject],
-    activeProjectId: defaultProject.id,
+    profiles: [defaultProfile],
+    activeProfileId: defaultProfile.id,
   })
   const db = openDb(paths.dbFile())
+
+  // One-time backfill: link legacy sessions to a profile by name match.
+  // Idempotent — skips sessions that already have profile_id.
+  const orphans = db.listSessionsWithoutProfileId()
+  if (orphans.length) {
+    backfillProfileIds(settings.get(), orphans, (id, profileId) => db.setSessionProfileId(id, profileId))
+  }
+
   const runner = new RealProcessRunner()
   const adb = new Adb(runner)
   const scrcpy = new Scrcpy(runner)
@@ -350,14 +359,14 @@ app.whenReady().then(async () => {
   applyHotkey()
 
   // Proactive Google token refresh: keep refresh tokens warm so the 6-month
-  // inactivity timer never fires. Sweeps every project's Google account at
+  // inactivity timer never fires. Sweeps every profile's Google account at
   // startup and on a 50-minute interval. Failures land on
-  // project.google.refreshError; the Preferences dialog surfaces a Reconnect
+  // profile.google.refreshError; the Preferences dialog surfaces a Reconnect
   // button when it's set.
   const refreshDeps: RefreshDeps = {
     refreshGoogle: async ({ refreshToken, accountEmail }) => {
-      const target = settings.get().projects.find(p => p.google.accountEmail === accountEmail)
-      if (!target) throw new Error(`No project found for accountEmail: ${accountEmail}`)
+      const target = settings.get().profiles.find(p => p.google.accountEmail === accountEmail)
+      if (!target) throw new Error(`No profile found for accountEmail: ${accountEmail}`)
       const refreshed = await refreshGoogleAccessToken(
         { ...target.google, refreshToken },
         undefined,
