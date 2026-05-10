@@ -1409,7 +1409,7 @@ function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute
         onClick={() => setOpen(value => !value)}
         className="max-w-full rounded bg-zinc-800 px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-700"
       >
-        {labels.length > 0 ? `Mention: ${labels.join(', ')}` : 'Mention people'}
+        {labels.length > 0 ? t('bug.mentionSelected', { people: labels.join(', ') }) : t('bug.mentionPeople')}
       </button>
       {open && (
         <div
