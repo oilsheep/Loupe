@@ -1713,6 +1713,8 @@ Object.assign(dictionaries['zh-CN'], {
   'publish.refresh': '刷新',
   'publish.reconnectSlackHelp': '变更权限后请重新连接 Slack，再刷新频道。',
   'publish.mentions': '提及人员',
+  'bug.mentionPeople': '标记人员',
+  'bug.mentionSelected': '标记人员：{people}',
   'publish.refreshUsersHelp': '请在发布设置中刷新 Slack 或 GitLab 用户。',
   'publish.noMatchingPeople': '没有符合的人员。',
   'publish.connectSlackFirst': '请先连接 Slack，才能导出到 Slack。',
