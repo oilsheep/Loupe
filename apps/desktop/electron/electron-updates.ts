@@ -1,23 +1,32 @@
 import { app } from 'electron'
-import { autoUpdater } from 'electron-updater'
 import type { AppUpdateEvent } from '@shared/types'
 
-// Pipe electron-updater's internal log messages to console + the app's update
-// event stream. Without this, generic-provider failures (URL credentials, auth
-// errors, signing mismatches) are completely silent on macOS.
-autoUpdater.logger = {
-  info: (...args: any[]) => console.log('[electron-updater]', ...args),
-  warn: (...args: any[]) => console.warn('[electron-updater]', ...args),
-  error: (...args: any[]) => console.error('[electron-updater]', ...args),
-  debug: (...args: any[]) => console.debug('[electron-updater]', ...args),
-}
+type ElectronAutoUpdater = typeof import('electron-updater').autoUpdater
 
+let autoUpdaterInstance: ElectronAutoUpdater | null = null
 let configured = false
 let latestVersion: string | undefined
+
+function getAutoUpdater(): ElectronAutoUpdater {
+  if (autoUpdaterInstance) return autoUpdaterInstance
+  const { autoUpdater } = require('electron-updater') as typeof import('electron-updater')
+  // Pipe electron-updater's internal log messages to console + the app's update
+  // event stream. Without this, generic-provider failures (URL credentials, auth
+  // errors, signing mismatches) are completely silent on macOS.
+  autoUpdater.logger = {
+    info: (...args: any[]) => console.log('[electron-updater]', ...args),
+    warn: (...args: any[]) => console.warn('[electron-updater]', ...args),
+    error: (...args: any[]) => console.error('[electron-updater]', ...args),
+    debug: (...args: any[]) => console.debug('[electron-updater]', ...args),
+  }
+  autoUpdaterInstance = autoUpdater
+  return autoUpdater
+}
 
 export function configureElectronUpdater(emit: (event: AppUpdateEvent) => void): void {
   if (configured) return
   configured = true
+  const autoUpdater = getAutoUpdater()
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = app.getVersion().includes('-')
@@ -56,6 +65,7 @@ export function configureElectronUpdater(emit: (event: AppUpdateEvent) => void):
 
 export async function downloadElectronUpdate(): Promise<void> {
   if (!app.isPackaged) throw new Error('Automatic update install is only available in packaged builds.')
+  const autoUpdater = getAutoUpdater()
   autoUpdater.autoDownload = false
   // electron-updater requires checkForUpdates() to populate internal state before downloadUpdate() will work.
   // We do call it once here (fresh state, since the custom check in app-updates.ts is a separate code path),
@@ -75,5 +85,6 @@ export async function downloadElectronUpdate(): Promise<void> {
 
 export function installElectronUpdate(): void {
   if (!app.isPackaged) throw new Error('Automatic update install is only available in packaged builds.')
+  const autoUpdater = getAutoUpdater()
   autoUpdater.quitAndInstall(false, true)
 }
