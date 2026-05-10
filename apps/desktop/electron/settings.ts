@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProjectSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
+import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
   improvement: 'F6',
@@ -362,6 +363,15 @@ function normalizeMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
   return [...byKey.values()]
 }
 
+function normalizeProjectMarkerFieldPresets(raw?: unknown): MarkerFieldPreset[] {
+  const presets = normalizeMarkerFieldPresets(raw)
+  return presets.length ? presets : DEFAULT_MARKER_FIELD_PRESETS
+}
+
+function hasPersistedMarkerFieldPresets(raw?: unknown): boolean {
+  return normalizeMarkerFieldPresets(raw).length > 0
+}
+
 function normalizePublishTemplates(raw?: unknown): PublishTemplateSettings {
   if (!raw || typeof raw !== 'object') return {}
   const input = raw as Record<string, unknown>
@@ -515,7 +525,7 @@ function normalizeProject(raw: Partial<ProjectSettings> | undefined, fallbackNam
     gitlab: normalizeGitLab(raw?.gitlab),
     google: normalizeGoogle(raw?.google),
     publishTemplates: raw?.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
-    markerFieldPresets: raw?.markerFieldPresets ? normalizeMarkerFieldPresets(raw.markerFieldPresets) : undefined,
+    markerFieldPresets: normalizeProjectMarkerFieldPresets(raw?.markerFieldPresets),
   }
 }
 
@@ -536,7 +546,7 @@ function buildDefaultProjectFromLegacy(raw: Partial<AppSettings> & LegacyTopLeve
     gitlab: normalizeGitLab(raw.gitlab),
     google: normalizeGoogle(raw.google),
     publishTemplates: raw.publishTemplates ? normalizePublishTemplates(raw.publishTemplates) : undefined,
-    markerFieldPresets: raw.markerFieldPresets ? normalizeMarkerFieldPresets(raw.markerFieldPresets) : undefined,
+    markerFieldPresets: normalizeProjectMarkerFieldPresets(raw.markerFieldPresets),
   }
 }
 
@@ -570,9 +580,10 @@ export function findProjectForSession(
   return { project: findActiveProject(settings), matched: false }
 }
 
-function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projects: ProjectSettings[]; activeProjectId: string } {
+function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projects: ProjectSettings[]; activeProjectId: string; needsWrite: boolean } {
   const incoming = Array.isArray(raw.projects) ? raw.projects : []
   if (incoming.length > 0) {
+    const needsWrite = incoming.some(p => !hasPersistedMarkerFieldPresets((p as Partial<ProjectSettings>).markerFieldPresets))
     const projects = incoming.map((p, i) => normalizeProject(p as Partial<ProjectSettings>, `Project ${i + 1}`))
     // Enforce uniqueness of name (rename duplicates with suffix)
     const seen = new Set<string>()
@@ -588,11 +599,11 @@ function normalizeProjects(raw: Partial<AppSettings> & LegacyTopLevel): { projec
     const activeId = typeof raw.activeProjectId === 'string' && projects.some(p => p.id === raw.activeProjectId)
       ? raw.activeProjectId
       : projects[0].id
-    return { projects, activeProjectId: activeId }
+    return { projects, activeProjectId: activeId, needsWrite }
   }
   // Legacy migration: build single Default project from top-level fields.
   const defaultProject = buildDefaultProjectFromLegacy(raw)
-  return { projects: [defaultProject], activeProjectId: defaultProject.id }
+  return { projects: [defaultProject], activeProjectId: defaultProject.id, needsWrite: true }
 }
 
 type TokenSyncableService = 'slack' | 'gitlab' | 'google'
@@ -674,7 +685,7 @@ export class SettingsStore {
     try {
       const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<AppSettings> & LegacyTopLevel
       const wasLegacy = !Array.isArray(raw.projects)
-      const { projects, activeProjectId } = normalizeProjects(raw)
+      const { projects, activeProjectId, needsWrite } = normalizeProjects(raw)
       const next: AppSettings = {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
         hotkeys: normalizeHotkeys(raw.hotkeys),
@@ -687,8 +698,9 @@ export class SettingsStore {
         projects,
         activeProjectId,
       }
-      if (wasLegacy) {
-        // Persist the one-time legacy migration so projects[0].id is stable across get() calls.
+      if (wasLegacy || needsWrite) {
+        // Persist one-time migrations so generated project IDs and default marker
+        // presets are stable instead of being UI-only fallbacks.
         this.write(next)
       }
       return next

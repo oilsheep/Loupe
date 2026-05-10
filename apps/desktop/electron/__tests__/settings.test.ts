@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore, findProjectByIdOrActive } from '../settings'
+import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { AppSettings } from '@shared/types'
 
 const FALLBACK_DEFAULTS: AppSettings = {
@@ -370,6 +371,30 @@ describe('multi-project migration', () => {
       expect(settings.activeProjectId).toBe(existingId)
     } finally {
       rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('persists default marker field presets for projects that do not have them yet', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      writeFileSync(file, JSON.stringify({
+        exportRoot: '/exports',
+        hotkeys: DEFAULT_HOTKEYS,
+        activeProjectId: 'p1',
+        projects: [
+          { id: 'p1', name: 'Default', slack: {}, gitlab: {}, google: {} },
+        ],
+      }))
+      const store = new SettingsStore(file, FALLBACK_DEFAULTS)
+
+      const settings = store.get()
+      expect(settings.projects[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
+
+      const persisted = JSON.parse(readFileSync(file, 'utf8')) as AppSettings
+      expect(persisted.projects[0].markerFieldPresets).toEqual(DEFAULT_MARKER_FIELD_PRESETS)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
