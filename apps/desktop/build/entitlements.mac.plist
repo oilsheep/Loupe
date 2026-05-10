@@ -8,5 +8,10 @@
   <true/>
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
+  <!-- scrcpy subprocess initializes SDL2 audio, which enumerates CoreAudio
+       devices and trips kTCCServiceMicrophone. Without this entitlement the
+       hardened runtime silently denies, leaving Android recordings muted. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

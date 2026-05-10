@@ -8,5 +8,9 @@
   <true/>
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
+  <!-- Inherited by spawned helpers (scrcpy etc.) so SDL2 audio init can
+       enumerate CoreAudio devices without silent TCC denial. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

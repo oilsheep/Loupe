@@ -113,7 +113,10 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "notarize": true
+      "notarize": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Loupe initializes audio when recording from a connected Android device so that game sound effects and voice are captured alongside the video."
+      }
     },
     "win": {
       "target": [
