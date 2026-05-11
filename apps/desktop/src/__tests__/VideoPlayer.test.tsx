@@ -27,6 +27,7 @@ function fakeApi(): DesktopApi {
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
       getUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
       installTools: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }) as any,
+      resetFasterWhisper: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }) as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null) as any,
       listPcCaptureSources: vi.fn().mockResolvedValue([]) as any,
       showPcCaptureFrame: vi.fn().mockResolvedValue(false) as any,

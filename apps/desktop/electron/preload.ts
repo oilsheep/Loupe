@@ -18,6 +18,7 @@ const api: DesktopApi = {
     stopUxPlayReceiver:  () => ipcRenderer.invoke(CHANNEL.appStopUxPlayReceiver),
     getUxPlayReceiver:   () => ipcRenderer.invoke(CHANNEL.appGetUxPlayReceiver),
     installTools:        (names) => ipcRenderer.invoke(CHANNEL.appInstallTools, names),
+    resetFasterWhisper:  () => ipcRenderer.invoke(CHANNEL.appResetFasterWhisper),
     getPrimaryScreenSource: () => ipcRenderer.invoke(CHANNEL.getPrimaryScreenSource),
     listPcCaptureSources:  () => ipcRenderer.invoke(CHANNEL.listPcCaptureSources),
     showPcCaptureFrame:    (sourceId, color, displayId) => ipcRenderer.invoke(CHANNEL.showPcCaptureFrame, sourceId, color, displayId),

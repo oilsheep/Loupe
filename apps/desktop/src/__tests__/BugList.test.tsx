@@ -61,6 +61,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
       getUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }),
       installTools: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }),
+      resetFasterWhisper: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }),
       getPrimaryScreenSource: vi.fn().mockResolvedValue(null),
       listPcCaptureSources: vi.fn().mockResolvedValue([]),
       showPcCaptureFrame: vi.fn().mockResolvedValue(false),

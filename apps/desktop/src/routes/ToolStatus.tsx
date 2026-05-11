@@ -38,6 +38,7 @@ export function ToolStatus({ onClose }: ToolStatusProps = {}) {
 
   const missing = useMemo(() => checks.filter(check => !check.ok), [checks])
   const okCount = checks.length - missing.length
+  const fasterWhisperBroken = useMemo(() => missing.some(c => c.name === 'faster-whisper'), [missing])
 
   useEffect(() => {
     void refreshChecks()
@@ -106,6 +107,50 @@ export function ToolStatus({ onClose }: ToolStatusProps = {}) {
     }
   }
 
+  async function resetFasterWhisper() {
+    if (installingTools) return
+    const ok = window.confirm(t('toolStatus.resetFasterWhisperConfirm'))
+    if (!ok) return
+    setInstallingTools(true)
+    setToolInstallMessage(null)
+    setToolInstallConsole('')
+    setToolInstallProgress({
+      percent: 10,
+      message: t('home.installProgressPreparing'),
+      detail: 'faster-whisper',
+    })
+    try {
+      setToolInstallProgress({
+        percent: 70,
+        message: t('home.installProgressInstalling'),
+        detail: 'faster-whisper',
+      })
+      const result = await api.app.resetFasterWhisper()
+      setToolInstallMessage(`${result.message}${result.detail ? `\n\n${result.detail}` : ''}`)
+      setToolInstallProgress({
+        percent: 90,
+        message: t('home.installProgressChecking'),
+        detail: t('home.installProgressRechecking'),
+      })
+      await refreshChecks()
+      setToolInstallProgress({
+        percent: 100,
+        message: result.ok ? t('home.installProgressDone') : t('home.installProgressNeedsAttention'),
+        detail: result.message,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setToolInstallMessage(message)
+      setToolInstallProgress({
+        percent: 100,
+        message: t('home.installProgressFailed'),
+        detail: message,
+      })
+    } finally {
+      setInstallingTools(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="tool-status-dialog">
       <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-100 shadow-2xl">
@@ -124,6 +169,16 @@ export function ToolStatus({ onClose }: ToolStatusProps = {}) {
             >
               {loading ? t('toolStatus.checking') : t('toolStatus.recheck')}
             </button>
+            {fasterWhisperBroken && (
+              <button
+                type="button"
+                onClick={() => { void resetFasterWhisper() }}
+                disabled={installingTools}
+                className="rounded bg-amber-700 px-3 py-2 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {t('toolStatus.resetFasterWhisper')}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { void installMissingTools() }}

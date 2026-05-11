@@ -14,7 +14,7 @@ import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
 import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
-import { doctor, installTools } from './doctor'
+import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
@@ -52,6 +52,7 @@ export const CHANNEL = {
   appGetUxPlayReceiver:   'app:getUxPlayReceiver',
   appInstallTools:        'app:installTools',
   appInstallToolsLog:     'app:installToolsLog',
+  appResetFasterWhisper:  'app:resetFasterWhisper',
   getPrimaryScreenSource:  'app:getPrimaryScreenSource',
   listPcCaptureSources:   'app:listPcCaptureSources',
   showPcCaptureFrame:     'app:showPcCaptureFrame',
@@ -2101,6 +2102,9 @@ export function registerIpc(deps: IpcDeps): void {
     return uxPlayReceiver.status()
   })
   ipcMain.handle(CHANNEL.appInstallTools, async (event, names: ToolCheck['name'][]) => installTools(deps.runner, names, {
+    onLog: (log: ToolInstallLog) => event.sender.send(CHANNEL.appInstallToolsLog, log),
+  }))
+  ipcMain.handle(CHANNEL.appResetFasterWhisper, async (event) => resetFasterWhisperEnv(deps.runner, {
     onLog: (log: ToolInstallLog) => event.sender.send(CHANNEL.appInstallToolsLog, log),
   }))
   ipcMain.handle(CHANNEL.getPrimaryScreenSource, async (): Promise<{ id: string; name: string } | null> => {

@@ -20,6 +20,7 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
       stopUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
       getUxPlayReceiver: vi.fn().mockResolvedValue({ running: false, receiverName: 'Loupe iOS' }) as any,
       installTools: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }) as any,
+      resetFasterWhisper: vi.fn().mockResolvedValue({ ok: true, message: 'done', detail: '' }) as any,
       getPrimaryScreenSource: vi.fn().mockResolvedValue({ id: 'screen:1:0', name: 'Entire screen' }) as any,
       listPcCaptureSources: vi.fn().mockResolvedValue([
         { id: 'screen:1:0', name: 'Entire screen', type: 'screen', thumbnailDataUrl: 'data:image/png;base64,screen' },

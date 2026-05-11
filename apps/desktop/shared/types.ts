@@ -440,6 +440,7 @@ export interface DesktopApi {
     stopUxPlayReceiver():                                          Promise<UxPlayReceiverStatus>
     getUxPlayReceiver():                                           Promise<UxPlayReceiverStatus>
     installTools(names: ToolCheck['name'][]):                      Promise<ToolInstallResult>
+    resetFasterWhisper():                                          Promise<ToolInstallResult>
     getPrimaryScreenSource():                                      Promise<{ id: string; name: string } | null>
     listPcCaptureSources():                                        Promise<PcCaptureSource[]>
     showPcCaptureFrame(sourceId: string, color?: 'green' | 'red', displayId?: string): Promise<boolean>

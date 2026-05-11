@@ -125,6 +125,13 @@ function checkFasterWhisperModelAvailable(): ToolCheck {
   }
 }
 
+function friendlyFasterWhisperError(rawErr: string): string | null {
+  if (/incompatible architecture/i.test(rawErr)) {
+    return `The managed faster-whisper environment was built for a different CPU architecture than this Loupe build. Press "Reset faster-whisper" below to wipe and reinstall it.\n${rawErr}`
+  }
+  return null
+}
+
 async function checkFasterWhisperAvailable(runner: IProcessRunner): Promise<ToolCheck> {
   const python = resolveFasterWhisperPython()
   try {
@@ -135,9 +142,14 @@ async function checkFasterWhisperAvailable(runner: IProcessRunner): Promise<Tool
       const version = (r.stdout || r.stderr).split('\n')[0].trim()
       return { name: 'faster-whisper', ok: true, version: `${version || 'faster-whisper'} (${python})` }
     }
-    return { name: 'faster-whisper', ok: false, error: formatToolError('faster-whisper', (r.stderr || `exit ${r.code}`).trim()) }
+    const rawErr = (r.stderr || `exit ${r.code}`).trim()
+    const friendly = friendlyFasterWhisperError(rawErr)
+    if (friendly) return { name: 'faster-whisper', ok: false, error: friendly }
+    return { name: 'faster-whisper', ok: false, error: formatToolError('faster-whisper', rawErr) }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    const friendly = friendlyFasterWhisperError(message)
+    if (friendly) return { name: 'faster-whisper', ok: false, error: friendly }
     return { name: 'faster-whisper', ok: false, error: formatToolError('faster-whisper', message) }
   }
 }
@@ -308,7 +320,7 @@ async function installUxPlayFromSource(runner: IProcessRunner, options: ToolInst
   }
 }
 
-async function installFasterWhisper(runner: IProcessRunner, options: ToolInstallOptions): Promise<ToolInstallResult> {
+async function installFasterWhisper(runner: IProcessRunner, options: ToolInstallOptions = {}): Promise<ToolInstallResult> {
   const venvDir = managedFasterWhisperVenvDir()
   const venvPython = managedFasterWhisperPython()
   const bootstrapPython = process.env.LOUPE_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
@@ -342,6 +354,15 @@ async function installFasterWhisper(runner: IProcessRunner, options: ToolInstall
   if (install.code !== 0) return { ok: false, message: 'faster-whisper installation failed.', detail: detail.join('\n\n') }
 
   return { ok: true, message: 'faster-whisper installed.', detail: detail.join('\n\n') }
+}
+
+export async function resetFasterWhisperEnv(runner: IProcessRunner, options: ToolInstallOptions = {}): Promise<ToolInstallResult> {
+  const venvDir = managedFasterWhisperVenvDir()
+  if (existsSync(venvDir)) {
+    options.onLog?.({ stream: 'system', text: `Removing existing faster-whisper environment at ${venvDir}\n` })
+    rmSync(venvDir, { recursive: true, force: true })
+  }
+  return installFasterWhisper(runner, options)
 }
 
 async function installFasterWhisperModel(runner: IProcessRunner, options: ToolInstallOptions): Promise<ToolInstallResult> {

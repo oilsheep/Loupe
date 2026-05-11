@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { doctor, installTools } from '../doctor'
 import type { IProcessRunner } from '../process-runner'
 import { PassThrough } from 'node:stream'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { managedFasterWhisperModelDir, managedFasterWhisperPython, managedFasterWhisperVenvDir } from '../audio-analysis/fasterWhisperRuntime'
@@ -98,6 +98,25 @@ describe('doctor', () => {
     expect(checks[0].error).toContain('broken')
   })
 
+  it('rewrites the error when faster-whisper venv has the wrong CPU architecture', async () => {
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', '/tmp/loupe-test-arch-mismatch')
+    const archStderr = "ImportError: dlopen(.../av/_core.cpython-39-darwin.so, 0x0002): tried: '...' (mach-o file, but is an incompatible architecture (have 'arm64', need 'x86_64'))"
+    const r = fakeRunner({
+      adb: { code: 0, stdout: 'Android Debug Bridge version 1.0.41' },
+      scrcpy: { code: 0, stdout: 'scrcpy 2.7' },
+      [UXPLAY_LOOKUP_CMD]: { code: 0, stdout: '/tmp/uxplay' },
+      ios: { code: 0, stdout: '1.0.211' },
+      ffmpeg: { code: 0, stdout: 'ffmpeg version 7.1' },
+      [PYTHON_CMD]: { code: 1, stderr: archStderr },
+    })
+    const checks = await doctor(r)
+    const fw = checks.find(c => c.name === 'faster-whisper')!
+    expect(fw.ok).toBe(false)
+    expect(fw.error).toContain('different CPU architecture')
+    expect(fw.error).toContain('Reset faster-whisper')
+    expect(fw.error).toContain('incompatible architecture')
+  })
+
   it('reports when automatic installation is unsupported on this platform', async () => {
     if (process.platform === 'darwin') return
     const result = await installTools(fakeRunner({}), ['uxplay'])
@@ -125,6 +144,36 @@ describe('doctor', () => {
     expect(calls).toEqual([
       { cmd: PYTHON_CMD, args: ['--version'] },
       { cmd: PYTHON_CMD, args: ['-m', 'venv', managedFasterWhisperVenvDir()] },
+      { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'pip'] },
+      { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'faster-whisper'] },
+    ])
+  })
+
+  it('resetFasterWhisperEnv wipes the existing venv before reinstalling', async () => {
+    const { resetFasterWhisperEnv } = await import('../doctor')
+    const root = mkdtempSync(join(tmpdir(), 'loupe-test-reset-'))
+    vi.stubEnv('LOUPE_MANAGED_TOOLS_DIR', root)
+    const venvDir = managedFasterWhisperVenvDir()
+    mkdirSync(venvDir, { recursive: true })
+    const sentinel = join(venvDir, 'old-arch-marker')
+    writeFileSync(sentinel, 'pre-existing')
+
+    const calls: Array<{ cmd: string; args: string[] }> = []
+    const r: IProcessRunner = {
+      async run(cmd, args = []) {
+        calls.push({ cmd, args })
+        return { stdout: `${cmd} ok`, stderr: '', code: 0 }
+      },
+      spawn: vi.fn() as any,
+    }
+
+    const result = await resetFasterWhisperEnv(r)
+
+    expect(result.ok).toBe(true)
+    expect(existsSync(sentinel)).toBe(false)
+    expect(calls).toEqual([
+      { cmd: PYTHON_CMD, args: ['--version'] },
+      { cmd: PYTHON_CMD, args: ['-m', 'venv', venvDir] },
       { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'pip'] },
       { cmd: managedFasterWhisperPython(), args: ['-m', 'pip', 'install', '--upgrade', 'faster-whisper'] },
     ])
