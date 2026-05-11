@@ -52,7 +52,10 @@ build:mac:
     # is pre-installed in its login keychain, so we no longer fetch a p12 via
     # CSC_LINK / CSC_KEY_PASSWORD — electron-builder picks the cert up via
     # CSC_IDENTITY_AUTO_DISCOVERY (set by start-dev.sh when LOUPE_SIGN_MAC=1).
-    - sdk-builder-sandbox-2
+    # Two darwin group runners carry this tag: sdk-engine-builder-sandbox (id
+    # 1307) and sdk-framework-builder-sandbox (id 1308); GitLab will pick
+    # whichever is idle first.
+    - sdk-builder
   rules:
     - if: $CI_COMMIT_REF_NAME == "release"
     - if: $CI_COMMIT_TAG
