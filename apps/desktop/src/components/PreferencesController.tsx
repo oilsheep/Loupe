@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
+import { friendlySlackRefreshMessage } from '@/lib/connection'
 import { useI18n } from '@/lib/i18n'
 import {
   DEFAULT_HOTKEYS,
@@ -106,13 +107,6 @@ const DEFAULT_COMMON_SESSION_SETTINGS: CommonSessionSettings = {
 
 function parseListInput(value: string): string[] {
   return Array.from(new Set(value.split(/[,;\n]+/).map(part => part.trim()).filter(Boolean)))
-}
-
-function friendlySlackRefreshMessage(message: string, t: (key: string) => string): string {
-  if (/token_expired/i.test(message)) return t('publish.slackOauthExpired')
-  if (/invalid_auth|not_authed|account_inactive/i.test(message)) return t('publish.slackAuthInvalid')
-  if (/missing_scope/i.test(message)) return t('publish.slackMissingScope')
-  return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
 }
 
 function friendlyGoogleMessage(message: string, t: (key: string) => string): string {

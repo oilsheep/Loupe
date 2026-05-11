@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
+import { gitlabConnectionLabel, googleDriveConnectionLabel, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
 import { AddProfileDialog } from './AddProfileDialog'
@@ -966,8 +967,30 @@ export function PreferencesDialog({
               <div className="mt-1 text-xs leading-5 text-zinc-500">{t('preferences.publishHelp')}</div>
             </div>
             <div className="min-w-0 space-y-3">
-              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.slack')}</summary>
+              <details
+                className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
+                onToggle={(e) => {
+                  if ((e.currentTarget as HTMLDetailsElement).open && isSlackConnected(slack) && !refreshingSlackUsers) onRefreshSlackUsers()
+                }}
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
+                  <span>{t('preferences.slack')}</span>
+                  <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className={`text-[11px] ${isSlackConnected(slack) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {slackConnectionLabel(slack, t)}
+                    </span>
+                    {!isSlackConnected(slack) && (slack.publishIdentity ?? 'user') === 'user' && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); onStartSlackOAuth() }}
+                        disabled={startingSlackOAuth}
+                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                      >
+                        {startingSlackOAuth ? t('preferences.connecting') : t('publish.connectSlack')}
+                      </button>
+                    )}
+                  </span>
+                </summary>
                 <PublishTemplateFields
                   target="slack"
                   zh={zh}
@@ -1110,8 +1133,30 @@ export function PreferencesDialog({
                 </div>
               </details>
 
-              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.googleDrive')}</summary>
+              <details
+                className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
+                onToggle={(e) => {
+                  if ((e.currentTarget as HTMLDetailsElement).open && Boolean(google.token?.trim() || google.refreshToken?.trim()) && !refreshingGoogleFolders) onLoadGoogleFolders()
+                }}
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
+                  <span>{t('preferences.googleDrive')}</span>
+                  <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className={`text-[11px] ${isGoogleDriveConnected(google) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {googleDriveConnectionLabel(google, t)}
+                    </span>
+                    {!Boolean(google.token?.trim() || google.refreshToken?.trim()) && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); onConnectGoogleOAuth() }}
+                        disabled={connectingGoogleOAuth || !googleHasOAuthCredentials}
+                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                      >
+                        {connectingGoogleOAuth ? t('preferences.connecting') : t('preferences.connectGoogle')}
+                      </button>
+                    )}
+                  </span>
+                </summary>
                 <PublishTemplateFields
                   target="google-drive"
                   zh={zh}
@@ -1296,8 +1341,30 @@ export function PreferencesDialog({
                 </div>
               </details>
 
-              <details className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-zinc-300">{t('preferences.gitlab')}</summary>
+              <details
+                className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
+                onToggle={(e) => {
+                  if ((e.currentTarget as HTMLDetailsElement).open && isGitLabConnected(gitlab) && !refreshingGitLabProjects) onLoadGitLabProjects()
+                }}
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
+                  <span>{t('preferences.gitlab')}</span>
+                  <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className={`text-[11px] ${isGitLabConnected(gitlab) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {gitlabConnectionLabel(gitlab, t)}
+                    </span>
+                    {!isGitLabConnected(gitlab) && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); onConnectGitLabOAuth() }}
+                        disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)}
+                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                      >
+                        {connectingGitLabOAuth ? t('preferences.connecting') : t('publish.connectGitLab')}
+                      </button>
+                    )}
+                  </span>
+                </summary>
                 <PublishTemplateFields
                   target="gitlab"
                   zh={zh}

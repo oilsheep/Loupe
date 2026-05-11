@@ -407,6 +407,28 @@ function friendlySlackDirectoryError(settings: SlackPublishSettings, err: unknow
   return err instanceof Error ? err : new Error(message)
 }
 
+function friendlyGitLabProjectsError(err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/invalid_token|401|unauthorized/i.test(message)) {
+    return new Error('GitLab OAuth token expired or revoked. Reconnect GitLab to refresh projects.')
+  }
+  if (/insufficient_scope|missing_scope|forbidden|403/i.test(message)) {
+    return new Error('GitLab token is missing required scopes (api or read_api). Reconnect or update the personal access token in Preferences.')
+  }
+  return err instanceof Error ? err : new Error(message)
+}
+
+function clearExpiredGitLabToken(settings: GitLabPublishSettings): GitLabPublishSettings {
+  return { ...settings, token: '' }
+}
+
+function maybeClearExpiredGitLabTokenForProject(settings: SettingsStore, projectId: string, gitlab: GitLabPublishSettings, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/invalid_token|401|unauthorized/i.test(message)) {
+    settings.setProfile(projectId, { gitlab: clearExpiredGitLabToken(gitlab) })
+  }
+}
+
 function clearExpiredSlackToken(settings: SlackPublishSettings): SlackPublishSettings {
   return settings.publishIdentity === 'bot'
     ? { ...settings, botToken: '', channels: [], channelsFetchedAt: null }
@@ -2404,8 +2426,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsGetBundledGitLabOAuthInstances, async () => {
     return getBundledOAuthInstances()
   })
-  ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, _profileId: string, gitlab: GitLabPublishSettings) => {
-    return fetchGitLabProjects(gitlab)
+  ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, profileId: string, gitlab: GitLabPublishSettings) => {
+    try {
+      return await fetchGitLabProjects(gitlab)
+    } catch (err) {
+      maybeClearExpiredGitLabTokenForProject(deps.settings, profileId, gitlab, err)
+      throw friendlyGitLabProjectsError(err)
+    }
   })
   ipcMain.handle(CHANNEL.settingsSetGoogle, async (_e, profileId: string, google: GooglePublishSettings) => deps.settings.setProfile(profileId, { google }))
   ipcMain.handle(CHANNEL.settingsConnectGoogleOAuth, async (_e, profileId: string, google: GooglePublishSettings) => {

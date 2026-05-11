@@ -3,6 +3,7 @@ import type { CSSProperties, MouseEvent, ReactNode } from 'react'
 import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+import { isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel, slackPublishToken } from '@/lib/connection'
 
 // Resolve the profile to read from. Prefer the per-session override (e.g. when
 // Draft opens an old session whose profile differs from the global active),
@@ -210,43 +211,11 @@ function slackChannelLabel(channel: SlackChannel): string {
   return `${channel.isPrivate ? 'private / ' : '#'}${channel.name}${channel.isMember === false ? ' (not joined)' : ''}`
 }
 
-function slackPublishToken(settings: SlackPublishSettings | null): string {
-  if (!settings) return ''
-  const userToken = settings.userToken?.trim() ?? ''
-  const botToken = settings.botToken.trim()
-  return settings.publishIdentity === 'bot' ? botToken : userToken
-}
-
-function isSlackConnected(settings: SlackPublishSettings | null): boolean {
-  return Boolean(slackPublishToken(settings))
-}
-
-function slackConnectionLabel(settings: SlackPublishSettings | null, t: (key: string, vars?: Record<string, string | number>) => string): string {
-  if (!settings) return t('publish.notConnected')
-  if (settings.publishIdentity === 'bot') {
-    return settings.botToken.trim() ? t('publish.connectedByBot') : t('publish.botTokenMissing')
-  }
-  if (settings.userToken?.trim()) {
-    const workspace = settings.oauthTeamName ? ` / ${settings.oauthTeamName}` : ''
-    const user = settings.oauthUserId ? ` ${settings.oauthUserId}` : ''
-    return `${t('publish.connectedByOAuth')}${user}${workspace}`
-  }
-  return t('publish.oauthTokenMissing')
-}
-
 function friendlySlackRefreshMessage(message: string, t: (key: string) => string): string {
   if (/token_expired/i.test(message)) return t('publish.slackOauthExpired')
   if (/invalid_auth|not_authed|account_inactive/i.test(message)) return t('publish.slackAuthInvalid')
   if (/missing_scope/i.test(message)) return t('publish.slackMissingScope')
   return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
-}
-
-function isGitLabConnected(settings: GitLabPublishSettings | null): boolean {
-  return Boolean(settings?.token?.trim() && settings?.baseUrl?.trim())
-}
-
-function isGoogleDriveConnected(settings: GooglePublishSettings | null): boolean {
-  return Boolean((settings?.token?.trim() || settings?.refreshToken?.trim()) && settings?.driveFolderId?.trim())
 }
 
 function normalizeManualSlackMentions(value: string): string[] {
@@ -407,6 +376,7 @@ interface ExportConfirmDialogProps {
   gitlabConnected: boolean
   googleDriveConnected: boolean
   slackConnecting: boolean
+  gitlabConnecting: boolean
   publishSlack: boolean
   publishGitLab: boolean
   publishGoogleDrive: boolean
@@ -441,6 +411,7 @@ interface ExportConfirmDialogProps {
   onIncludeOriginalFilesChange(value: boolean): void
   onMergeOriginalAudioChange(value: boolean): void
   onConnectSlack(): void
+  onConnectGitLab(): void
   onPublishSlackChange(value: boolean): void
   onPublishGitLabChange(value: boolean): void
   onPublishGoogleDriveChange(value: boolean): void
@@ -481,6 +452,7 @@ function ExportConfirmDialog({
   gitlabConnected,
   googleDriveConnected,
   slackConnecting,
+  gitlabConnecting,
   publishSlack,
   publishGitLab,
   publishGoogleDrive,
@@ -515,6 +487,7 @@ function ExportConfirmDialog({
   onIncludeOriginalFilesChange,
   onMergeOriginalAudioChange,
   onConnectSlack,
+  onConnectGitLab,
   onPublishSlackChange,
   onPublishGitLabChange,
   onPublishGoogleDriveChange,
@@ -815,7 +788,14 @@ function ExportConfirmDialog({
                   />
                 </label>
               ) : (
-                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">{t('publish.notConnected')}</span>
+                <button
+                  type="button"
+                  onClick={onConnectGitLab}
+                  disabled={busy || gitlabConnecting}
+                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {gitlabConnecting ? t('publish.connecting') : t('publish.connectGitLab')}
+                </button>
               )}
             </div>
 
@@ -837,11 +817,13 @@ function ExportConfirmDialog({
                     </label>
                     <button
                       type="button"
-                      onClick={onRefreshGitLabProjects}
-                      disabled={busy || gitlabProjectsRefreshing}
-                      className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                      onClick={gitlabConnected ? onRefreshGitLabProjects : onConnectGitLab}
+                      disabled={busy || gitlabProjectsRefreshing || gitlabConnecting}
+                      className={`mt-5 shrink-0 rounded px-3 py-2 text-xs disabled:opacity-50 ${gitlabConnected ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-emerald-700 font-medium text-white hover:bg-emerald-600'}`}
                     >
-                      {gitlabProjectsRefreshing ? t('publish.refreshing') : t('publish.refresh')}
+                      {!gitlabConnected
+                        ? (gitlabConnecting ? t('publish.connecting') : t('publish.connectGitLab'))
+                        : (gitlabProjectsRefreshing ? t('publish.refreshing') : t('publish.refresh'))}
                     </button>
                   </div>
                   {gitlabProjectsError && <div className="mt-1 text-xs text-red-300">{gitlabProjectsError}</div>}
@@ -1578,6 +1560,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [publishGoogleDrive, setPublishGoogleDrive] = useState(false)
   const [slackSettings, setSlackSettings] = useState<SlackPublishSettings | null>(null)
   const [slackConnecting, setSlackConnecting] = useState(false)
+  const [gitlabConnecting, setGitLabConnecting] = useState(false)
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
   const [slackChannelId, setSlackChannelId] = useState('')
   const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([])
@@ -1695,6 +1678,18 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     // settings or refreshing-state change would cause refresh loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publishSlack])
+
+  // Same idea as Slack auto-refresh above: when the user toggles the GitLab
+  // publish flow on, run a fresh project fetch so an expired/revoked token
+  // surfaces before the user picks a project, and the IPC clear-expired-
+  // token path can swap the inline button to Reconnect.
+  useEffect(() => {
+    if (!publishGitLab) return
+    if (!isGitLabConnected(gitlabSettings)) return
+    if (gitlabProjectsRefreshing) return
+    void refreshGitLabProjectsForExport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishGitLab])
 
   useEffect(() => {
     const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)
@@ -1894,6 +1889,35 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     } catch (err) {
       setSlackConnecting(false)
       setSlackDirectoryError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function connectGitLabForExport() {
+    setGitLabConnecting(true)
+    setGitLabProjectsError('')
+    setExportError('')
+    try {
+      const settings = await api.settings.get()
+      const active = activeProfileFrom(settings, overrideProfile)
+      const seed: GitLabPublishSettings = {
+        ...active.gitlab,
+        authType: 'oauth',
+        oauthRedirectUri: 'loupe://gitlab-oauth',
+      }
+      setGitLabSettings(seed)
+      const nextSettings = await api.settings.connectGitLabOAuth(targetProfileId(settings, overrideProfile), seed)
+      const nextActive = activeProfileFrom(nextSettings, overrideProfile)
+      setGitLabSettings(nextActive.gitlab)
+      setGitLabProjectId(nextActive.gitlab.projectId)
+      setGitLabMode(nextActive.gitlab.mode)
+      if (isGitLabConnected(nextActive.gitlab)) {
+        setPublishGitLab(true)
+        void refreshGitLabProjectsForExport()
+      }
+    } catch (err) {
+      setGitLabProjectsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGitLabConnecting(false)
     }
   }
 
@@ -2155,6 +2179,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           gitlabConnected={isGitLabConnected(gitlabSettings)}
           googleDriveConnected={isGoogleDriveConnected(googleSettings)}
           slackConnecting={slackConnecting}
+          gitlabConnecting={gitlabConnecting}
           publishSlack={publishSlack}
           publishGitLab={publishGitLab}
           publishGoogleDrive={publishGoogleDrive}
@@ -2189,6 +2214,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           onIncludeOriginalFilesChange={setExportIncludeOriginalFiles}
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
           onConnectSlack={() => { void connectSlackForExport() }}
+          onConnectGitLab={() => { void connectGitLabForExport() }}
           onPublishSlackChange={setPublishSlack}
           onPublishGitLabChange={(value) => {
             if (value && !isGitLabConnected(gitlabSettings)) return

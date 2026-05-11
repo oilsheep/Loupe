@@ -330,7 +330,8 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    expect(screen.getAllByText('Not connected')).toHaveLength(2)
+    expect(screen.getAllByText('Not connected')).toHaveLength(1) // Google Drive only — GitLab now shows inline Connect button instead
+    expect(screen.getAllByText('Connect GitLab')).toHaveLength(1)
     expect(screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
     expect(screen.getByText('Google Drive').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
     fireEvent.click(screen.getByTestId('confirm-export'))
