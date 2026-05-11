@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
-import { gitlabConnectionLabel, googleDriveConnectionLabel, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
+import { gitlabConnectionLabel, googleDriveConnectionLabel, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
 import { AddProfileDialog } from './AddProfileDialog'
@@ -1136,7 +1136,7 @@ export function PreferencesDialog({
               <details
                 className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
                 onToggle={(e) => {
-                  if ((e.currentTarget as HTMLDetailsElement).open && Boolean(google.token?.trim() || google.refreshToken?.trim()) && !refreshingGoogleFolders) onLoadGoogleFolders()
+                  if ((e.currentTarget as HTMLDetailsElement).open && hasGoogleOAuthToken(google) && !refreshingGoogleFolders) onLoadGoogleFolders()
                 }}
               >
                 <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
@@ -1145,7 +1145,7 @@ export function PreferencesDialog({
                     <span className={`text-[11px] ${isGoogleDriveConnected(google) ? 'text-emerald-400' : 'text-zinc-500'}`}>
                       {googleDriveConnectionLabel(google, t)}
                     </span>
-                    {!Boolean(google.token?.trim() || google.refreshToken?.trim()) && (
+                    {!hasGoogleOAuthToken(google) && (
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); onConnectGoogleOAuth() }}

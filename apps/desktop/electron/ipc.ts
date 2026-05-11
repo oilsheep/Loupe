@@ -418,14 +418,11 @@ function friendlyGitLabProjectsError(err: unknown): Error {
   return err instanceof Error ? err : new Error(message)
 }
 
-function clearExpiredGitLabToken(settings: GitLabPublishSettings): GitLabPublishSettings {
-  return { ...settings, token: '' }
-}
-
 function maybeClearExpiredGitLabTokenForProject(settings: SettingsStore, projectId: string, gitlab: GitLabPublishSettings, err: unknown): void {
+  if (!gitlab.token.trim()) return
   const message = err instanceof Error ? err.message : String(err)
   if (/invalid_token|401|unauthorized/i.test(message)) {
-    settings.setProfile(projectId, { gitlab: clearExpiredGitLabToken(gitlab) })
+    settings.setProfile(projectId, { gitlab: { ...gitlab, token: '' } })
   }
 }
 

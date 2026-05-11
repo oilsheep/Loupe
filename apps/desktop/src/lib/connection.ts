@@ -50,8 +50,21 @@ export function gitlabConnectionLabel(
   return t('publish.notConnected')
 }
 
+export function hasGoogleOAuthToken(settings: GooglePublishSettings | null): boolean {
+  return Boolean(settings?.token?.trim() || settings?.refreshToken?.trim())
+}
+
 export function isGoogleDriveConnected(settings: GooglePublishSettings | null): boolean {
-  return Boolean((settings?.token?.trim() || settings?.refreshToken?.trim()) && settings?.driveFolderId?.trim())
+  return hasGoogleOAuthToken(settings) && Boolean(settings?.driveFolderId?.trim())
+}
+
+export function googleDriveConnectionLabel(
+  settings: GooglePublishSettings | null,
+  t: (key: string) => string,
+): string {
+  if (!hasGoogleOAuthToken(settings)) return t('publish.notConnected')
+  if (settings?.accountEmail?.trim()) return `${t('common.connected')} / ${settings.accountEmail.trim()}`
+  return t('common.connected')
 }
 
 export function friendlySlackRefreshMessage(message: string, t: (key: string) => string): string {
@@ -59,15 +72,4 @@ export function friendlySlackRefreshMessage(message: string, t: (key: string) =>
   if (/invalid_auth|not_authed|account_inactive/i.test(message)) return t('publish.slackAuthInvalid')
   if (/missing_scope/i.test(message)) return t('publish.slackMissingScope')
   return message.replace(/^Error invoking remote method '[^']+':\s*/i, '')
-}
-
-export function googleDriveConnectionLabel(
-  settings: GooglePublishSettings | null,
-  t: (key: string) => string,
-): string {
-  if (!settings) return t('publish.notConnected')
-  const tokenOk = Boolean(settings.token?.trim() || settings.refreshToken?.trim())
-  if (!tokenOk) return t('publish.notConnected')
-  if (settings.accountEmail?.trim()) return `${t('common.connected')} / ${settings.accountEmail.trim()}`
-  return t('common.connected')
 }
