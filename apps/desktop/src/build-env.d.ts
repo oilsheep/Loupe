@@ -1,0 +1,1 @@
+declare const __LOUPE_BUILD_CHANNEL_LABEL__: string

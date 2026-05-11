@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
   const isGitlabUpdate = Boolean(updateUser && updateToken)
   const gitlabHost = env.CI_SERVER_HOST || 'gitlab.rayark.com'
   const gitlabProjectId = env.CI_PROJECT_ID || ''
-  const gitlabProjectPath = env.CI_PROJECT_PATH || 'tech-center/toolbox/loupe-qa-recorder'
+  const gitlabProjectPath = env.CI_PROJECT_PATH || 'engine/toolbox/loupe-qa-recorder'
   const updateProvider = isGitlabUpdate ? 'gitlab' : 'github'
   const updateApiUrl = isGitlabUpdate
     ? `https://${updateUser}:${updateToken}@${gitlabHost}/api/v4/projects/${gitlabProjectId}/packages/generic/loupe/latest/latest-mac.yml`
@@ -77,6 +77,15 @@ export default defineConfig(({ mode }) => {
     renderer: {
       plugins: [react()],
       root: '.',
+      // Build-time channel label exposed to the renderer so a header badge
+      // can mark a downstream/internal build distinctly from upstream — even
+      // when the version string is identical. The label string itself is
+      // supplied externally via the LOUPE_INTERNAL_BRAND env var (CI variable)
+      // so this open-source config does not bake any one organization's name
+      // into the codebase; if the var is unset the badge is hidden.
+      define: {
+        __LOUPE_BUILD_CHANNEL_LABEL__: JSON.stringify(env.LOUPE_INTERNAL_BRAND ?? ''),
+      },
       build: { outDir: 'out/renderer', rollupOptions: { input: resolve(__dirname, 'index.html') } },
       resolve: { alias: { '@': resolve(__dirname, 'src'), '@shared': resolve(__dirname, 'shared') } },
     },

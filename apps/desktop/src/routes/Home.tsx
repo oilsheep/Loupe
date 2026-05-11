@@ -109,6 +109,9 @@ export function Home() {
         <div className="mb-4 flex items-baseline gap-2">
           <h1 className="text-lg font-semibold">Loupe</h1>
           {appVersion && <span className="font-mono text-[11px] text-zinc-600">v{appVersion}</span>}
+          {__LOUPE_BUILD_CHANNEL_LABEL__ && (
+            <span className="rounded bg-amber-900/40 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-amber-200">{__LOUPE_BUILD_CHANNEL_LABEL__}</span>
+          )}
         </div>
 
         <section className="mb-4 rounded-lg border border-blue-800/70 bg-blue-950/20 p-3.5 shadow-sm shadow-black/10">
