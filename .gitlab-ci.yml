@@ -110,11 +110,11 @@ build:win:
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
     - pnpm config set store-dir "${PNPM_STORE_DIR}"
-    # Cross-build (Linux container -> Windows installer): also fetch win32-x64
-    # optionalDependencies (e.g. @ffmpeg-installer/win32-x64). Without this,
-    # pnpm only resolves the host's @ffmpeg-installer/linux-x64 and the
-    # bundled NSIS ships a Linux ELF in place of ffmpeg.
-    - pnpm install --frozen-lockfile --config.supportedArchitectures.os=win32 --config.supportedArchitectures.cpu=x64
+    # Root package.json declares pnpm.supportedArchitectures (darwin/linux/win32),
+    # so this install on a Linux host fetches win32-x64 optionalDependencies too
+    # (e.g. @ffmpeg-installer/win32-x64). Without that, the bundled NSIS would
+    # ship a Linux ELF in place of ffmpeg.
+    - pnpm install --frozen-lockfile
   script:
     - node scripts/gitlab-ci-prepare-build.mjs
     # package.json has `npmRebuild: false`, so electron-builder's `build` step

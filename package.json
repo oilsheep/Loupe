@@ -12,5 +12,11 @@
     "vendor:prepare:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-vendor-binaries.ps1 -Ci -WithUxPlay -InstallDeps",
     "rebuild:electron": "node scripts/rebuild-electron.mjs",
     "rebuild:node": "pnpm --filter desktop rebuild better-sqlite3"
+  },
+  "pnpm": {
+    "supportedArchitectures": {
+      "os": ["darwin", "linux", "win32"],
+      "cpu": ["arm64", "x64"]
+    }
   }
 }
