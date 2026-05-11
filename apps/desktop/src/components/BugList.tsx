@@ -741,11 +741,13 @@ function ExportConfirmDialog({
                   </label>
                   <button
                     type="button"
-                    onClick={onRefreshSlackDirectory}
-                    disabled={busy || slackDirectoryRefreshing}
-                    className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    onClick={slackConnected ? onRefreshSlackDirectory : onConnectSlack}
+                    disabled={busy || slackDirectoryRefreshing || slackConnecting}
+                    className={`mt-5 shrink-0 rounded px-3 py-2 text-xs disabled:opacity-50 ${slackConnected ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-emerald-700 font-medium text-white hover:bg-emerald-600'}`}
                   >
-                    {slackDirectoryRefreshing ? t('publish.refreshing') : t('publish.refresh')}
+                    {!slackConnected
+                      ? (slackConnecting ? t('publish.connecting') : t('publish.connectSlack'))
+                      : (slackDirectoryRefreshing ? t('publish.refreshing') : t('publish.refresh'))}
                   </button>
                 </div>
                 {slackDirectoryError && <div className="mt-1 text-xs text-red-300">{slackDirectoryError}</div>}
@@ -1678,6 +1680,21 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setSlackDirectoryError(result.error || 'Slack connection failed.')
     }
   }), [api, overrideProfile])
+
+  // Auto-refresh the Slack channel list whenever the user opens the Slack
+  // publish toggle. Cached channels can be stale or the OAuth token may have
+  // expired since the last refresh; running this here surfaces the
+  // expired-token state proactively (the IPC handler clears the token on
+  // token_expired so the inline Reconnect button replaces Refresh).
+  useEffect(() => {
+    if (!publishSlack) return
+    if (!isSlackConnected(slackSettings)) return
+    if (slackDirectoryRefreshing) return
+    void refreshSlackDirectoryForExport()
+    // intentionally only depends on publishSlack — re-firing on every
+    // settings or refreshing-state change would cause refresh loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishSlack])
 
   useEffect(() => {
     const hasPendingThumbnail = bugs.some(b => !b.screenshotRel && nowMs - b.createdAt < THUMB_PENDING_MS)

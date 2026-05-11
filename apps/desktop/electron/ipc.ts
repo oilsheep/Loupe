@@ -394,12 +394,12 @@ function friendlySlackDirectoryError(settings: SlackPublishSettings, err: unknow
   if (/token_expired/i.test(message)) {
     return new Error(settings.publishIdentity === 'bot'
       ? 'Slack bot token expired or was revoked. Paste a new bot token in Preferences, save Slack settings, then refresh again.'
-      : 'Slack OAuth token expired. Reconnect Slack in Preferences, then refresh channels again.')
+      : 'Slack OAuth token expired. Reconnect Slack to refresh channels.')
   }
   if (/invalid_auth|not_authed|account_inactive/i.test(message)) {
     return new Error(settings.publishIdentity === 'bot'
       ? 'Slack bot token is invalid or revoked. Paste a valid bot token in Preferences, save Slack settings, then refresh again.'
-      : 'Slack OAuth connection is invalid or revoked. Reconnect Slack in Preferences, then refresh again.')
+      : 'Slack OAuth connection is invalid or revoked. Reconnect Slack to refresh channels.')
   }
   if (/missing_scope/i.test(message)) {
     return new Error('Slack is missing required permissions. Update the Slack app scopes, reinstall the app, then reconnect or save the token again.')
