@@ -114,9 +114,13 @@ build:mac:
     # package (with deploy token in URL) before electron-builder runs.
     - node scripts/gitlab-ci-prepare-build.mjs
     - ./start-dev.sh build
-    # Stable filename for the GitLab Release direct-download link. Original
-    # version-suffixed file is kept for auto-updater consumers.
-    - cp "apps/desktop/dist/"*"-arm64.dmg" apps/desktop/dist/loupe-macos-arm64.dmg
+    # Stable, arch-agnostic filename for the GitLab Release direct-download link.
+    # electron-builder produces whichever arch the runner is — `cp *.dmg` matches
+    # the single dmg in dist/ (we don't currently build universal). The release
+    # page link below stays valid whether the runner is Intel (x64) or Apple
+    # Silicon (arm64); auto-update consumers read the arch-suffixed filename out
+    # of latest-mac.yml independently.
+    - cp apps/desktop/dist/*.dmg apps/desktop/dist/loupe-macos.dmg
     # Upload latest-mac.yml + binaries to the Generic Package registry so
     # installed apps' Check-for-Updates can resolve via the generic URL.
     # Tag pipelines only (script no-ops on release-branch verifications).
@@ -233,8 +237,8 @@ release:gitlab:
       .exe is unsigned (matches upstream's GitHub Actions output).
     assets:
       links:
-        - name: "macOS (arm64) — DMG"
-          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/apps/desktop/dist/loupe-macos-arm64.dmg?job=build:mac"
+        - name: "macOS — DMG"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/apps/desktop/dist/loupe-macos.dmg?job=build:mac"
           link_type: package
         - name: "Windows (x64) — Installer"
           url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/apps/desktop/dist/loupe-windows-x64.exe?job=build:win"
