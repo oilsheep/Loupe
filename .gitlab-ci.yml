@@ -117,6 +117,12 @@ build:win:
     - pnpm install --frozen-lockfile
   script:
     - node scripts/gitlab-ci-prepare-build.mjs
+    # Fetch the go-ios Windows binary. apps/desktop/vendor/go-ios/**/bin/ is
+    # gitignored, so unlike scrcpy and uxplay (committed) the rayark checkout
+    # has no ios.exe. Upstream GitHub uses prepare-vendor-binaries.ps1, which
+    # we can't run from this Linux container; this helper does the same fetch
+    # cross-platform.
+    - node scripts/fetch-go-ios.mjs --platform win32-x64
     # package.json has `npmRebuild: false`, so electron-builder's `build` step
     # won't fetch Windows-ABI prebuilds for native modules. Do it ourselves so
     # better-sqlite3 ends up as a Windows PE / Electron-ABI .node instead of
