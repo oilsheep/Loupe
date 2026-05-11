@@ -209,7 +209,7 @@ export async function fetchSlackChannels(token: string, fetchImpl: SlackPublishe
   do {
     let payload: SlackApiResponse
     try {
-      payload = await slackApi(fetchImpl, slackToken, 'conversations.list', {
+      payload = await slackApi(fetchImpl, slackToken, 'users.conversations', {
         limit: '200',
         types: 'public_channel,private_channel',
         exclude_archived: 'true',
