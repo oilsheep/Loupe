@@ -12,12 +12,14 @@ if (!packageName) {
 const requireFromCwd = createRequire(join(process.cwd(), 'package.json'))
 
 function pnpmInvocation(args) {
+  // See scripts/rebuild-electron.mjs for context: npm_execpath can be pnpm.exe
+  // on Windows pnpm-setup-action installs, which then fails as `node pnpm.exe`.
   const npmExecPath = process.env.npm_execpath
-  if (npmExecPath && /pnpm/i.test(npmExecPath)) {
+  if (npmExecPath && /pnpm/i.test(npmExecPath) && /\.c?js$/i.test(npmExecPath)) {
     return { command: process.execPath, args: [npmExecPath, ...args], shell: false }
   }
   return {
-    command: process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    command: 'pnpm',
     args,
     shell: process.platform === 'win32',
   }

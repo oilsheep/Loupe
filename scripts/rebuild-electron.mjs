@@ -35,12 +35,19 @@ function pnpmStoreArgs() {
 }
 
 function pnpmInvocation(args) {
+  // npm_execpath usually points to a Node-executable JS file we can pass to
+  // `node`. Some Windows pnpm installs (e.g. pnpm-setup-action's newer
+  // single-binary layout) make it pnpm.exe instead — `node pnpm.exe` then
+  // crashes with "SyntaxError: Invalid or unexpected token" on the PE header.
+  // Use the Node-via-script path only when npm_execpath really is a script.
   const npmExecPath = process.env.npm_execpath
-  if (npmExecPath && /pnpm/i.test(npmExecPath)) {
+  if (npmExecPath && /pnpm/i.test(npmExecPath) && /\.c?js$/i.test(npmExecPath)) {
     return { command: process.execPath, args: [npmExecPath, ...args], shell: false }
   }
+  // shell:true on Windows lets PATHEXT resolve to either pnpm.cmd (npm-style
+  // shim) or pnpm.exe (single-binary distribution) without us hard-coding one.
   return {
-    command: process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    command: 'pnpm',
     args,
     shell: process.platform === 'win32',
   }
