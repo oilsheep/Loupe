@@ -28,7 +28,14 @@ jobs:
             platform: mac
             artifact: loupe-macos
           - name: Windows
-            os: windows-latest
+            # Pinned: windows-latest moved to windows-2025 which ships VS 18
+            # (2026). node-gyp 10.2 (the version pnpm 9.12 bundles) can't
+            # identify VS 18 — its PowerShell-based finder hits
+            # ERR_CHILD_PROCESS_STDIO_MAXBUFFER and then falls back to a
+            # version table that knows only up to VS 2022. Result: better-sqlite3
+            # rebuild aborts with "Could not find any Visual Studio installation".
+            # Revisit when bumping node-gyp (>=11) or pnpm (>=10).
+            os: windows-2022
             platform: win
             artifact: loupe-windows
 
