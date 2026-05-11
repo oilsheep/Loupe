@@ -83,8 +83,21 @@ build:mac:
         ln -sf /opt/homebrew/bin/python3.13 "$CI_PROJECT_DIR/.bin/python"
         export PATH="$CI_PROJECT_DIR/.bin:$PATH"
       fi
-    - export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+    # Cover both Apple Silicon (/opt/homebrew) and Intel (/usr/local) brew prefixes.
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
     - command -v fnm >/dev/null 2>&1 && eval "$(fnm env)" || true
+    # The sdk-builder runners are bare macOS boxes (Xcode but no Node toolchain).
+    # Fetch the official Node tarball into the job's workspace when not present.
+    - |
+      if ! command -v node >/dev/null 2>&1; then
+        NODE_VERSION=20.20.2
+        NODE_ARCH=$(uname -m | sed 's/x86_64/x64/')
+        echo "[setup] Installing Node ${NODE_VERSION} (${NODE_ARCH}) into \$CI_PROJECT_DIR/.node"
+        mkdir -p "$CI_PROJECT_DIR/.node"
+        curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${NODE_ARCH}.tar.gz" \
+          | tar -xz -C "$CI_PROJECT_DIR/.node" --strip-components=1
+        export PATH="$CI_PROJECT_DIR/.node/bin:$PATH"
+      fi
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
   script:
