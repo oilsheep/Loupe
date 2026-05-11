@@ -74,6 +74,12 @@ build:mac:
     # CSC_LINK / CSC_KEY_PASSWORD that might still be set as a protected
     # variable from the previous p12-based setup.
     - unset CSC_LINK CSC_KEY_PASSWORD
+    # Diagnostic: which mac host actually ran this job? gitlab-runner reports
+    # its own binary arch (often amd64-under-Rosetta on Apple Silicon), so the
+    # only honest way to tell is to ask the host directly. `arch` + `uname -m`
+    # should agree on a true Intel Mac and differ when the runner binary is
+    # amd64 but the host is arm64.
+    - echo "[diag] host=$(uname -a)"; echo "[diag] arch=$(arch) uname-m=$(uname -m)"; sw_vers || true
     # The old loupe-mac runner pinned Python 3.13 to dodge a brew libexpat
     # bug in 3.14. Apply the same pin only if 3.13 is actually present on
     # this runner; otherwise fall back to whatever Python the runner ships.
