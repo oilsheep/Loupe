@@ -63,6 +63,19 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      # Pin Python 3.11 for the better-sqlite3 source rebuild that
+      # scripts/rebuild-electron.mjs forces. better-sqlite3 pulls in
+      # node-gyp 9.4.1, whose vendored gyp does `from distutils.version
+      # import StrictVersion` — distutils was removed in Python 3.12.
+      # The hosted runners default to Python 3.12+, so without this pin
+      # the rebuild aborts with `ModuleNotFoundError: No module named
+      # 'distutils'`. Drop when bumping node-gyp >=10 via pnpm overrides
+      # (10.x no longer touches distutils).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
