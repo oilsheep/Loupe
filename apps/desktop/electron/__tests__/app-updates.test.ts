@@ -17,6 +17,17 @@ describe('app update checks', () => {
     expect(compareVersions('0.4.9', '0.5.0')).toBe(-1)
   })
 
+  it('orders pre-release tags relative to the base version and each other', () => {
+    // Higher numeric pre-release counter wins (the internal -rayark.N chain).
+    expect(compareVersions('0.5.8-rayark.11', '0.5.8-rayark.5')).toBe(1)
+    expect(compareVersions('0.5.8-rayark.5', '0.5.8-rayark.11')).toBe(-1)
+    // Per semver, the unsuffixed release > any pre-release of the same main.
+    expect(compareVersions('0.5.8', '0.5.8-rayark.11')).toBe(1)
+    expect(compareVersions('0.5.8-rayark.11', '0.5.8')).toBe(-1)
+    // Main numeric parts still dominate over pre-release ordering.
+    expect(compareVersions('0.5.9-rayark.0', '0.5.8-rayark.99')).toBe(1)
+  })
+
   it('chooses a macOS dmg asset over zip assets', () => {
     const asset = chooseUpdateAsset([
       { name: 'Loupe QA Recorder-0.5.1.zip', browser_download_url: 'https://github.com/oilsheep/Loupe/releases/download/v0.5.1/app.zip' },

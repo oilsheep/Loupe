@@ -154,20 +154,60 @@ function scoreAsset(name: string, platform: string, arch: string): number {
 }
 
 export function compareVersions(a: string, b: string): number {
-  const left = parseVersion(a)
-  const right = parseVersion(b)
-  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0)
+  const left = parseSemver(a)
+  const right = parseSemver(b)
+  for (let i = 0; i < Math.max(left.main.length, right.main.length); i += 1) {
+    const diff = (left.main[i] ?? 0) - (right.main[i] ?? 0)
     if (diff !== 0) return diff > 0 ? 1 : -1
+  }
+  // Main numeric parts equal — compare pre-release identifiers per semver §11.4.
+  // A version without pre-release is considered greater than one with pre-release
+  // (so 0.5.8 > 0.5.8-rayark.11). Numeric identifiers compare numerically and
+  // sort lower than alphanumeric ones. The internal `-rayark.N` chain falls under
+  // the all-numeric tail and ends up ordered correctly: 0.5.8-rayark.11 wins
+  // over 0.5.8-rayark.5.
+  if (left.pre.length === 0 && right.pre.length === 0) return 0
+  if (left.pre.length === 0) return 1
+  if (right.pre.length === 0) return -1
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i += 1) {
+    const ai = left.pre[i]
+    const bi = right.pre[i]
+    if (ai === bi) continue
+    if (ai === undefined) return -1
+    if (bi === undefined) return 1
+    const aIsNum = /^\d+$/.test(ai)
+    const bIsNum = /^\d+$/.test(bi)
+    if (aIsNum && bIsNum) {
+      const diff = Number(ai) - Number(bi)
+      if (diff !== 0) return diff > 0 ? 1 : -1
+    } else if (aIsNum) {
+      return -1
+    } else if (bIsNum) {
+      return 1
+    } else {
+      return ai > bi ? 1 : -1
+    }
   }
   return 0
 }
 
-function parseVersion(version: string): number[] {
-  return normalizeVersion(version).split('.').map(part => Number(part) || 0)
+interface ParsedSemver { main: number[]; pre: string[] }
+
+function parseSemver(version: string): ParsedSemver {
+  const normalized = normalizeVersion(version)
+  const dash = normalized.indexOf('-')
+  const mainStr = dash === -1 ? normalized : normalized.slice(0, dash)
+  const preStr = dash === -1 ? '' : normalized.slice(dash + 1)
+  return {
+    main: mainStr.split('.').map(p => Number(p) || 0),
+    pre: preStr ? preStr.split('.') : [],
+  }
 }
 
 function normalizeVersion(version: string): string {
-  const match = version.trim().match(/^v?(\d+(?:\.\d+){0,3})/i)
+  // Preserve pre-release identifiers (e.g. `0.5.8-rayark.11`). Without that
+  // tail, the internal patch chain compares equal to the base version and
+  // the update banner never fires.
+  const match = version.trim().match(/^v?(\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?)/i)
   return match?.[1] ?? ''
 }

@@ -24,19 +24,20 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
   const checkingDownload = phase === 'checking' && updateAvailable
   const errored = phase === 'error'
 
+  const latestVersion = updateCheck?.latestVersion ?? ''
   const updateButtonText = downloaded
-    ? 'Restart to install'
+    ? t('home.update.restart')
     : downloading
-      ? `Downloading ${Math.round(updateEvent?.percent ?? 0)}%`
+      ? t('home.update.downloading', { percent: Math.round(updateEvent?.percent ?? 0) })
       : checkingDownload
-        ? 'Preparing...'
+        ? t('home.update.preparing')
         : errored
-          ? `Retry v${updateCheck?.latestVersion}`
+          ? t('home.update.retry', { version: latestVersion })
           : updateAvailable
-            ? `Download v${updateCheck?.latestVersion}`
+            ? t('home.update.download', { version: latestVersion })
             : checkingForUpdates
-              ? 'Checking...'
-              : 'Check updates'
+              ? t('home.update.checking')
+              : t('home.update.check')
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3">
@@ -53,12 +54,12 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
             className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600"
             title={
               downloaded
-                ? 'Restart Loupe and install the downloaded update'
+                ? t('home.update.restartTitle')
                 : errored
-                  ? `Update failed: ${updateEvent?.message ?? 'unknown error'}. Click to retry.`
+                  ? t('home.update.errorTitle', { message: updateEvent?.message ?? 'unknown error' })
                   : updateCheck?.assetName
-                    ? `Download ${updateCheck.assetName}`
-                    : 'Download the latest Loupe release'
+                    ? t('home.update.downloadAssetTitle', { assetName: updateCheck.assetName })
+                    : t('home.update.downloadTitle')
             }
           >
             {updateButtonText}
@@ -69,7 +70,7 @@ export function HomeTopBar({ selectedLabel, missingTools, updateCheck, updateEve
             onClick={onCheckForUpdates}
             disabled={checkingForUpdates}
             className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-            title={updateCheck?.error || (updateCheck?.latestVersion ? `Latest: v${updateCheck.latestVersion}` : 'Check GitHub Releases for updates')}
+            title={updateCheck?.error || (latestVersion ? t('home.update.latestTitle', { version: latestVersion }) : t('home.update.checkTitle'))}
           >
             {updateButtonText}
           </button>
