@@ -348,7 +348,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     const input = { ...gitlab, ...overrides }
     return {
       ...input,
-      baseUrl: input.baseUrl.trim() || 'https://gitlab.com',
+      baseUrl: input.baseUrl.trim() || bundledGitLabOAuthInstances[0]?.url || 'https://gitlab.com',
       authType: input.authType ?? 'oauth',
       oauthClientId: input.oauthClientId?.trim() ?? '',
       oauthClientSecret: input.oauthClientSecret?.trim() ?? '',

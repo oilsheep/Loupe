@@ -13,6 +13,7 @@ import { backfillProfileIds } from './profile-backfill'
 import { createPaths, resolveAppRoots } from './paths'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
+import { getBundledOAuthInstances } from './gitlab-oauth-config'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { refreshAllExpiringTokens, type RefreshDeps } from './token-refresh'
 import { refreshGoogleAccessToken } from './google-publisher'
@@ -236,7 +237,7 @@ app.whenReady().then(async () => {
     id: randomUUID(),
     name: 'Default',
     slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
-    gitlab: { baseUrl: 'https://gitlab.com', token: '', authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    gitlab: { baseUrl: getBundledOAuthInstances()[0]?.url ?? 'https://gitlab.com', token: '', authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
     publishTemplates: {},

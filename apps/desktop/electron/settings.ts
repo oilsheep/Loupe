@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
+import { getBundledOAuthInstances } from './gitlab-oauth-config'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 
 export const DEFAULT_HOTKEYS: HotkeySettings = {
@@ -413,7 +414,7 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
   const emailLookup = raw?.emailLookup === 'admin-users-api' ? 'admin-users-api' : 'off'
   const authType = raw?.authType === 'pat' ? 'pat' : 'oauth'
   return {
-    baseUrl: (raw?.baseUrl?.trim() || 'https://gitlab.com').replace(/\/+$/, ''),
+    baseUrl: (raw?.baseUrl?.trim() || getBundledOAuthInstances()[0]?.url || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
     authType,
     oauthClientId: typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '',
