@@ -22,6 +22,15 @@ import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { HotkeySettings, ProfileSettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// Carry build-time bootstrap-Python override into process.env so .env.local
+// can supply LOUPE_PYTHON without the user having to export it in the shell.
+// doctor.ts reads process.env.LOUPE_PYTHON when creating the faster-whisper
+// venv; an explicitly exported value still wins.
+if (typeof __LOUPE_PYTHON__ === 'string' && __LOUPE_PYTHON__ && !process.env.LOUPE_PYTHON) {
+  process.env.LOUPE_PYTHON = __LOUPE_PYTHON__
+}
+
 let win: BrowserWindow | null = null
 let thumbnailCaptureQueue = Promise.resolve()
 const pendingProtocolUrls: string[] = []
