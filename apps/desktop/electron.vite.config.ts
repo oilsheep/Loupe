@@ -60,12 +60,6 @@ export default defineConfig(({ mode }) => {
         __LOUPE_UPDATE_PROVIDER__: JSON.stringify(updateProvider),
         __LOUPE_UPDATE_API_URL__: JSON.stringify(updateApiUrl),
         __LOUPE_UPDATE_PAGE_URL_TEMPLATE__: JSON.stringify(updatePageTemplate),
-        // Build-time-recorded bootstrap Python override. doctor.ts already
-        // reads process.env.LOUPE_PYTHON; we copy this value into the env at
-        // startup (see main.ts) so .env.local works the same as exporting the
-        // var in the shell — convenient for developers whose system `python3`
-        // points at a build that fails `ensurepip` (e.g. brew python@3.14).
-        __LOUPE_PYTHON__: JSON.stringify(env.LOUPE_PYTHON ?? process.env.LOUPE_PYTHON ?? ''),
       },
       build: {
         outDir: 'out/main',

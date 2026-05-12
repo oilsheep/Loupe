@@ -6,4 +6,3 @@ declare const __LOUPE_GITLAB_OAUTH_INSTANCES__: string
 declare const __LOUPE_UPDATE_PROVIDER__: string
 declare const __LOUPE_UPDATE_API_URL__: string
 declare const __LOUPE_UPDATE_PAGE_URL_TEMPLATE__: string
-declare const __LOUPE_PYTHON__: string
