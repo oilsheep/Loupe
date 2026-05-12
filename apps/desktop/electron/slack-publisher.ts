@@ -222,13 +222,13 @@ export async function fetchSlackChannels(token: string, fetchImpl: SlackPublishe
     for (const channel of payload.channels ?? []) {
       const id = channel.id?.trim()
       const name = channel.name?.trim()
-      if (!id || !name || channel.is_archived) continue
+      if (!id || !name || channel.is_archived || channel.is_member === false) continue
       channels.push({
         id,
         name,
         isPrivate: Boolean(channel.is_private || channel.is_group),
         isArchived: Boolean(channel.is_archived),
-        isMember: Boolean(channel.is_member),
+        isMember: true,
       })
     }
     cursor = payload.response_metadata?.next_cursor?.trim() || ''
