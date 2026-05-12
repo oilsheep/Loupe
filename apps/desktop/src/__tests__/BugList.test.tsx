@@ -261,7 +261,7 @@ describe('BugList', () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug({ severity: 'normal' })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} />)
     const select = await screen.findByTestId('severity-select-b1')
-    expect(select.textContent).toContain('network')
+    await waitFor(() => expect(select.textContent).toContain('network'))
     expect(select.textContent).not.toContain('custom2')
   })
 
