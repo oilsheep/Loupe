@@ -10,7 +10,11 @@ function readLoupeEnv(mode: string): Record<string, string> {
     const path = resolve(__dirname, name)
     if (!existsSync(path)) continue
     for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-      const match = line.match(/^\s*(LOUPE_[A-Z0-9_]+)\s*=\s*(.*)\s*$/)
+      // LOUPE_* are the project's own build-time defines; CI_* mirror the
+      // GitLab CI predefined variables that this config reads so a developer
+      // running `pnpm desktop:dev` locally can still aim the in-app update
+      // check at the right GitLab project without exporting them in the shell.
+      const match = line.match(/^\s*((?:LOUPE_|CI_)[A-Z0-9_]+)\s*=\s*(.*)\s*$/)
       if (!match) continue
       const [, key, rawValue] = match
       const value = rawValue.replace(/^(['"])(.*)\1$/, '$2')
@@ -29,10 +33,13 @@ export default defineConfig(({ mode }) => {
   // instead of upstream GitHub Releases.
   const updateUser = env.LOUPE_INTERNAL_UPDATE_USER ?? ''
   const updateToken = env.LOUPE_INTERNAL_UPDATE_TOKEN ?? ''
-  const isGitlabUpdate = Boolean(updateUser && updateToken)
   const gitlabHost = env.CI_SERVER_HOST || 'gitlab.rayark.com'
   const gitlabProjectId = env.CI_PROJECT_ID || ''
   const gitlabProjectPath = env.CI_PROJECT_PATH || 'engine/toolbox/loupe-qa-recorder'
+  // All three of user/token/project-id are required to build a valid Generic
+  // Package Registry URL. If any one is missing the in-app updater falls back
+  // to upstream GitHub Releases instead of generating a malformed 404 URL.
+  const isGitlabUpdate = Boolean(updateUser && updateToken && gitlabProjectId)
   const updateProvider = isGitlabUpdate ? 'gitlab' : 'github'
   const updateApiUrl = isGitlabUpdate
     ? `https://${updateUser}:${updateToken}@${gitlabHost}/api/v4/projects/${gitlabProjectId}/packages/generic/loupe/latest/latest-mac.yml`
