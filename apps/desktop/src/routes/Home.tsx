@@ -149,7 +149,7 @@ export function Home() {
 
       <main className="flex min-w-0 flex-col overflow-hidden">
         <PreferencesController open={preferencesOpen} onClose={() => setPreferencesOpen(false)} />
-        {toolsOpen && <ToolStatus onClose={() => setToolsOpen(false)} />}
+        {toolsOpen && <ToolStatus onClose={() => setToolsOpen(false)} onChecksRefreshed={setChecks} />}
         <ImportVideoDialog api={api} open={importVideoOpen} onClose={() => setImportVideoOpen(false)} />
 
         <HomeTopBar

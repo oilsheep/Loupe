@@ -22,9 +22,10 @@ const TOOL_DESCRIPTIONS: Record<ToolCheck['name'], string> = {
 
 interface ToolStatusProps {
   onClose?: () => void
+  onChecksRefreshed?: (checks: ToolCheck[]) => void
 }
 
-export function ToolStatus({ onClose }: ToolStatusProps = {}) {
+export function ToolStatus({ onClose, onChecksRefreshed }: ToolStatusProps = {}) {
   const { t } = useI18n()
   const goHome = useApp(s => s.goHome)
   const close = onClose ?? goHome
@@ -56,7 +57,9 @@ export function ToolStatus({ onClose }: ToolStatusProps = {}) {
   async function refreshChecks() {
     setLoading(true)
     try {
-      setChecks(await api.doctor())
+      const next = await api.doctor()
+      setChecks(next)
+      onChecksRefreshed?.(next)
     } finally {
       setLoading(false)
     }
