@@ -13,14 +13,14 @@ import type { Paths } from './paths'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { ToolCheck } from './doctor'
-import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
+import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, PublishService, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
-import { createGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
+import { createGoogleDriveFolder, ensureDefaultGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import { findActiveProfile, findProfileByIdOrActive, type SettingsStore } from './settings'
 import { findProfileForSession } from '@shared/profileLookup'
@@ -124,6 +124,7 @@ export const CHANNEL = {
   settingsRefreshSlackChannels:'settings:refreshSlackChannels',
   settingsStartSlackUserOAuth:'settings:startSlackUserOAuth',
   settingsSlackOAuthCompleted:'settings:slackOAuthCompleted',
+  settingsDisconnectService:'settings:disconnectService',
   settingsRefreshGitLabUsers:'settings:refreshGitLabUsers',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
@@ -2436,12 +2437,19 @@ export function registerIpc(deps: IpcDeps): void {
     const saved = deps.settings.setProfile(profileId, { google })
     const savedProfile = findProfileByIdOrActive(saved, profileId)
     const connected = await connectGoogleOAuth(savedProfile.google)
-    return deps.settings.setProfile(profileId, { google: connected })
+    let withFolder = connected
+    if (!connected.driveFolderId?.trim()) {
+      const folder = await ensureDefaultGoogleDriveFolder(connected).catch(() => null)
+      if (folder) withFolder = { ...connected, driveFolderId: folder.id, driveFolderName: folder.name }
+    }
+    return deps.settings.setProfile(profileId, { google: withFolder })
   })
   ipcMain.handle(CHANNEL.settingsCancelGoogleOAuth, async () => {
     googleOAuthCancel?.()
     googleOAuthCancel = null
   })
+  ipcMain.handle(CHANNEL.settingsDisconnectService, async (_e, profileId: string, service: PublishService) =>
+    deps.settings.disconnectService(profileId, service))
   ipcMain.handle(CHANNEL.settingsListGoogleDriveFolders, async (_e, profileId: string, google: GooglePublishSettings) => {
     const refreshed = await refreshGoogleAccessToken(google)
     const folders = await listGoogleDriveFolders(refreshed)

@@ -32,6 +32,8 @@ export interface RefreshError {
   code: string  // e.g. 'invalid_grant', 'invalid_client'
 }
 
+export type PublishService = 'slack' | 'gitlab' | 'google'
+
 export interface SlackPublishSettings {
   botToken: string
   userToken?: string
@@ -524,6 +526,7 @@ export interface DesktopApi {
     refreshSlackUsers(projectId: string):                            Promise<AppSettings>
     refreshSlackChannels(projectId: string):                         Promise<AppSettings>
     startSlackUserOAuth(projectId: string, settings: SlackPublishSettings): Promise<AppSettings>
+    disconnectService(projectId: string, service: PublishService): Promise<AppSettings>
     refreshGitLabUsers(projectId: string):                           Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { friendlySlackRefreshMessage } from '@/lib/connection'
 import { useI18n } from '@/lib/i18n'
@@ -31,6 +31,7 @@ import type {
   MarkerFieldPreset,
   MentionIdentity,
   ProfileSettings,
+  PublishService,
   PublishTemplateSettings,
   SeveritySettings,
   SlackPublishSettings,
@@ -125,23 +126,20 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [commonSession, setCommonSession] = useState<CommonSessionSettings>(DEFAULT_COMMON_SESSION_SETTINGS)
   const [audioAnalysisSaved, setAudioAnalysisSaved] = useState(false)
   const [slack, setSlack] = useState<SlackPublishSettings>(DEFAULT_SLACK_SETTINGS)
-  const [slackSaved, setSlackSaved] = useState(false)
   const [startingSlackOAuth, setStartingSlackOAuth] = useState(false)
   const [refreshingSlackUsers, setRefreshingSlackUsers] = useState(false)
+  const [refreshingSlackChannels, setRefreshingSlackChannels] = useState(false)
   const [slackError, setSlackError] = useState('')
   const [gitlab, setGitLab] = useState<GitLabPublishSettings>(DEFAULT_GITLAB_SETTINGS)
   const [gitlabLabelsInput, setGitLabLabelsInput] = useState('loupe, qa-evidence')
   const [gitlabMentionsInput, setGitLabMentionsInput] = useState('')
   const [savingGitLab, setSavingGitLab] = useState(false)
-  const [gitlabSaved, setGitLabSaved] = useState(false)
   const [refreshingGitLabUsers, setRefreshingGitLabUsers] = useState(false)
   const [gitlabProjects, setGitLabProjects] = useState<GitLabProject[]>([])
   const [refreshingGitLabProjects, setRefreshingGitLabProjects] = useState(false)
   const [connectingGitLabOAuth, setConnectingGitLabOAuth] = useState(false)
   const [gitlabError, setGitLabError] = useState('')
   const [google, setGoogle] = useState<GooglePublishSettings>(DEFAULT_GOOGLE_SETTINGS)
-  const [savingGoogle, setSavingGoogle] = useState(false)
-  const [googleSaved, setGoogleSaved] = useState(false)
   const [connectingGoogleOAuth, setConnectingGoogleOAuth] = useState(false)
   const [googleFolders, setGoogleFolders] = useState<GoogleDriveFolder[]>([])
   const [refreshingGoogleFolders, setRefreshingGoogleFolders] = useState(false)
@@ -165,19 +163,28 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   const [bundledGitLabOAuthInstances, setBundledGitLabOAuthInstances] = useState<Array<{ url: string; clientId: string }>>([])
   const [profiles, setProfiles] = useState<ProfileSettings[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState<string>('')
+  const [disconnectingService, setDisconnectingService] = useState<PublishService | null>(null)
+  const slackSnapshot = useRef('')
+  const gitlabSnapshot = useRef('')
+  const googleSnapshot = useRef('')
 
   // Apply profile-scoped draft state from the profile record. Called both when
   // the user switches profiles and when settings change for the selected profile.
   function applyProfileDraft(profile: ProfileSettings) {
     setSlack(profile.slack)
     setGitLab(profile.gitlab)
-    setGitLabLabelsInput((profile.gitlab.labels ?? []).join(', '))
-    setGitLabMentionsInput((profile.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', '))
+    const labelsStr = (profile.gitlab.labels ?? []).join(', ')
+    const mentionsStr = (profile.gitlab.mentionUsernames ?? []).map(name => `@${name}`).join(', ')
+    setGitLabLabelsInput(labelsStr)
+    setGitLabMentionsInput(mentionsStr)
     setGoogle(profile.google)
     setMarkerFieldPresets(profile.markerFieldPresets?.length ? profile.markerFieldPresets : DEFAULT_MARKER_FIELD_PRESETS)
     setMarkerFieldPresetsSaved(false)
     setPublishTemplates(profile.publishTemplates ?? {})
     setPublishTemplatesSaved(false)
+    slackSnapshot.current = JSON.stringify(slackPayload(profile.slack))
+    gitlabSnapshot.current = JSON.stringify(gitLabSettingsInput(profile.gitlab, labelsStr, mentionsStr))
+    googleSnapshot.current = JSON.stringify(googleSettingsInput(profile.google))
   }
 
   function applySettings(settings: AppSettings) {
@@ -210,12 +217,10 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   useEffect(() => api.onSlackOAuthCompleted(result => {
     setStartingSlackOAuth(false)
-    setSlackSaved(false)
     if (result.ok && result.settings) {
       const profile = result.settings.profiles.find(p => p.id === selectedProfileId) ?? result.settings.profiles[0]
       if (profile) setSlack(profile.slack)
       setMentionIdentities(result.settings.mentionIdentities ?? [])
-      setSlackSaved(true)
       setSlackError('')
     } else {
       setSlackError(result.error || 'Slack OAuth failed')
@@ -287,7 +292,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   async function startSlackUserOAuth() {
     setStartingSlackOAuth(true)
-    setSlackSaved(false)
     setSlackError('')
     try {
       const settings = await api.settings.startSlackUserOAuth(selectedProfileId, {
@@ -308,22 +312,49 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     }
   }
 
+  function commitSlack(next: SlackPublishSettings) {
+    setSlack(next)
+    void saveSlackSettings(next)
+  }
+
+  function commitGitLab(next: GitLabPublishSettings) {
+    setGitLab(next)
+    void saveGitLabSettings(next)
+  }
+
+  function commitGoogle(next: GooglePublishSettings) {
+    setGoogle(next)
+    void saveGoogleSettings(next)
+  }
+
+  function selectSlackChannel(channelId: string) {
+    commitSlack({ ...slack, channelId })
+  }
+
+  function selectGitLabProject(projectId: string) {
+    commitGitLab({ ...gitlab, projectId })
+  }
+
+  function slackPayload(next: SlackPublishSettings): SlackPublishSettings {
+    return {
+      ...next,
+      botToken: next.botToken.trim(),
+      userToken: next.userToken?.trim() || '',
+      publishIdentity: next.publishIdentity === 'bot' ? 'bot' : 'user',
+      channelId: next.channelId.trim(),
+      oauthClientId: next.oauthClientId?.trim() || '',
+      oauthClientSecret: next.oauthClientSecret?.trim() || '',
+      oauthRedirectUri: 'loupe://slack-oauth',
+    }
+  }
+
   async function saveSlackSettings(next: SlackPublishSettings = slack) {
-    setSlackSaved(false)
+    const payload = slackPayload(next)
+    const key = JSON.stringify(payload)
+    if (key === slackSnapshot.current) return
     setSlackError('')
     try {
-      const settings = await api.settings.setSlack(selectedProfileId, {
-        ...next,
-        botToken: next.botToken.trim(),
-        userToken: next.userToken?.trim() || '',
-        publishIdentity: next.publishIdentity === 'bot' ? 'bot' : 'user',
-        channelId: next.channelId.trim(),
-        oauthClientId: next.oauthClientId?.trim() || '',
-        oauthClientSecret: next.oauthClientSecret?.trim() || '',
-        oauthRedirectUri: 'loupe://slack-oauth',
-      })
-      applySettings(settings)
-      setSlackSaved(true)
+      applySettings(await api.settings.setSlack(selectedProfileId, payload))
     } catch (err) {
       setSlackError(err instanceof Error ? err.message : String(err))
     }
@@ -331,12 +362,10 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   async function refreshSlackUsers() {
     setRefreshingSlackUsers(true)
-    setSlackSaved(false)
     setSlackError('')
     try {
       const settings = await api.settings.refreshSlackUsers(selectedProfileId)
       applySettings(settings)
-      setSlackSaved(true)
     } catch (err) {
       setSlackError(friendlySlackRefreshMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
@@ -344,7 +373,24 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     }
   }
 
-  function gitLabSettingsInput(overrides: Partial<GitLabPublishSettings> = {}): GitLabPublishSettings {
+  async function refreshSlackChannels() {
+    setRefreshingSlackChannels(true)
+    setSlackError('')
+    try {
+      const settings = await api.settings.refreshSlackChannels(selectedProfileId)
+      applySettings(settings)
+    } catch (err) {
+      setSlackError(friendlySlackRefreshMessage(err instanceof Error ? err.message : String(err), t))
+    } finally {
+      setRefreshingSlackChannels(false)
+    }
+  }
+
+  function gitLabSettingsInput(
+    overrides: Partial<GitLabPublishSettings> = {},
+    labelsInput: string = gitlabLabelsInput,
+    mentionsInput: string = gitlabMentionsInput,
+  ): GitLabPublishSettings {
     const input = { ...gitlab, ...overrides }
     return {
       ...input,
@@ -354,22 +400,22 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       oauthClientSecret: input.oauthClientSecret?.trim() ?? '',
       oauthRedirectUri: 'loupe://gitlab-oauth',
       projectId: input.projectId.trim(),
-      labels: parseListInput(gitlabLabelsInput),
-      mentionUsernames: parseListInput(gitlabMentionsInput).map(name => name.replace(/^@/, '')),
+      labels: parseListInput(labelsInput),
+      mentionUsernames: parseListInput(mentionsInput).map(name => name.replace(/^@/, '')),
       mentionUsers: input.mentionUsers ?? [],
       usersFetchedAt: input.usersFetchedAt ?? null,
       lastUserSyncWarning: input.lastUserSyncWarning ?? null,
     }
   }
 
-  async function saveGitLabSettings() {
+  async function saveGitLabSettings(next?: GitLabPublishSettings) {
+    const payload = gitLabSettingsInput(next)
+    const key = JSON.stringify(payload)
+    if (key === gitlabSnapshot.current) return
     setSavingGitLab(true)
-    setGitLabSaved(false)
     setGitLabError('')
     try {
-      const settings = await api.settings.setGitLab(selectedProfileId, gitLabSettingsInput())
-      applySettings(settings)
-      setGitLabSaved(true)
+      applySettings(await api.settings.setGitLab(selectedProfileId, payload))
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -379,14 +425,12 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
 
   async function connectGitLabOAuth() {
     setConnectingGitLabOAuth(true)
-    setGitLabSaved(false)
     setGitLabError('')
     try {
       const settings = await api.settings.connectGitLabOAuth(selectedProfileId, gitLabSettingsInput())
       applySettings(settings)
       const next = settings.profiles.find(p => p.id === selectedProfileId) ?? settings.profiles[0]
       if (next) await loadGitLabProjects(next.gitlab)
-      setGitLabSaved(true)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -422,7 +466,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       : 'Refresh GitLab users may update the mention identity table. Continue?'
     if (!window.confirm(message)) return
     setRefreshingGitLabUsers(true)
-    setGitLabSaved(false)
     setGitLabError('')
     try {
       if (forceEmailLookup) setGitLab(prev => ({ ...prev, emailLookup: 'admin-users-api' }))
@@ -430,7 +473,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       applySettings(savedSettings)
       const settings = await api.settings.refreshGitLabUsers(selectedProfileId)
       applySettings(settings)
-      setGitLabSaved(true)
     } catch (err) {
       setGitLabError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -438,47 +480,43 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     }
   }
 
-  function googleSettingsInput(): GooglePublishSettings {
+  function googleSettingsInput(overrides: Partial<GooglePublishSettings> = {}): GooglePublishSettings {
+    const input = { ...google, ...overrides }
     return {
-      ...google,
-      oauthClientId: google.oauthClientId?.trim() ?? '',
-      oauthClientSecret: google.oauthClientSecret?.trim() ?? '',
+      ...input,
+      oauthClientId: input.oauthClientId?.trim() ?? '',
+      oauthClientSecret: input.oauthClientSecret?.trim() ?? '',
       oauthRedirectUri: 'http://127.0.0.1:38988/oauth/google/callback',
-      driveFolderId: parseGoogleDriveFolderInput(google.driveFolderId),
-      driveFolderName: google.driveFolderName?.trim() ?? '',
-      spreadsheetId: parseGoogleSpreadsheetInput(google.spreadsheetId),
-      spreadsheetName: google.spreadsheetName?.trim() ?? '',
-      sheetName: google.sheetName?.trim() ?? '',
-      updateSheet: Boolean(google.updateSheet),
+      driveFolderId: parseGoogleDriveFolderInput(input.driveFolderId),
+      driveFolderName: input.driveFolderName?.trim() ?? '',
+      spreadsheetId: parseGoogleSpreadsheetInput(input.spreadsheetId),
+      spreadsheetName: input.spreadsheetName?.trim() ?? '',
+      sheetName: input.sheetName?.trim() ?? '',
+      updateSheet: Boolean(input.updateSheet),
     }
   }
 
-  async function saveGoogleSettings() {
-    setSavingGoogle(true)
-    setGoogleSaved(false)
+  async function saveGoogleSettings(next?: GooglePublishSettings) {
+    const payload = googleSettingsInput(next)
+    const key = JSON.stringify(payload)
+    if (key === googleSnapshot.current) return
     setGoogleError('')
     setGoogleStatus('')
     try {
-      const settings = await api.settings.setGoogle(selectedProfileId, googleSettingsInput())
-      applySettings(settings)
-      setGoogleSaved(true)
+      applySettings(await api.settings.setGoogle(selectedProfileId, payload))
     } catch (err) {
       setGoogleError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSavingGoogle(false)
     }
   }
 
   async function connectGoogleOAuth() {
     setConnectingGoogleOAuth(true)
-    setGoogleSaved(false)
     setGoogleError('')
     setGoogleStatus('')
     try {
       const settings = await api.settings.connectGoogleOAuth(selectedProfileId, googleSettingsInput())
       applySettings(settings)
       setGoogleStatus(t('preferences.googleConnectedRefreshHint'))
-      setGoogleSaved(true)
     } catch (err) {
       setGoogleError(friendlyGoogleMessage(err instanceof Error ? err.message : String(err), t))
     } finally {
@@ -491,6 +529,20 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       await api.settings.cancelGoogleOAuth()
     } finally {
       setConnectingGoogleOAuth(false)
+    }
+  }
+
+  async function disconnectService(service: PublishService) {
+    setDisconnectingService(service)
+    const setError = service === 'slack' ? setSlackError : service === 'gitlab' ? setGitLabError : setGoogleError
+    setError('')
+    if (service === 'google') setGoogleStatus('')
+    try {
+      applySettings(await api.settings.disconnectService(selectedProfileId, service))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDisconnectingService(null)
     }
   }
 
@@ -521,12 +573,11 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     const name = newGoogleFolderName.trim()
     if (!name) return
     setCreatingGoogleFolder(true)
-    setGoogleSaved(false)
     setGoogleError('')
     setGoogleStatus('')
     try {
       const folder = await api.settings.createGoogleDriveFolder(selectedProfileId, googleSettingsInput(), name)
-      setGoogle(prev => ({ ...prev, driveFolderId: folder.id, driveFolderName: folder.name }))
+      commitGoogle({ ...google, driveFolderId: folder.id, driveFolderName: folder.name })
       setGoogleFolders(prev => sortGoogleFolders([...prev.filter(item => item.id !== folder.id), folder]))
       setNewGoogleFolderName('')
       setGoogleStatus(`Created folder: ${folder.name}`)
@@ -720,7 +771,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onRenameProfile={handleRenameProfile}
       onDeleteProfile={handleDeleteProfile}
       slack={slack}
-      slackSaved={slackSaved}
       startingSlackOAuth={startingSlackOAuth}
       refreshingSlackUsers={refreshingSlackUsers}
       slackError={slackError}
@@ -730,7 +780,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       gitlabLabelsInput={gitlabLabelsInput}
       gitlabMentionsInput={gitlabMentionsInput}
       savingGitLab={savingGitLab}
-      gitlabSaved={gitlabSaved}
       refreshingGitLabUsers={refreshingGitLabUsers}
       gitlabProjects={gitlabProjects}
       refreshingGitLabProjects={refreshingGitLabProjects}
@@ -738,8 +787,6 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       gitlabError={gitlabError}
       activeGitLabUsers={activeGitLabUsers}
       google={google}
-      savingGoogle={savingGoogle}
-      googleSaved={googleSaved}
       connectingGoogleOAuth={connectingGoogleOAuth}
       googleFolders={googleFolders}
       refreshingGoogleFolders={refreshingGoogleFolders}
@@ -774,20 +821,26 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
       onAudioAnalysisLanguageChange={(language) => { void changeAudioAnalysisLanguage(language) }}
       onCommonSessionChange={setCommonSession}
       onSaveCommonSession={(next) => { void saveCommonSession(next) }}
-      onSlackChange={(next) => { setSlack(next); setSlackSaved(false) }}
+      onSlackChange={setSlack}
+      onCommitSlack={commitSlack}
       onStartSlackOAuth={startSlackUserOAuth}
-      onSaveSlack={() => { void saveSlackSettings() }}
       onRefreshSlackUsers={() => { void refreshSlackUsers() }}
-      onGitLabChange={(next) => { setGitLab(next); setGitLabSaved(false) }}
-      onGitLabLabelsInputChange={(value) => { setGitLabLabelsInput(value); setGitLabSaved(false) }}
-      onGitLabMentionsInputChange={(value) => { setGitLabMentionsInput(value); setGitLabSaved(false) }}
-      onSaveGitLab={saveGitLabSettings}
+      onLoadSlackChannels={() => { void refreshSlackChannels() }}
+      refreshingSlackChannels={refreshingSlackChannels}
+      onSelectSlackChannel={selectSlackChannel}
+      onDisconnect={(service) => { void disconnectService(service) }}
+      disconnectingService={disconnectingService}
+      onGitLabChange={setGitLab}
+      onCommitGitLab={commitGitLab}
+      onGitLabLabelsInputChange={setGitLabLabelsInput}
+      onGitLabMentionsInputChange={setGitLabMentionsInput}
       onConnectGitLabOAuth={connectGitLabOAuth}
       onCancelGitLabOAuth={cancelGitLabOAuth}
       onLoadGitLabProjects={() => { void loadGitLabProjects() }}
+      onSelectGitLabProject={selectGitLabProject}
       onRefreshGitLabUsers={(forceEmailLookup) => { void refreshGitLabUsers(forceEmailLookup) }}
-      onGoogleChange={(next) => { setGoogle(next); setGoogleSaved(false) }}
-      onSaveGoogleSettings={saveGoogleSettings}
+      onGoogleChange={setGoogle}
+      onCommitGoogle={commitGoogle}
       onConnectGoogleOAuth={connectGoogleOAuth}
       onCancelGoogleOAuth={cancelGoogleOAuth}
       onLoadGoogleFolders={() => { void loadGoogleFolders() }}

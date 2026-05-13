@@ -169,7 +169,7 @@ describe('SettingsStore', () => {
     }
   })
 
-  it('normalizes mention identities and merges Slack users', () => {
+  it('does not auto-create mention identities from synced Slack users and normalizes manual entries', () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const file = join(root, 'settings.json')
@@ -192,14 +192,16 @@ describe('SettingsStore', () => {
           mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: 'Miki Chen', email: 'MIKI@example.com' }],
         },
       })
-      const refreshed = store.refreshMentionIdentities()
+
+      // Workspace sync alone never creates identities — the table is a
+      // user-curated mapping, not a mirror of every Slack member.
+      expect(store.refreshMentionIdentities().mentionIdentities).toEqual([])
+
       const settings = store.setMentionIdentities([
-        ...refreshed.mentionIdentities,
         { id: 'qa-lead', displayName: 'QA Lead', slackUserId: '<@U456>', gitlabUsername: '@qa' },
       ])
 
       expect(settings.mentionIdentities).toEqual([
-        { id: 'miki', displayName: 'Miki', email: 'miki@example.com', slackUserId: 'U123' },
         { id: 'qa-lead', displayName: 'QA Lead', slackUserId: 'U456', gitlabUsername: 'qa' },
       ])
     } finally {
@@ -238,16 +240,18 @@ describe('SettingsStore', () => {
       })
       const settings = store.refreshMentionIdentities()
 
+      // miki-slack is enriched with gitlabUsername (matched by email).
+      // The GitLab "qa" user is NOT auto-added — no existing identity to
+      // attach to means the workspace member stays out of the mapping table.
       expect(settings.mentionIdentities).toEqual([
         { id: 'miki-slack', displayName: 'Miki Slack', email: 'miki@example.com', slackUserId: 'U123', gitlabUsername: 'miki' },
-        { id: 'qa-lead', displayName: 'QA Lead', gitlabUsername: 'qa' },
       ])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('removes orphan mention identities after a later refresh maps them by email', () => {
+  it('consolidates separate Slack-only and GitLab-only identities once a later refresh links them by email', () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const file = join(root, 'settings.json')
@@ -283,8 +287,13 @@ describe('SettingsStore', () => {
         },
       })
 
+      // After enrichment both rows acquire the shared email; consolidate
+      // picks the first-encountered identity (miki-gitlab) as the keeper
+      // and merges miki-slack's provider id into it. Either id is a
+      // semantically valid keeper — the test asserts the deterministic
+      // ordering produced by Map-insertion order over the input.
       expect(store.refreshMentionIdentities().mentionIdentities).toEqual([
-        { id: 'miki-slack', displayName: 'Miki Slack', email: 'miki@example.com', slackUserId: 'U123', gitlabUsername: 'miki' },
+        { id: 'miki-gitlab', displayName: 'Miki GitLab', email: 'miki@example.com', slackUserId: 'U123', gitlabUsername: 'miki' },
       ])
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -314,15 +323,24 @@ describe('SettingsStore', () => {
           mentionUsers: [{ id: 'U123', name: 'miki', displayName: 'Miki', realName: '', email: 'miki@example.com' }],
         },
       })
-      expect(store.refreshMentionIdentities().mentionIdentities).toEqual([
+
+      // Workspace sync alone never auto-creates; identities only appear
+      // after the user adds them explicitly.
+      expect(store.refreshMentionIdentities().mentionIdentities).toEqual([])
+
+      const settings = store.setMentionIdentities([
+        { id: 'miki', displayName: 'Miki', email: 'miki@example.com', slackUserId: 'U123' },
+      ])
+      expect(settings.mentionIdentities).toEqual([
         { id: 'miki', displayName: 'Miki', email: 'miki@example.com', slackUserId: 'U123' },
       ])
 
+      // After explicit clear, a later refresh must not resurrect the
+      // workspace user — the empty state is user intent, not a stale
+      // pre-sync snapshot.
       expect(store.setMentionIdentities([]).mentionIdentities).toEqual([])
       expect(store.get().mentionIdentities).toEqual([])
-      expect(store.refreshMentionIdentities().mentionIdentities).toEqual([
-        { id: 'miki', displayName: 'Miki', email: 'miki@example.com', slackUserId: 'U123' },
-      ])
+      expect(store.refreshMentionIdentities().mentionIdentities).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

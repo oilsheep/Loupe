@@ -207,6 +207,25 @@ export async function createGoogleDriveFolder(settings: GooglePublishSettings, n
   return { id: payload.id, name: payload.name, webViewLink: payload.webViewLink }
 }
 
+export const DEFAULT_GOOGLE_DRIVE_FOLDER_NAME = 'Loupe QA Recorder'
+
+export async function ensureDefaultGoogleDriveFolder(settings: GooglePublishSettings, fetchImpl: GooglePublisherFetch = fetch): Promise<GoogleDriveFolder> {
+  const refreshed = await refreshGoogleAccessToken(settings, fetchImpl)
+  const name = DEFAULT_GOOGLE_DRIVE_FOLDER_NAME
+  const params = new URLSearchParams({
+    q: `name='${escapeDriveQueryValue(name)}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id,name,webViewLink)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'allDrives',
+    pageSize: '1',
+  })
+  const payload = await googleJson<GoogleFileListResponse>(fetchImpl, refreshed.token, `${DRIVE_API}/files?${params}`)
+  const found = payload.files?.find(f => f.id && f.name)
+  if (found && found.id && found.name) return { id: found.id, name: found.name, webViewLink: found.webViewLink }
+  return createGoogleDriveFolder(refreshed, name, fetchImpl)
+}
+
 export async function listGoogleSpreadsheets(settings: GooglePublishSettings, fetchImpl: GooglePublisherFetch = fetch): Promise<GoogleSpreadsheet[]> {
   const refreshed = await refreshGoogleAccessToken(settings, fetchImpl)
   const sheets: GoogleSpreadsheet[] = []

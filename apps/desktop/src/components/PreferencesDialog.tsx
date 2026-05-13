@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react'
-import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
 import { useI18n } from '@/lib/i18n'
 import { gitlabConnectionLabel, googleDriveConnectionLabel, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
 import { AddProfileDialog } from './AddProfileDialog'
+import { ConnectButton } from './ConnectButton'
+import { DisconnectButton } from './DisconnectButton'
+import { GitLabProjectPicker } from './GitLabProjectPicker'
+import { MentionIdentityAddPicker } from './MentionIdentityAddPicker'
+import { SlackChannelPicker } from './SlackChannelPicker'
 
 export function identityIdFromName(value: string): string {
   return value
@@ -261,7 +266,6 @@ interface PreferencesDialogProps {
   onRenameProfile(id: string, newName: string): Promise<void>
   onDeleteProfile(id: string): Promise<void>
   slack: SlackPublishSettings
-  slackSaved: boolean
   startingSlackOAuth: boolean
   refreshingSlackUsers: boolean
   slackError: string
@@ -271,7 +275,6 @@ interface PreferencesDialogProps {
   gitlabLabelsInput: string
   gitlabMentionsInput: string
   savingGitLab: boolean
-  gitlabSaved: boolean
   refreshingGitLabUsers: boolean
   gitlabProjects: GitLabProject[]
   refreshingGitLabProjects: boolean
@@ -279,8 +282,6 @@ interface PreferencesDialogProps {
   gitlabError: string
   activeGitLabUsers: GitLabMentionUser[]
   google: GooglePublishSettings
-  savingGoogle: boolean
-  googleSaved: boolean
   connectingGoogleOAuth: boolean
   googleFolders: GoogleDriveFolder[]
   refreshingGoogleFolders: boolean
@@ -316,19 +317,25 @@ interface PreferencesDialogProps {
   onCommonSessionChange(value: CommonSessionSettings): void
   onSaveCommonSession(value: CommonSessionSettings): void
   onSlackChange(value: SlackPublishSettings): void
+  onCommitSlack(value: SlackPublishSettings): void
   onStartSlackOAuth(): void
-  onSaveSlack(): void
   onRefreshSlackUsers(): void
+  onLoadSlackChannels(): void
+  refreshingSlackChannels: boolean
+  onSelectSlackChannel(channelId: string): void
+  onDisconnect(service: PublishService): void
+  disconnectingService: PublishService | null
   onGitLabChange(value: GitLabPublishSettings): void
+  onCommitGitLab(value: GitLabPublishSettings): void
   onGitLabLabelsInputChange(value: string): void
   onGitLabMentionsInputChange(value: string): void
-  onSaveGitLab(): void
   onConnectGitLabOAuth(): void
   onCancelGitLabOAuth(): void
   onLoadGitLabProjects(): void
+  onSelectGitLabProject(projectId: string): void
   onRefreshGitLabUsers(forceEmailLookup: boolean): void
   onGoogleChange(value: GooglePublishSettings): void
-  onSaveGoogleSettings(): void
+  onCommitGoogle(value: GooglePublishSettings): void
   onConnectGoogleOAuth(): void
   onCancelGoogleOAuth(): void
   onLoadGoogleFolders(): void
@@ -351,6 +358,8 @@ interface PreferencesDialogProps {
   onClose(): void
 }
 
+const MAX_IDENTITY_ROWS = 50
+
 export function PreferencesDialog({
   locale,
   localeOptions,
@@ -367,7 +376,6 @@ export function PreferencesDialog({
   onRenameProfile,
   onDeleteProfile,
   slack,
-  slackSaved,
   startingSlackOAuth,
   refreshingSlackUsers,
   slackError,
@@ -377,7 +385,6 @@ export function PreferencesDialog({
   gitlabLabelsInput,
   gitlabMentionsInput,
   savingGitLab,
-  gitlabSaved,
   refreshingGitLabUsers,
   gitlabProjects,
   refreshingGitLabProjects,
@@ -385,8 +392,6 @@ export function PreferencesDialog({
   gitlabError,
   activeGitLabUsers,
   google,
-  savingGoogle,
-  googleSaved,
   connectingGoogleOAuth,
   googleFolders,
   refreshingGoogleFolders,
@@ -422,19 +427,25 @@ export function PreferencesDialog({
   onCommonSessionChange,
   onSaveCommonSession,
   onSlackChange,
+  onCommitSlack,
   onStartSlackOAuth,
-  onSaveSlack,
   onRefreshSlackUsers,
+  onLoadSlackChannels,
+  refreshingSlackChannels,
+  onSelectSlackChannel,
+  onDisconnect,
+  disconnectingService,
   onGitLabChange,
+  onCommitGitLab,
   onGitLabLabelsInputChange,
   onGitLabMentionsInputChange,
-  onSaveGitLab,
   onConnectGitLabOAuth,
   onCancelGitLabOAuth,
   onLoadGitLabProjects,
+  onSelectGitLabProject,
   onRefreshGitLabUsers,
   onGoogleChange,
-  onSaveGoogleSettings,
+  onCommitGoogle,
   onConnectGoogleOAuth,
   onCancelGoogleOAuth,
   onLoadGoogleFolders,
@@ -466,6 +477,17 @@ export function PreferencesDialog({
   const [customSlots, setCustomSlots] = useState<BugSeverity[]>(() => visibleCustomSeverities(severities))
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [topTab, setTopTab] = useState<'profile' | 'global'>('profile')
+  const [identityQuery, setIdentityQuery] = useState('')
+  const filteredIdentities = useMemo(() => {
+    const q = identityQuery.trim().toLowerCase()
+    const indexed = mentionIdentities.map((identity, index) => ({ identity, index }))
+    if (!q) return indexed
+    return indexed.filter(({ identity }) =>
+      [identity.displayName, identity.email, identity.slackUserId, identity.gitlabUsername, identity.googleEmail]
+        .some(value => value?.toLowerCase().includes(q))
+    )
+  }, [mentionIdentities, identityQuery])
+  const visibleIdentities = filteredIdentities.slice(0, MAX_IDENTITY_ROWS)
 
   useEffect(() => {
     setCustomSlots(visibleCustomSeverities(severities))
@@ -970,7 +992,9 @@ export function PreferencesDialog({
               <details
                 className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
                 onToggle={(e) => {
-                  if ((e.currentTarget as HTMLDetailsElement).open && isSlackConnected(slack) && !refreshingSlackUsers) onRefreshSlackUsers()
+                  if (!(e.currentTarget as HTMLDetailsElement).open || !isSlackConnected(slack)) return
+                  if (!refreshingSlackUsers) onRefreshSlackUsers()
+                  if (!refreshingSlackChannels) onLoadSlackChannels()
                 }}
               >
                 <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
@@ -980,14 +1004,10 @@ export function PreferencesDialog({
                       {slackConnectionLabel(slack, t)}
                     </span>
                     {!isSlackConnected(slack) && (slack.publishIdentity ?? 'user') === 'user' && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); onStartSlackOAuth() }}
-                        disabled={startingSlackOAuth}
-                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                      >
-                        {startingSlackOAuth ? t('preferences.connecting') : t('publish.connectSlack')}
-                      </button>
+                      <ConnectButton onConnect={onStartSlackOAuth} connecting={startingSlackOAuth} label={t('publish.connectSlack')} />
+                    )}
+                    {isSlackConnected(slack) && (
+                      <DisconnectButton onDisconnect={() => onDisconnect('slack')} disconnecting={disconnectingService === 'slack'} />
                     )}
                   </span>
                 </summary>
@@ -1015,7 +1035,7 @@ export function PreferencesDialog({
                       <button
                         key={mode}
                         type="button"
-                        onClick={() => onSlackChange({ ...slack, publishIdentity: mode })}
+                        onClick={() => onCommitSlack({ ...slack, publishIdentity: mode })}
                         className={`rounded border p-3 text-left ${active ? 'border-blue-600 bg-blue-950/30 text-blue-100' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:bg-zinc-900'}`}
                       >
                         <span className="block text-sm font-medium">{mode === 'user' ? t('preferences.slackOauthMode') : t('preferences.slackBotMode')}</span>
@@ -1025,6 +1045,29 @@ export function PreferencesDialog({
                   })}
                 </div>
                 <SlackSetupGuide mode={(slack.publishIdentity ?? 'user') === 'bot' ? 'bot' : 'user'} t={t} />
+
+                {isSlackConnected(slack) && (
+                  <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto] rounded border border-zinc-800 bg-zinc-950 p-3">
+                    <div className="min-w-0">
+                      <span className="text-xs text-zinc-500">{t('preferences.defaultChannel')}</span>
+                      <SlackChannelPicker
+                        channels={slack.channels ?? []}
+                        value={slack.channelId}
+                        loading={refreshingSlackChannels}
+                        onOpen={() => { if ((slack.channels ?? []).length === 0 && !refreshingSlackChannels) onLoadSlackChannels() }}
+                        onChange={onSelectSlackChannel}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onLoadSlackChannels}
+                      disabled={refreshingSlackChannels}
+                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {refreshingSlackChannels ? t('preferences.refreshing') : t('preferences.refreshChannels')}
+                    </button>
+                  </div>
+                )}
 
                 {(slack.publishIdentity ?? 'user') === 'user' ? (
                   <>
@@ -1038,9 +1081,9 @@ export function PreferencesDialog({
                         {slack.oauthUserScopes && slack.oauthUserScopes.length > 0 && (
                           <div className="mt-1 truncate text-[11px] text-zinc-600">{t('preferences.slackScopes')}: {slack.oauthUserScopes.join(', ')}</div>
                         )}
-                        {(slackSaved || slack.oauthConnectedAt) && (
+                        {slack.oauthConnectedAt && (
                           <div className="mt-1 text-[11px] text-emerald-300">
-                            {slackSaved ? t('preferences.slackConnected') : t('preferences.connectedAt', { date: new Date(slack.oauthConnectedAt ?? '').toLocaleString() })}
+                            {t('preferences.connectedAt', { date: new Date(slack.oauthConnectedAt).toLocaleString() })}
                           </div>
                         )}
                       </div>
@@ -1059,6 +1102,7 @@ export function PreferencesDialog({
                         <input
                           value={slack.oauthClientId ?? ''}
                           onChange={(e) => onSlackChange({ ...slack, oauthClientId: e.target.value })}
+                          onBlur={() => onCommitSlack(slack)}
                           placeholder={t('preferences.slackClientIdPlaceholder')}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                         />
@@ -1068,6 +1112,7 @@ export function PreferencesDialog({
                         <input
                           value={slack.oauthClientSecret ?? ''}
                           onChange={(e) => onSlackChange({ ...slack, oauthClientSecret: e.target.value })}
+                          onBlur={() => onCommitSlack(slack)}
                           type="password"
                           placeholder={t('preferences.slackClientSecretPlaceholder')}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
@@ -1086,6 +1131,7 @@ export function PreferencesDialog({
                       <input
                         value={slack.botToken}
                         onChange={(e) => onSlackChange({ ...slack, publishIdentity: 'bot', botToken: e.target.value })}
+                        onBlur={() => onCommitSlack({ ...slack, publishIdentity: 'bot' })}
                         type="password"
                         placeholder="xoxb-..."
                         className="mt-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
@@ -1094,42 +1140,25 @@ export function PreferencesDialog({
                     <div className="mt-2 text-[11px] text-zinc-600">
                       {slack.botToken.trim() ? t('preferences.slackBotTokenSavedAs', { token: maskSlackToken(slack.botToken) }) : t('preferences.slackBotTokenMissing')}
                     </div>
-                    <div className="mt-3 flex justify-end">
-                      <button type="button" onClick={onSaveSlack} className="rounded bg-blue-700 px-3 py-1.5 text-xs text-white hover:bg-blue-600">
-                        {t('preferences.saveSlackSettings')}
-                      </button>
-                    </div>
                   </div>
                 )}
                 {slackError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{slackError}</div>}
-                <div className="mt-3 rounded border border-zinc-800 bg-zinc-950">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 px-2 py-1.5">
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-zinc-300">{t('preferences.slackUsers')}</div>
-                      <div className="text-[11px] text-zinc-500">{slack.usersFetchedAt ? t('preferences.updatedAt', { date: new Date(slack.usersFetchedAt).toLocaleString() }) : t('preferences.notSyncedYet')}</div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-300">{t('preferences.slackUsers')}</div>
+                    <div className="text-[11px] text-zinc-500">
+                      {activeSlackUsers.length === 0 ? t('preferences.usersNone') : t('preferences.userCount', { count: activeSlackUsers.length })}
+                      {slack.usersFetchedAt && ` · ${t('preferences.updatedAt', { date: new Date(slack.usersFetchedAt).toLocaleString() })}`}
                     </div>
-                    <button
-                      type="button"
-                      onClick={onRefreshSlackUsers}
-                      disabled={refreshingSlackUsers || ((slack.publishIdentity ?? 'user') === 'user' ? !slack.userToken?.trim() : !slack.botToken.trim())}
-                      className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-                    >
-                      {refreshingSlackUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
-                    </button>
                   </div>
-                  <div className="max-h-28 overflow-auto">
-                    {activeSlackUsers.length === 0 ? (
-                      <div className="px-2 py-3 text-xs text-zinc-500">{t('preferences.refreshSlackUsersHelp')}</div>
-                    ) : activeSlackUsers.map(user => {
-                        const label = user.displayName || user.realName || user.name || user.id
-                        return (
-                          <div key={user.id} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
-                            <div className="truncate text-xs text-zinc-200">{label}</div>
-                            <div className="truncate text-[11px] text-zinc-600">{user.id}{user.name ? ` / @${user.name}` : ''}{user.email ? ` / ${user.email}` : ''}</div>
-                          </div>
-                        )
-                      })}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={onRefreshSlackUsers}
+                    disabled={refreshingSlackUsers || ((slack.publishIdentity ?? 'user') === 'user' ? !slack.userToken?.trim() : !slack.botToken.trim())}
+                    className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    {refreshingSlackUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
+                  </button>
                 </div>
               </details>
 
@@ -1146,14 +1175,10 @@ export function PreferencesDialog({
                       {googleDriveConnectionLabel(google, t)}
                     </span>
                     {!hasGoogleOAuthToken(google) && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); onConnectGoogleOAuth() }}
-                        disabled={connectingGoogleOAuth || !googleHasOAuthCredentials}
-                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                      >
-                        {connectingGoogleOAuth ? t('preferences.connecting') : t('preferences.connectGoogle')}
-                      </button>
+                      <ConnectButton onConnect={onConnectGoogleOAuth} connecting={connectingGoogleOAuth} label={t('preferences.connectGoogle')} disabled={!googleHasOAuthCredentials} />
+                    )}
+                    {hasGoogleOAuthToken(google) && (
+                      <DisconnectButton onDisconnect={() => onDisconnect('google')} disconnecting={disconnectingService === 'google'} />
                     )}
                   </span>
                 </summary>
@@ -1179,6 +1204,7 @@ export function PreferencesDialog({
                       <input
                         value={google.oauthClientId ?? ''}
                         onChange={(e) => onGoogleChange({ ...google, oauthClientId: e.target.value })}
+                        onBlur={() => onCommitGoogle(google)}
                         placeholder={t('preferences.googleClientIdPlaceholder')}
                         className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                       />
@@ -1188,6 +1214,7 @@ export function PreferencesDialog({
                       <input
                         value={google.oauthClientSecret ?? ''}
                         onChange={(e) => onGoogleChange({ ...google, oauthClientSecret: e.target.value })}
+                        onBlur={() => onCommitGoogle(google)}
                         type="password"
                         placeholder={t('preferences.googleClientSecretPlaceholder')}
                         className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
@@ -1232,7 +1259,7 @@ export function PreferencesDialog({
                       onBlur={() => {
                         const driveFolderId = parseGoogleDriveFolderInput(google.driveFolderId)
                         const folder = googleFolders.find(item => item.id === driveFolderId)
-                        onGoogleChange({ ...google, driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
+                        onCommitGoogle({ ...google, driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
                       }}
                       placeholder={t('preferences.driveFolderPlaceholder')}
                       className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
@@ -1242,7 +1269,7 @@ export function PreferencesDialog({
                         value={googleFolders.some(folder => folder.id === google.driveFolderId) ? google.driveFolderId : ''}
                         onChange={(e) => {
                           const folder = googleFolders.find(item => item.id === e.target.value)
-                          onGoogleChange({ ...google, driveFolderId: folder?.id ?? google.driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
+                          onCommitGoogle({ ...google, driveFolderId: folder?.id ?? google.driveFolderId, driveFolderName: folder?.name ?? google.driveFolderName })
                         }}
                         className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                       >
@@ -1270,7 +1297,7 @@ export function PreferencesDialog({
                 </div>
 
                 <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
-                  <input type="checkbox" checked={Boolean(google.updateSheet)} onChange={(e) => onGoogleChange({ ...google, updateSheet: e.target.checked })} className="h-4 w-4 accent-blue-600" />
+                  <input type="checkbox" checked={Boolean(google.updateSheet)} onChange={(e) => onCommitGoogle({ ...google, updateSheet: e.target.checked })} className="h-4 w-4 accent-blue-600" />
                   {t('preferences.appendEveryMarkerToSheet')}
                 </label>
                 {google.updateSheet && (
@@ -1288,7 +1315,7 @@ export function PreferencesDialog({
                           onBlur={() => {
                             const spreadsheetId = parseGoogleSpreadsheetInput(google.spreadsheetId)
                             const spreadsheet = googleSpreadsheets.find(item => item.id === spreadsheetId)
-                            onGoogleChange({ ...google, spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName })
+                            onCommitGoogle({ ...google, spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName })
                           }}
                           placeholder={t('preferences.spreadsheetPlaceholder')}
                           className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
@@ -1298,7 +1325,7 @@ export function PreferencesDialog({
                             value={googleSpreadsheets.some(sheet => sheet.id === google.spreadsheetId) ? google.spreadsheetId : ''}
                             onChange={(e) => {
                               const spreadsheet = googleSpreadsheets.find(item => item.id === e.target.value)
-                              onGoogleChange({ ...google, spreadsheetId: spreadsheet?.id ?? google.spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName, sheetName: '' })
+                              onCommitGoogle({ ...google, spreadsheetId: spreadsheet?.id ?? google.spreadsheetId, spreadsheetName: spreadsheet?.name ?? google.spreadsheetName, sheetName: '' })
                             }}
                             className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                           >
@@ -1317,9 +1344,9 @@ export function PreferencesDialog({
                     <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                       <label className="min-w-0 text-xs text-zinc-500">
                         {t('preferences.sheetTab')}
-                        <input value={google.sheetName ?? ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} placeholder={t('preferences.sheetTabPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                        <input value={google.sheetName ?? ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} onBlur={() => onCommitGoogle(google)} placeholder={t('preferences.sheetTabPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                         {googleSheetTabs.length > 0 && (
-                          <select value={googleSheetTabs.some(tab => tab.title === google.sheetName) ? google.sheetName : ''} onChange={(e) => onGoogleChange({ ...google, sheetName: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                          <select value={googleSheetTabs.some(tab => tab.title === google.sheetName) ? google.sheetName : ''} onChange={(e) => onCommitGoogle({ ...google, sheetName: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
                             <option value="">{t('preferences.chooseRefreshedTab')}</option>
                             {googleSheetTabs.map(tab => <option key={tab.sheetId} value={tab.title}>{tab.title}</option>)}
                           </select>
@@ -1333,12 +1360,6 @@ export function PreferencesDialog({
                 )}
                 {googleError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{googleError}</div>}
                 {googleStatus && <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 px-2 py-1.5 text-xs text-zinc-400">{googleStatus}</div>}
-                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                  {googleSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
-                  <button type="button" onClick={onSaveGoogleSettings} disabled={savingGoogle} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {savingGoogle ? t('common.saving') : t('preferences.saveGoogleSettings')}
-                  </button>
-                </div>
               </details>
 
               <details
@@ -1354,14 +1375,10 @@ export function PreferencesDialog({
                       {gitlabConnectionLabel(gitlab, t)}
                     </span>
                     {!isGitLabConnected(gitlab) && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); onConnectGitLabOAuth() }}
-                        disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)}
-                        className="rounded bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                      >
-                        {connectingGitLabOAuth ? t('preferences.connecting') : t('publish.connectGitLab')}
-                      </button>
+                      <ConnectButton onConnect={onConnectGitLabOAuth} connecting={connectingGitLabOAuth} label={t('publish.connectGitLab')} disabled={savingGitLab || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} />
+                    )}
+                    {isGitLabConnected(gitlab) && (
+                      <DisconnectButton onDisconnect={() => onDisconnect('gitlab')} disconnecting={disconnectingService === 'gitlab'} />
                     )}
                   </span>
                 </summary>
@@ -1382,7 +1399,7 @@ export function PreferencesDialog({
                         value={bundledGitLabMatch ? bundledGitLabMatch.url : '__custom__'}
                         onChange={(e) => {
                           const next = e.target.value === '__custom__' ? '' : e.target.value
-                          onGitLabChange({ ...gitlab, baseUrl: next })
+                          onCommitGitLab({ ...gitlab, baseUrl: next })
                         }}
                         className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
                       >
@@ -1395,14 +1412,14 @@ export function PreferencesDialog({
                     {!bundledGitLabMatch && (
                       <label className="mt-2 block min-w-0 text-xs text-zinc-500">
                         {t('preferences.gitlabBaseUrl')}
-                        <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                        <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                       </label>
                     )}
                   </div>
                 ) : (
                   <label className="mt-3 block min-w-0 text-xs text-zinc-500">
                     {t('preferences.gitlabBaseUrl')}
-                    <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                    <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
                 )}
                 <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
@@ -1410,13 +1427,13 @@ export function PreferencesDialog({
                     {gitlab.authType !== 'oauth' && (
                       <label className="min-w-0 text-xs text-zinc-500">
                         {t('preferences.gitlabToken')}
-                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} type="password" placeholder={t('preferences.gitlabTokenPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.gitlabTokenPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                       </label>
                     )}
                   </div>
                   <label className="min-w-0 text-xs text-zinc-500">
                     {t('preferences.gitlabAuth')}
-                    <select value={gitlab.authType ?? 'pat'} onChange={(e) => onGitLabChange({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                    <select value={gitlab.authType ?? 'pat'} onChange={(e) => onCommitGitLab({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
                       <option value="pat">{t('preferences.personalAccessToken')}</option>
                       <option value="oauth">OAuth</option>
                     </select>
@@ -1431,8 +1448,8 @@ export function PreferencesDialog({
                       </div>
                     ) : (
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
                         <div className="min-w-0 text-xs text-zinc-500">
                           {t('preferences.redirectUri')}
                           <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
@@ -1449,17 +1466,16 @@ export function PreferencesDialog({
                   </div>
                 )}
                 <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.project')}
-                    {gitlabProjects.length > 0 ? (
-                      <select value={gitlab.projectId} onChange={(e) => onGitLabChange({ ...gitlab, projectId: e.target.value })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                        {!gitlabProjects.some(project => project.pathWithNamespace === gitlab.projectId) && <option value={gitlab.projectId}>{gitlab.projectId || t('preferences.selectProject')}</option>}
-                        {gitlabProjects.map(project => <option key={project.id} value={project.pathWithNamespace}>{project.nameWithNamespace}</option>)}
-                      </select>
-                    ) : (
-                      <input value={gitlab.projectId} onChange={(e) => onGitLabChange({ ...gitlab, projectId: e.target.value })} placeholder={t('preferences.gitlabProjectPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                    )}
-                  </label>
+                  <div className="min-w-0">
+                    <span className="text-xs text-zinc-500">{t('preferences.project')}</span>
+                    <GitLabProjectPicker
+                      projects={gitlabProjects}
+                      value={gitlab.projectId}
+                      loading={refreshingGitLabProjects}
+                      onOpen={() => { if (gitlabProjects.length === 0 && !refreshingGitLabProjects) onLoadGitLabProjects() }}
+                      onChange={onSelectGitLabProject}
+                    />
+                  </div>
                   <button type="button" onClick={onLoadGitLabProjects} disabled={refreshingGitLabProjects || !gitlab.baseUrl.trim() || !gitlab.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
                     {refreshingGitLabProjects ? t('preferences.refreshing') : t('preferences.refreshProjects')}
                   </button>
@@ -1467,27 +1483,27 @@ export function PreferencesDialog({
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <label className="min-w-0 text-xs text-zinc-500">
                     {t('preferences.labels')}
-                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} placeholder={t('preferences.gitlabLabelsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabLabelsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
                   <label className="min-w-0 text-xs text-zinc-500">
                     {t('preferences.mentionUsernames')}
-                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} placeholder={t('preferences.gitlabMentionsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabMentionsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
                   </label>
                 </div>
                 <label className="mt-2 block text-xs text-zinc-500">
                   {t('preferences.defaultGitLabMode')}
-                  <select value={gitlab.mode} onChange={(e) => onGitLabChange({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                  <select value={gitlab.mode} onChange={(e) => onCommitGitLab({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
                     <option value="single-issue">{t('preferences.singleIssue')}</option>
                     <option value="per-marker-issue">{t('preferences.issuePerMarker')}</option>
                   </select>
                 </label>
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
-                  <input type="checkbox" checked={Boolean(gitlab.confidential)} onChange={(e) => onGitLabChange({ ...gitlab, confidential: e.target.checked })} className="h-4 w-4 accent-blue-600" />
+                  <input type="checkbox" checked={Boolean(gitlab.confidential)} onChange={(e) => onCommitGitLab({ ...gitlab, confidential: e.target.checked })} className="h-4 w-4 accent-blue-600" />
                   {t('preferences.gitlabConfidential')}
                 </label>
                 <label className="mt-2 block text-xs text-zinc-500">
                   {t('preferences.gitlabEmailLookup')}
-                  <select value={gitlab.emailLookup ?? 'off'} onChange={(e) => onGitLabChange({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                  <select value={gitlab.emailLookup ?? 'off'} onChange={(e) => onCommitGitLab({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
                     <option value="off">{t('preferences.off')}</option>
                     <option value="admin-users-api">{t('preferences.adminUsersApi')}</option>
                   </select>
@@ -1521,12 +1537,6 @@ export function PreferencesDialog({
                 </div>
                 {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
                 {gitlab.lastUserSyncWarning && <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 px-2 py-1.5 text-xs text-yellow-200">{gitlab.lastUserSyncWarning}</div>}
-                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                  {gitlabSaved && <span className="text-xs text-emerald-300">{t('common.saved')}</span>}
-                  <button type="button" onClick={onSaveGitLab} disabled={savingGitLab} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {savingGitLab ? t('common.saving') : t('preferences.saveGitLabSettings')}
-                  </button>
-                </div>
               </details>
 
             </div>
@@ -1543,8 +1553,22 @@ export function PreferencesDialog({
               <div className="mt-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0 text-[11px] text-zinc-500">{t('settings.mentionIdentities.help')}</div>
-                  <button type="button" onClick={() => onAddMentionIdentity()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">{t('settings.mentionIdentities.addPerson')}</button>
+                  <MentionIdentityAddPicker
+                    slackUsers={activeSlackUsers}
+                    gitlabUsers={activeGitLabUsers}
+                    mentionIdentities={mentionIdentities}
+                    onAdd={onAddMentionIdentity}
+                  />
                 </div>
+                {mentionIdentities.length > 0 && (
+                  <input
+                    type="search"
+                    value={identityQuery}
+                    onChange={(e) => setIdentityQuery(e.target.value)}
+                    placeholder={t('settings.mentionIdentities.searchPlaceholder')}
+                    className="mb-2 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                )}
                 <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950">
                   <div className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] border-b border-zinc-800 px-2 py-1.5 text-[11px] font-medium text-zinc-500">
                     <div>{t('settings.mentionIdentities.displayName')}</div>
@@ -1556,7 +1580,9 @@ export function PreferencesDialog({
                   </div>
                   {mentionIdentities.length === 0 ? (
                     <div className="px-2 py-3 text-xs text-zinc-500">{t('settings.mentionIdentities.empty')}</div>
-                  ) : mentionIdentities.map((identity, index) => (
+                  ) : visibleIdentities.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-zinc-500">{t('settings.mentionIdentities.noMatch')}</div>
+                  ) : visibleIdentities.map(({ identity, index }) => (
                     <div key={`${identity.id}-${index}`} className="grid min-w-[920px] grid-cols-[1.1fr_1.2fr_1fr_1fr_1.2fr_72px] items-start gap-2 border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
                       <div className="min-w-0">
                         <input value={identity.displayName} onChange={(e) => onUpdateMentionIdentity(index, { displayName: e.target.value })} className="w-full min-w-0 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600" />
@@ -1572,19 +1598,10 @@ export function PreferencesDialog({
                     </div>
                   ))}
                 </div>
-                {activeSlackUsers.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {activeSlackUsers.filter(user => !mentionIdentities.some(identity => identity.slackUserId === user.id)).slice(0, 12).map(user => {
-                      const label = user.displayName || user.realName || user.name || user.id
-                      return <button key={user.id} type="button" onClick={() => onAddMentionIdentity({ displayName: label, email: user.email, slackUserId: user.id })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addSlack', { name: label })}</button>
-                    })}
-                  </div>
-                )}
-                {activeGitLabUsers.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {activeGitLabUsers.filter(user => !mentionIdentities.some(identity => identity.gitlabUsername === user.username)).slice(0, 12).map(user => (
-                      <button key={user.username} type="button" onClick={() => onAddMentionIdentity({ displayName: user.name || user.username, email: user.email, gitlabUsername: user.username })} className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">{t('settings.mentionIdentities.addGitLab', { username: user.username })}</button>
-                    ))}
+                {mentionIdentities.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
+                    <span>{t('settings.mentionIdentities.shownCount', { shown: visibleIdentities.length, total: mentionIdentities.length })}</span>
+                    {filteredIdentities.length > MAX_IDENTITY_ROWS && <span>{t('settings.mentionIdentities.refineToSeeMore')}</span>}
                   </div>
                 )}
                 {mentionIdentitiesError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{mentionIdentitiesError}</div>}

@@ -1,8 +1,13 @@
 import type {
   GitLabPublishSettings,
   GooglePublishSettings,
+  SlackChannel,
   SlackPublishSettings,
 } from '@shared/types'
+
+export function slackChannelLabel(channel: SlackChannel): string {
+  return `${channel.isPrivate ? 'private / ' : '#'}${channel.name}`
+}
 
 export function slackPublishToken(settings: SlackPublishSettings | null): string {
   if (!settings) return ''
@@ -55,7 +60,11 @@ export function hasGoogleOAuthToken(settings: GooglePublishSettings | null): boo
 }
 
 export function isGoogleDriveConnected(settings: GooglePublishSettings | null): boolean {
-  return hasGoogleOAuthToken(settings) && Boolean(settings?.driveFolderId?.trim())
+  return hasGoogleOAuthToken(settings)
+}
+
+export function canPublishToGoogleDrive(settings: GooglePublishSettings | null): boolean {
+  return isGoogleDriveConnected(settings) && Boolean(settings?.driveFolderId?.trim())
 }
 
 export function googleDriveConnectionLabel(

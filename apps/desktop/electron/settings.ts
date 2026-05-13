@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { getBundledOAuthInstances } from './gitlab-oauth-config'
@@ -279,46 +279,61 @@ function normalizeMentionIdentities(raw?: unknown, slack?: SlackPublishSettings,
     })
     .filter(Boolean) as MentionIdentity[]
   const byId = new Map(identities.map(identity => [identity.id, identity]))
+  // O(N+M) lookup indexes (mapped to ids; resolve current state via byId.get).
+  // Built once — values that drive the keys (email/slackUserId/gitlabUsername/
+  // normalized displayName) aren't rotated by the enrichment loops below, so
+  // staleness is bounded to the rare empty-displayName-then-filled corner.
+  const idByEmail = new Map<string, string>()
+  const idBySlackUserId = new Map<string, string>()
+  const idByGitlabUsername = new Map<string, string>()
+  const idByNormalizedName = new Map<string, string>()
+  for (const identity of byId.values()) {
+    const email = normalizeEmail(identity.email)
+    if (email) idByEmail.set(email, identity.id)
+    if (identity.slackUserId) idBySlackUserId.set(identity.slackUserId, identity.id)
+    if (identity.gitlabUsername) idByGitlabUsername.set(identity.gitlabUsername, identity.id)
+    const name = identity.displayName.trim().toLowerCase()
+    if (name) idByNormalizedName.set(name, identity.id)
+  }
 
+  // Enrich existing user-declared identities with provider info discovered in
+  // the workspace sync (e.g. fill in slackUserId when an identity already
+  // matches by email), but do NOT auto-create new identities for unmatched
+  // workspace members — the table is for explicit cross-platform mappings,
+  // not a mirror of every Slack/GitLab user.
   for (const user of slack?.mentionUsers ?? []) {
     if (user.deleted || user.isBot) continue
     const displayName = identityLabelFromSlackUser(user)
     const email = normalizeEmail(user.email)
-    const existingByEmail = email ? [...byId.values()].find(identity => normalizeEmail(identity.email) === email) : undefined
+    const existingByEmail = email ? byId.get(idByEmail.get(email) ?? '') : undefined
     if (existingByEmail) {
       byId.set(existingByEmail.id, { ...existingByEmail, displayName: existingByEmail.displayName || displayName, email: existingByEmail.email || email, slackUserId: user.id })
       continue
     }
-    const existing = [...byId.values()].find(identity => identity.slackUserId === user.id)
+    const existing = byId.get(idBySlackUserId.get(user.id) ?? '')
     if (existing) {
       byId.set(existing.id, { ...existing, displayName: existing.displayName || displayName, email: existing.email || email || undefined, slackUserId: user.id })
-      continue
     }
-    const id = identityIdFromLabel(displayName)
-    byId.set(id, { id, displayName, ...(email ? { email } : {}), slackUserId: user.id })
   }
 
   for (const user of gitlab?.mentionUsers ?? []) {
     if (user.state && user.state !== 'active') continue
     const displayName = user.name || user.username
     const email = normalizeEmail(user.email)
-    const existingByEmail = email ? [...byId.values()].find(identity => normalizeEmail(identity.email) === email) : undefined
+    const existingByEmail = email ? byId.get(idByEmail.get(email) ?? '') : undefined
     if (existingByEmail) {
       byId.set(existingByEmail.id, { ...existingByEmail, displayName: existingByEmail.displayName || displayName, email: existingByEmail.email || email, gitlabUsername: user.username })
       continue
     }
-    const existingByUsername = [...byId.values()].find(identity => identity.gitlabUsername === user.username)
+    const existingByUsername = byId.get(idByGitlabUsername.get(user.username) ?? '')
     if (existingByUsername) {
       byId.set(existingByUsername.id, { ...existingByUsername, displayName: existingByUsername.displayName || displayName, email: existingByUsername.email || email || undefined, gitlabUsername: user.username })
       continue
     }
-    const existingByName = [...byId.values()].find(identity => identity.displayName.trim().toLowerCase() === displayName.trim().toLowerCase())
+    const existingByName = byId.get(idByNormalizedName.get(displayName.trim().toLowerCase()) ?? '')
     if (existingByName && !existingByName.gitlabUsername) {
       byId.set(existingByName.id, { ...existingByName, email: existingByName.email || email || undefined, gitlabUsername: user.username })
-      continue
     }
-    const id = identityIdFromLabel(displayName)
-    if (!byId.has(id)) byId.set(id, { id, displayName, ...(email ? { email } : {}), gitlabUsername: user.username })
   }
 
   return consolidateMentionIdentities([...byId.values()]).sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -608,7 +623,7 @@ function normalizeProfiles(raw: Partial<AppSettings> & LegacyTopLevel): { profil
   return { profiles: [defaultProfile], activeProfileId: defaultProfile.id, needsWrite: true }
 }
 
-type TokenSyncableService = 'slack' | 'gitlab' | 'google'
+type TokenSyncableService = PublishService
 
 function identityKey(service: TokenSyncableService, p: ProfileSettings): string | null {
   if (service === 'google') return p.google.accountEmail || null
@@ -766,6 +781,50 @@ export class SettingsStore {
     const next = { ...this.get(), recordingPreferences: normalizeRecordingPreferences(recordingPreferences) }
     this.write(next)
     return next
+  }
+
+  disconnectService(id: string, service: PublishService): AppSettings {
+    const settings = this.get()
+    const profile = settings.profiles.find(p => p.id === id)
+    if (!profile) throw new Error(`Profile not found: ${id}`)
+    if (service === 'slack') {
+      if (!profile.slack.botToken && !profile.slack.userToken) return settings
+      return this.setProfile(id, { slack: {
+        ...profile.slack,
+        botToken: '',
+        userToken: '',
+        oauthUserId: '',
+        oauthTeamId: '',
+        oauthTeamName: '',
+        oauthConnectedAt: null,
+        oauthUserScopes: [],
+        channels: [],
+        channelsFetchedAt: null,
+        mentionUsers: [],
+        usersFetchedAt: null,
+        refreshError: undefined,
+      } })
+    }
+    if (service === 'gitlab') {
+      if (!profile.gitlab.token.trim()) return settings
+      return this.setProfile(id, { gitlab: {
+        ...profile.gitlab,
+        token: '',
+        mentionUsers: [],
+        usersFetchedAt: null,
+        lastUserSyncWarning: null,
+        refreshError: undefined,
+      } })
+    }
+    if (!profile.google.token.trim() && !profile.google.refreshToken?.trim()) return settings
+    return this.setProfile(id, { google: {
+      ...profile.google,
+      token: '',
+      refreshToken: undefined,
+      tokenExpiresAt: null,
+      accountEmail: undefined,
+      refreshError: undefined,
+    } })
   }
 
   setProfile(id: string, patch: Partial<Omit<ProfileSettings, 'id' | 'name'>>): AppSettings {

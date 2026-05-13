@@ -3,13 +3,16 @@ import type { CSSProperties, MouseEvent, ReactNode } from 'react'
 import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
-import { friendlySlackRefreshMessage, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel, slackPublishToken } from '@/lib/connection'
+import { canPublishToGoogleDrive, friendlySlackRefreshMessage, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel, slackPublishToken } from '@/lib/connection'
+import { useClickOutside } from '@/lib/useClickOutside'
+import { GitLabProjectPicker } from './GitLabProjectPicker'
+import { SlackChannelPicker } from './SlackChannelPicker'
 
 // Resolve the profile to read from. Prefer the per-session override (e.g. when
 // Draft opens an old session whose profile differs from the global active),
 // otherwise fall back to the global active profile.
 function activeProfileFrom(settings: AppSettings, override?: ProfileSettings): ProfileSettings {
-  if (override) return override
+  if (override) return settings.profiles.find(p => p.id === override.id) ?? override
   return settings.profiles.find(p => p.id === settings.activeProfileId) ?? settings.profiles[0]
 }
 
@@ -207,11 +210,6 @@ function MentionProviderBadges({ hasSlack, hasGitLab, hasGoogle }: { hasSlack: b
   )
 }
 
-function slackChannelLabel(channel: SlackChannel): string {
-  return `${channel.isPrivate ? 'private / ' : '#'}${channel.name}${channel.isMember === false ? ' (not joined)' : ''}`
-}
-
-
 function normalizeManualSlackMentions(value: string): string[] {
   return Array.from(new Set(value
     .split(/[\s,;]+/)
@@ -369,8 +367,10 @@ interface ExportConfirmDialogProps {
   slackConnected: boolean
   gitlabConnected: boolean
   googleDriveConnected: boolean
+  canPublishGoogleDrive: boolean
   slackConnecting: boolean
   gitlabConnecting: boolean
+  googleConnecting: boolean
   publishSlack: boolean
   publishGitLab: boolean
   publishGoogleDrive: boolean
@@ -406,6 +406,7 @@ interface ExportConfirmDialogProps {
   onMergeOriginalAudioChange(value: boolean): void
   onConnectSlack(): void
   onConnectGitLab(): void
+  onConnectGoogle(): void
   onPublishSlackChange(value: boolean): void
   onPublishGitLabChange(value: boolean): void
   onPublishGoogleDriveChange(value: boolean): void
@@ -476,8 +477,10 @@ function ExportConfirmDialog({
   slackConnected,
   gitlabConnected,
   googleDriveConnected,
+  canPublishGoogleDrive,
   slackConnecting,
   gitlabConnecting,
+  googleConnecting,
   publishSlack,
   publishGitLab,
   publishGoogleDrive,
@@ -513,6 +516,7 @@ function ExportConfirmDialog({
   onMergeOriginalAudioChange,
   onConnectSlack,
   onConnectGitLab,
+  onConnectGoogle,
   onPublishSlackChange,
   onPublishGitLabChange,
   onPublishGoogleDriveChange,
@@ -885,19 +889,30 @@ function ExportConfirmDialog({
               <span>
                 <span className="block text-sm font-medium text-zinc-200">Google Drive</span>
                 <span className="mt-1 block text-xs text-zinc-500">{t('publish.googleDriveDescription')}</span>
+                {googleDriveConnected && !canPublishGoogleDrive && (
+                  <span className="mt-1 block text-xs text-amber-300">{t('publish.googleNeedsDriveFolder')}</span>
+                )}
               </span>
               {googleDriveConnected ? (
-                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
+                <label className={`flex shrink-0 items-center gap-2 text-xs text-zinc-300 ${canPublishGoogleDrive ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                   <span>{t('publish.toggle')}</span>
                   <input
                     type="checkbox"
                     checked={isGoogleDrive}
+                    disabled={!canPublishGoogleDrive}
                     onChange={(e) => onPublishGoogleDriveChange(e.target.checked)}
                     className="h-4 w-4 accent-blue-600"
                   />
                 </label>
               ) : (
-                <span className="shrink-0 rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-500">{t('publish.notConnected')}</span>
+                <button
+                  type="button"
+                  onClick={onConnectGoogle}
+                  disabled={busy || googleConnecting}
+                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {googleConnecting ? t('publish.connecting') : t('publish.connectGoogle')}
+                </button>
               )}
             </div>
           </section>
@@ -1081,14 +1096,7 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const color = severityColor(severities, value)
-  useEffect(() => {
-    if (!open) return
-    function onDoc(event: globalThis.MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  useClickOutside(rootRef, () => setOpen(false), open)
   return (
     <div ref={rootRef} className="relative flex items-center gap-2">
       <select
@@ -1155,208 +1163,6 @@ interface MentionPickerProps {
   onChange(ids: string[]): void
 }
 
-interface SlackChannelPickerProps {
-  channels: SlackChannel[]
-  value: string
-  disabled?: boolean
-  loading?: boolean
-  onOpen?(): void
-  onChange(id: string): void
-}
-
-interface GitLabProjectPickerProps {
-  projects: GitLabProject[]
-  value: string
-  disabled?: boolean
-  loading?: boolean
-  onOpen?(): void
-  onChange(projectId: string): void
-}
-
-function SlackChannelPicker({ channels, value, disabled = false, loading = false, onOpen, onChange }: SlackChannelPickerProps) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const rootRef = useRef<HTMLDivElement>(null)
-  const selected = channels.find(channel => channel.id === value)
-  const normalizedQuery = query.trim().toLowerCase()
-  const filteredChannels = normalizedQuery
-    ? channels.filter(channel => [
-        channel.name,
-        channel.id,
-        slackChannelLabel(channel),
-      ].some(text => text.toLowerCase().includes(normalizedQuery)))
-    : channels
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(event: globalThis.MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  function toggleOpen() {
-    if (disabled) return
-    setOpen(prev => {
-      const next = !prev
-      if (next) onOpen?.()
-      return next
-    })
-  }
-
-  return (
-    <div ref={rootRef} className="relative mt-1" data-row-click-ignore="true">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={toggleOpen}
-        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-800 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
-      >
-        <span className="min-w-0 truncate">{selected ? slackChannelLabel(selected) : (loading ? 'Loading channels...' : 'Select Slack channel')}</span>
-        <span className="shrink-0 text-zinc-500">v</span>
-      </button>
-      {open && (
-        <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">
-          <div className="border-b border-zinc-800 p-2">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              autoFocus
-              placeholder="Search channels"
-              className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </div>
-          <div className="max-h-60 overflow-y-auto py-1">
-            {loading && (
-              <div className="px-3 py-2 text-sm text-zinc-500">Loading channels...</div>
-            )}
-            {!loading && filteredChannels.length === 0 && (
-              <div className="px-3 py-2 text-sm text-zinc-500">{channels.length === 0 ? 'No channels loaded' : 'No matching channels'}</div>
-            )}
-            {filteredChannels.map(channel => (
-              <button
-                key={channel.id}
-                type="button"
-                onClick={() => {
-                  onChange(channel.id)
-                  setOpen(false)
-                  setQuery('')
-                }}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${channel.id === value ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
-              >
-                <span className="min-w-0 truncate">{slackChannelLabel(channel)}</span>
-                <span className="shrink-0 text-[11px] text-zinc-500">{channel.isMember === false ? 'not joined' : ''}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function GitLabProjectPicker({ projects, value, disabled = false, loading = false, onOpen, onChange }: GitLabProjectPickerProps) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const rootRef = useRef<HTMLDivElement>(null)
-  const selected = projects.find(project => project.pathWithNamespace === value)
-  const normalizedQuery = query.trim().toLowerCase()
-  const filteredProjects = normalizedQuery
-    ? projects.filter(project => [
-        project.name,
-        project.nameWithNamespace,
-        project.pathWithNamespace,
-      ].some(text => text.toLowerCase().includes(normalizedQuery)))
-    : projects
-  const canUseQuery = query.trim() && !projects.some(project => project.pathWithNamespace === query.trim())
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(event: globalThis.MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
-
-  function toggleOpen() {
-    if (disabled) return
-    setOpen(prev => {
-      const next = !prev
-      if (next) {
-        setQuery(value)
-        onOpen?.()
-      }
-      return next
-    })
-  }
-
-  function commitProject(projectId: string) {
-    onChange(projectId)
-    setQuery(projectId)
-    setOpen(false)
-  }
-
-  return (
-    <div ref={rootRef} className="relative mt-1" data-row-click-ignore="true">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={toggleOpen}
-        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-900 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
-      >
-        <span className="min-w-0 truncate">{selected ? selected.nameWithNamespace : (value || (loading ? 'Loading projects...' : 'Select GitLab project'))}</span>
-        <span className="shrink-0 text-zinc-500">v</span>
-      </button>
-      {open && (
-        <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">
-          <div className="border-b border-zinc-800 p-2">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && query.trim()) commitProject(query.trim())
-              }}
-              autoFocus
-              placeholder="Search or enter group/project"
-              className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </div>
-          <div className="max-h-60 overflow-y-auto py-1">
-            {loading && (
-              <div className="px-3 py-2 text-sm text-zinc-500">Loading projects...</div>
-            )}
-            {!loading && canUseQuery && (
-              <button
-                type="button"
-                onClick={() => commitProject(query.trim())}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-blue-100 hover:bg-zinc-800"
-              >
-                <span className="min-w-0 truncate">Use {query.trim()}</span>
-                <span className="shrink-0 text-[11px] text-zinc-500">custom</span>
-              </button>
-            )}
-            {!loading && filteredProjects.length === 0 && !canUseQuery && (
-              <div className="px-3 py-2 text-sm text-zinc-500">{projects.length === 0 ? 'No projects loaded' : 'No matching projects'}</div>
-            )}
-            {filteredProjects.map(project => (
-              <button
-                key={project.id}
-                type="button"
-                onClick={() => commitProject(project.pathWithNamespace)}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-zinc-800 ${project.pathWithNamespace === value ? 'bg-blue-950/60 text-blue-100' : 'text-zinc-200'}`}
-              >
-                <span className="min-w-0 truncate">{project.nameWithNamespace}</span>
-                <span className="max-w-32 shrink-0 truncate text-[11px] text-zinc-500">{project.pathWithNamespace}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute', onChange }: MentionPickerProps) {
   const { t } = useI18n()
@@ -1586,6 +1392,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [slackSettings, setSlackSettings] = useState<SlackPublishSettings | null>(null)
   const [slackConnecting, setSlackConnecting] = useState(false)
   const [gitlabConnecting, setGitLabConnecting] = useState(false)
+  const [googleConnecting, setGoogleConnecting] = useState(false)
   const [slackThreadMode, setSlackThreadMode] = useState<SlackThreadMode>('per-marker-thread')
   const [slackChannelId, setSlackChannelId] = useState('')
   const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([])
@@ -1946,6 +1753,27 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     }
   }
 
+  async function connectGoogleForExport() {
+    setGoogleConnecting(true)
+    setExportError('')
+    try {
+      const settings = await api.settings.get()
+      const active = activeProfileFrom(settings, overrideProfile)
+      const nextSettings = await api.settings.connectGoogleOAuth(targetProfileId(settings, overrideProfile), active.google)
+      const nextActive = activeProfileFrom(nextSettings, overrideProfile)
+      setGoogleSettings(nextActive.google)
+      if (canPublishToGoogleDrive(nextActive.google)) {
+        setPublishGoogleDrive(true)
+      } else if (hasGoogleOAuthToken(nextActive.google)) {
+        setExportError(t('publish.googleNeedsDriveFolder'))
+      }
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setGoogleConnecting(false)
+    }
+  }
+
   async function exportAll() {
     const bugIds = bugs.map(b => b.id)
     await beginExport({ bugs, bugIds })
@@ -2002,8 +1830,10 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setExportError('Select a GitLab project before exporting.')
       return
     }
-    if (publishGoogleDrive && !isGoogleDriveConnected(googleSettings)) {
-      setExportError('Connect Google Drive and choose a Drive folder before exporting to Google Drive.')
+    if (publishGoogleDrive && !canPublishToGoogleDrive(googleSettings)) {
+      setExportError(hasGoogleOAuthToken(googleSettings)
+        ? t('publish.googleNeedsDriveFolder')
+        : 'Connect Google before exporting to Google Drive.')
       return
     }
     if (exportIncludeOriginalFiles && !skipOriginalFilesWarning && localStorage.getItem(ORIGINAL_FILES_WARNING_KEY) !== '1') {
@@ -2203,8 +2033,10 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           slackConnected={isSlackConnected(slackSettings)}
           gitlabConnected={isGitLabConnected(gitlabSettings)}
           googleDriveConnected={isGoogleDriveConnected(googleSettings)}
+          canPublishGoogleDrive={canPublishToGoogleDrive(googleSettings)}
           slackConnecting={slackConnecting}
           gitlabConnecting={gitlabConnecting}
+          googleConnecting={googleConnecting}
           publishSlack={publishSlack}
           publishGitLab={publishGitLab}
           publishGoogleDrive={publishGoogleDrive}
@@ -2239,6 +2071,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
           onIncludeOriginalFilesChange={setExportIncludeOriginalFiles}
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
           onConnectSlack={() => { void connectSlackForExport() }}
+          onConnectGoogle={() => { void connectGoogleForExport() }}
           onConnectGitLab={() => { void connectGitLabForExport() }}
           onPublishSlackChange={setPublishSlack}
           onPublishGitLabChange={(value) => {
@@ -2246,7 +2079,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
             setPublishGitLab(value)
           }}
           onPublishGoogleDriveChange={(value) => {
-            if (value && !isGoogleDriveConnected(googleSettings)) return
+            if (value && !canPublishToGoogleDrive(googleSettings)) return
             setPublishGoogleDrive(value)
           }}
           onSlackThreadModeChange={setSlackThreadMode}

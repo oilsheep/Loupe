@@ -96,6 +96,7 @@ const api: DesktopApi = {
     refreshSlackUsers: (projectId) => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackUsers, projectId),
     refreshSlackChannels: (projectId) => ipcRenderer.invoke(CHANNEL.settingsRefreshSlackChannels, projectId),
     startSlackUserOAuth: (projectId, settings) => ipcRenderer.invoke(CHANNEL.settingsStartSlackUserOAuth, projectId, settings),
+    disconnectService: (projectId, service) => ipcRenderer.invoke(CHANNEL.settingsDisconnectService, projectId, service),
     refreshGitLabUsers: (projectId) => ipcRenderer.invoke(CHANNEL.settingsRefreshGitLabUsers, projectId),
     setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
