@@ -157,6 +157,13 @@ build:win:
     - corepack enable
     - corepack prepare "pnpm@${PNPM_VERSION}" --activate
     - pnpm config set store-dir "${PNPM_STORE_DIR}"
+    # build:win never signs (signAndEditExecutable: false), but with CSC_LINK
+    # set as a project variable electron-builder downloads + parses the p12
+    # anyway and pipes its Subject CN into app-update.yml as `publisherName`.
+    # The p12 holds the Apple Developer ID Application cert (from the legacy
+    # mac-signing setup), so electron-updater on Windows ends up rejecting
+    # every downloaded update — Windows can't chain-validate the Apple cert.
+    - unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
     # Root package.json declares pnpm.supportedArchitectures (darwin/linux/win32),
     # so this install on a Linux host fetches win32-x64 optionalDependencies too
     # (e.g. @ffmpeg-installer/win32-x64). Without that, the bundled NSIS would
