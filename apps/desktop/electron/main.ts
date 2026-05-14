@@ -282,6 +282,28 @@ app.whenReady().then(async () => {
   }
 
   const runner = new RealProcessRunner()
+
+  // Before-quit cleanup. `adb kill-server` shuts down the detached adb daemon
+  // (which `runner.killAllTracked` can't reach — it's not a child of any
+  // process we spawned). killAllTracked then nukes everything still tracked.
+  // Without this, vendor binaries inside `$INSTDIR\resources\vendor\…\*.exe`
+  // stay locked, NSIS RMDir /r $INSTDIR fails, and the user gets the "Loupe
+  // QA Recorder cannot be closed" prompt on the next install.
+  let cleanupRan = false
+  app.on('before-quit', (event) => {
+    if (cleanupRan) return
+    event.preventDefault()
+    void (async () => {
+      try {
+        await withTimeout(runner.run('adb', ['kill-server']), 1500, 'adb kill-server').catch(() => {})
+        await runner.killAllTracked(2000)
+      } finally {
+        cleanupRan = true
+        app.exit(0)
+      }
+    })()
+  })
+
   const adb = new Adb(runner)
   const scrcpy = new Scrcpy(runner)
 

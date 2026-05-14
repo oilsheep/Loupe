@@ -41,3 +41,32 @@ describe('RealProcessRunner.spawn', () => {
     expect(code).not.toBe(0)
   })
 })
+
+describe('RealProcessRunner.killAllTracked', () => {
+  it('terminates every live spawned child', async () => {
+    const runner = new RealProcessRunner()
+    const procs = [
+      runner.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']),
+      runner.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']),
+    ]
+    await runner.killAllTracked(3000)
+    for (const p of procs) {
+      const code = await new Promise<number | null>((r) => p.onExit(r))
+      expect(code).not.toBe(0)
+    }
+  })
+
+  it('is a no-op when nothing is running', async () => {
+    const runner = new RealProcessRunner()
+    await expect(runner.killAllTracked(100)).resolves.toBeUndefined()
+  })
+
+  it('drops naturally-exited children from the tracked set', async () => {
+    const runner = new RealProcessRunner()
+    const proc = runner.spawn(process.execPath, ['-e', 'process.exit(0)'])
+    await new Promise<number | null>((r) => proc.onExit(r))
+    // Tiny delay so the 'exit' listener inside spawn() runs its cleanup.
+    await new Promise<void>((r) => setImmediate(r))
+    await expect(runner.killAllTracked(100)).resolves.toBeUndefined()
+  })
+})
