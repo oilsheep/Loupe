@@ -3,6 +3,9 @@ import type { AppUpdateEvent } from '@shared/types'
 
 type ElectronAutoUpdater = typeof import('electron-updater').autoUpdater
 
+const PROVIDER = typeof __LOUPE_UPDATE_PROVIDER__ === 'string' ? __LOUPE_UPDATE_PROVIDER__ : ''
+const API_URL = typeof __LOUPE_UPDATE_API_URL__ === 'string' ? __LOUPE_UPDATE_API_URL__ : ''
+
 let autoUpdaterInstance: ElectronAutoUpdater | null = null
 let configured = false
 let latestVersion: string | undefined
@@ -23,6 +26,38 @@ function getAutoUpdater(): ElectronAutoUpdater {
   return autoUpdater
 }
 
+interface FeedOverride {
+  channelDirUrl: string
+  authHeader?: string
+}
+
+/**
+ * Splits the bundled `__LOUPE_UPDATE_API_URL__` into a channel-directory URL
+ * and an optional Basic-Authorization header. Electron's Chromium net stack
+ * silently aborts requests to URLs with embedded `user:pass@`, surfacing as
+ * `net::ERR_ABORTED` from `autoUpdater.checkForUpdates`/`downloadUpdate`.
+ * Returns null when the baked URL doesn't look like a GitLab channel URL.
+ */
+export function deriveFeedOverride(rawUrl: string): FeedOverride | null {
+  if (!rawUrl) return null
+  let url: URL
+  try { url = new URL(rawUrl) } catch { return null }
+  let authHeader: string | undefined
+  if (url.username || url.password) {
+    const creds = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`
+    authHeader = `Basic ${Buffer.from(creds).toString('base64')}`
+    url.username = ''
+    url.password = ''
+  }
+  // The baked URL points at one specific YML (latest-mac.yml in our config).
+  // electron-updater wants the channel directory and picks the per-platform
+  // YML itself, so trim the trailing filename if present.
+  if (url.pathname.endsWith('.yml')) {
+    url.pathname = url.pathname.replace(/[^/]+$/, '')
+  }
+  return { channelDirUrl: url.toString(), authHeader }
+}
+
 export function configureElectronUpdater(emit: (event: AppUpdateEvent) => void): void {
   if (configured) return
   configured = true
@@ -30,6 +65,14 @@ export function configureElectronUpdater(emit: (event: AppUpdateEvent) => void):
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = app.getVersion().includes('-')
+
+  if (PROVIDER === 'gitlab') {
+    const override = deriveFeedOverride(API_URL)
+    if (override) {
+      autoUpdater.setFeedURL({ provider: 'generic', url: override.channelDirUrl, channel: 'latest' })
+      if (override.authHeader) autoUpdater.requestHeaders = { Authorization: override.authHeader }
+    }
+  }
 
   autoUpdater.on('checking-for-update', () => {
     emit({ phase: 'checking', currentVersion: app.getVersion(), message: 'Checking for updates.' })
