@@ -281,6 +281,24 @@ describe('rewriteSessionAssetRoots', () => {
     expect(s.videoPath).toBe('/new/sessions/s1/video.mp4')
     db.close()
   })
+
+  it('rewrites Windows-style backslash paths', () => {
+    const dir = makeTmp()
+    const db = openDb(join(dir, 'meta.sqlite'))
+    const winOld = 'C:\\Program Files\\Loupe\\recordings'
+    const winNew = 'C:\\Users\\u\\Videos\\Loupe'
+    db.insertSession({
+      ...makeSession('s1', '/old'),
+      videoPath: `${winOld}\\sessions\\s1\\video.mp4`,
+      micAudioPath: `${winOld}\\sessions\\s1\\session-mic.webm`,
+    })
+    const result = db.rewriteSessionAssetRoots(winOld, winNew)
+    expect(result.rowsChanged).toBe(1)
+    const s = db.getSession('s1')!
+    expect(s.videoPath).toBe(`${winNew}\\sessions\\s1\\video.mp4`)
+    expect(s.micAudioPath).toBe(`${winNew}\\sessions\\s1\\session-mic.webm`)
+    db.close()
+  })
 })
 
 describe('renameSessionProject', () => {

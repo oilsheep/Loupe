@@ -486,12 +486,10 @@ export function openDb(file: string) {
       return (listSessionsWithoutProfileIdStmt.all() as any[]).map(rowToSession)
     },
     rewriteSessionAssetRoots(oldRoot: string, newRoot: string): { rowsChanged: number } {
-      // Use LIKE with an escaped prefix so we match `<oldRoot>/...` exactly.
-      // SQLite LIKE has no `%` escape by default; we rely on the fact that
-      // legitimate filesystem paths don't contain `%` or `_` (LIKE wildcards).
-      // If they do, this method is unsafe — but on macOS userData / Movies
-      // paths this is not a concern.
-      const oldPrefix = `${oldRoot}/%`
+      // Stored paths come from `node:path.join`, so the separator matches
+      // oldRoot's. LIKE has no `%`/`_` escape — system paths don't use those.
+      const sep = oldRoot.includes('\\') ? '\\' : '/'
+      const oldPrefix = `${oldRoot}${sep}%`
       const result = rewriteSessionPathsStmt.run({ oldRoot, oldPrefix, newRoot })
       return { rowsChanged: Number(result.changes ?? 0) }
     },

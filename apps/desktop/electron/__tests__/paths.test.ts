@@ -39,46 +39,29 @@ describe('resolveAppRoots', () => {
     isPackaged: true,
     userData: '/Users/u/Library/Application Support/Loupe QA Recorder',
     movies: '/Users/u/Movies',
-    exeDir: '/Applications/Loupe QA Recorder.app/Contents/MacOS',
     devRoot: '/repo/recordings',
   }
 
-  it('darwin packaged splits config (userData) from sessions (~/Movies/Loupe)', () => {
-    expect(resolveAppRoots({ ...base, platform: 'darwin' })).toEqual({
+  it('packaged splits config (userData) from sessions (<movies>/Loupe)', () => {
+    expect(resolveAppRoots(base)).toEqual({
       configRoot: base.userData,
-      sessionsRoot: '/Users/u/Movies/Loupe',
+      sessionsRoot: join(base.movies, 'Loupe'),
     })
   })
 
-  it('darwin dev keeps both roots at devRoot', () => {
-    expect(resolveAppRoots({ ...base, platform: 'darwin', isPackaged: false })).toEqual({
-      configRoot: '/repo/recordings',
-      sessionsRoot: '/repo/recordings',
+  it('packaged handles Windows-style paths', () => {
+    expect(resolveAppRoots({
+      ...base,
+      userData: 'C:\\Users\\u\\AppData\\Roaming\\Loupe QA Recorder',
+      movies: 'C:\\Users\\u\\Videos',
+    })).toEqual({
+      configRoot: 'C:\\Users\\u\\AppData\\Roaming\\Loupe QA Recorder',
+      sessionsRoot: join('C:\\Users\\u\\Videos', 'Loupe'),
     })
   })
 
-  it('win32 packaged keeps both roots next to exe', () => {
-    // Note: `path.join` is host-platform-aware, so on a posix host the
-    // separator in the joined output is '/'. We compute the expected value
-    // via `join` here so the test verifies the contract (exeDir + 'recordings')
-    // independent of which platform the test runner happens to be on.
-    const exeDir = 'C:\\Program Files\\Loupe'
-    const expected = join(exeDir, 'recordings')
-    expect(resolveAppRoots({ ...base, platform: 'win32', exeDir })).toEqual({
-      configRoot: expected,
-      sessionsRoot: expected,
-    })
-  })
-
-  it('linux packaged keeps both roots next to exe', () => {
-    expect(resolveAppRoots({ ...base, platform: 'linux', exeDir: '/opt/loupe' })).toEqual({
-      configRoot: '/opt/loupe/recordings',
-      sessionsRoot: '/opt/loupe/recordings',
-    })
-  })
-
-  it('any platform in dev mode uses devRoot for both', () => {
-    expect(resolveAppRoots({ ...base, platform: 'win32', isPackaged: false })).toEqual({
+  it('dev mode collapses both roots to devRoot', () => {
+    expect(resolveAppRoots({ ...base, isPackaged: false })).toEqual({
       configRoot: '/repo/recordings',
       sessionsRoot: '/repo/recordings',
     })

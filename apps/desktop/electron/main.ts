@@ -11,6 +11,7 @@ import { SessionManager } from './session'
 import { openDb } from './db'
 import { backfillProfileIds } from './profile-backfill'
 import { createPaths, resolveAppRoots } from './paths'
+import { migrateLegacyExeRecordings } from './legacy-paths-migration'
 import { registerIpc, emitBugMarkRequested, handleProtocolUrl, CHANNEL } from './ipc'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_COMMON_SESSION, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from './settings'
 import { getBundledOAuthInstances } from './gitlab-oauth-config'
@@ -220,18 +221,26 @@ app.whenReady().then(async () => {
     })
   })
 
-  // Settings + DB live in `configRoot`; recordings live in `sessionsRoot`.
-  // On darwin packaged these split (userData + ~/Movies/Loupe); on every other
-  // platform-mode they collapse to the same directory.
+  const exeDir = dirname(app.getPath('exe'))
   const roots = resolveAppRoots({
-    platform: process.platform,
     isPackaged: app.isPackaged,
     userData: app.getPath('userData'),
-    movies: app.getPath('videos'),  // Electron's 'videos' === ~/Movies on macOS
-    exeDir: dirname(app.getPath('exe')),
+    movies: app.getPath('videos'),  // Electron's 'videos' === ~/Movies on macOS, ~/Videos elsewhere
     devRoot: join(__dirname, '..', '..', '..', '..', 'recordings'),
   })
   console.log(`Loupe: configRoot=${roots.configRoot} sessionsRoot=${roots.sessionsRoot}`)
+
+  const legacyExeRecordings = app.isPackaged && process.platform !== 'darwin'
+    ? join(exeDir, 'recordings')
+    : null
+  if (legacyExeRecordings) {
+    migrateLegacyExeRecordings({
+      legacyRoot: legacyExeRecordings,
+      newConfigRoot: roots.configRoot,
+      newSessionsRoot: roots.sessionsRoot,
+    })
+  }
+
   const paths = createPaths(roots); paths.ensureRoot()
   const defaultProfile: ProfileSettings = {
     id: randomUUID(),
@@ -255,6 +264,15 @@ app.whenReady().then(async () => {
     activeProfileId: defaultProfile.id,
   })
   const db = openDb(paths.dbFile())
+
+  // Idempotent — a no-op once paths have been rewritten, since the LIKE
+  // prefix stops matching.
+  if (legacyExeRecordings) {
+    const rewritten = db.rewriteSessionAssetRoots(legacyExeRecordings, roots.sessionsRoot)
+    if (rewritten.rowsChanged > 0) {
+      console.log(`Loupe: rewrote asset paths for ${rewritten.rowsChanged} session(s) — ${legacyExeRecordings} → ${roots.sessionsRoot}`)
+    }
+  }
 
   // One-time backfill: link legacy sessions to a profile by name match.
   // Idempotent — skips sessions that already have profile_id.

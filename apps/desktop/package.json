@@ -132,7 +132,8 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Loupe QA Recorder"
+      "shortcutName": "Loupe QA Recorder",
+      "include": "build/installer.nsh"
     }
   }
 }

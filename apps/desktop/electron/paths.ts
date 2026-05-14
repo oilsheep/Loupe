@@ -70,11 +70,9 @@ export function createPaths(roots: AppRoots): Paths {
 }
 
 interface ResolveOpts {
-  platform: NodeJS.Platform
   isPackaged: boolean
   userData: string
   movies: string
-  exeDir: string
   devRoot: string
 }
 
@@ -82,9 +80,7 @@ export function resolveAppRoots(opts: ResolveOpts): AppRoots {
   if (!opts.isPackaged) {
     return { configRoot: opts.devRoot, sessionsRoot: opts.devRoot }
   }
-  if (opts.platform === 'darwin') {
-    return { configRoot: opts.userData, sessionsRoot: join(opts.movies, 'Loupe') }
-  }
-  const exeRecordings = join(opts.exeDir, 'recordings')
-  return { configRoot: exeRecordings, sessionsRoot: exeRecordings }
+  // User data must live outside `$INSTDIR` — electron-builder's NSIS
+  // uninstaller does `RMDir /r $INSTDIR` before each reinstall.
+  return { configRoot: opts.userData, sessionsRoot: join(opts.movies, 'Loupe') }
 }
