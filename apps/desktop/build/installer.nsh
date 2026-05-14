@@ -4,6 +4,15 @@
 ; destinations match what app.getPath('userData') and the new paths.ts read.
 
 !macro customInit
+  ; Kill vendor helpers that survived the main Loupe quit — adb in particular
+  ; runs as a detached daemon that holds open `$INSTDIR\resources\vendor\…\
+  ; adb.exe` and stops the old uninstaller's RMDir /r $INSTDIR from completing.
+  ; Affects upgrades FROM versions that didn't kill these on app-quit
+  ; (v0.6.0-rayark.5 and earlier).
+  nsExec::Exec 'taskkill.exe /F /T /IM adb.exe'
+  nsExec::Exec 'taskkill.exe /F /T /IM scrcpy.exe'
+  nsExec::Exec 'taskkill.exe /F /T /IM ffmpeg.exe'
+
   IfFileExists "$INSTDIR\recordings\meta.sqlite" 0 loupeMigrationDone
 
   DetailPrint "Loupe: rescuing session data out of install dir before upgrade..."
