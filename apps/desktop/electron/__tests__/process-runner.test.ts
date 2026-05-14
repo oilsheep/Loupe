@@ -49,11 +49,12 @@ describe('RealProcessRunner.killAllTracked', () => {
       runner.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']),
       runner.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']),
     ]
+    // Subscribe before killAllTracked, otherwise the exit event fires inside
+    // killAllTracked and we miss it (once() doesn't replay past events).
+    const exits = procs.map(p => new Promise<number | null>((r) => p.onExit(r)))
     await runner.killAllTracked(3000)
-    for (const p of procs) {
-      const code = await new Promise<number | null>((r) => p.onExit(r))
-      expect(code).not.toBe(0)
-    }
+    const codes = await Promise.all(exits)
+    for (const code of codes) expect(code).not.toBe(0)
   })
 
   it('is a no-op when nothing is running', async () => {
