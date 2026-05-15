@@ -46,6 +46,81 @@ interface SlackPublisherFetch {
   (input: string, init?: RequestInit): Promise<Response>
 }
 
+// Refresh 5 minutes before actual expiry to avoid races where the request is
+// in flight when the token flips invalid.
+const SLACK_REFRESH_LEAD_MS = 5 * 60 * 1000
+
+function slackUserTokenExpired(settings: SlackPublishSettings): boolean {
+  if (typeof settings.tokenExpiresAt !== 'number') return false
+  return Date.now() >= settings.tokenExpiresAt - SLACK_REFRESH_LEAD_MS
+}
+
+interface SlackTokenRotationResponse {
+  ok: boolean
+  error?: string
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+  token_type?: string
+}
+
+// Refreshes a Slack OAuth user token when the app has token rotation enabled
+// (xoxe.xoxp-... tokens, 12-hour expiry). Mirrors refreshGitLabAccessToken /
+// refreshGoogleAccessToken.
+//
+//   - Bot mode: short-circuits (bot tokens are pasted PATs in Loupe; no refresh).
+//   - No refresh_token but a user token: returns as-is (legacy long-lived
+//     xoxp-* tokens from apps without rotation enabled). The caller will
+//     surface a 401 if the token has been revoked.
+//   - Token still inside the 5-minute lead window: returns as-is.
+//   - Otherwise POSTs https://slack.com/api/oauth.v2.access with
+//     grant_type=refresh_token and returns settings with the rolled
+//     access_token + (rotated) refresh_token + new tokenExpiresAt.
+export async function refreshSlackAccessToken(
+  settings: SlackPublishSettings,
+  fetchImpl: SlackPublisherFetch = fetch,
+  options: { forceRefresh?: boolean } = {},
+): Promise<SlackPublishSettings> {
+  if (settings.publishIdentity === 'bot') return settings
+  if (!settings.refreshToken?.trim()) {
+    if (settings.userToken?.trim()) return settings
+    throw new Error('Slack refresh token is missing')
+  }
+  if (!options.forceRefresh && settings.userToken?.trim() && !slackUserTokenExpired(settings)) return settings
+
+  const clientId = settings.oauthClientId?.trim()
+  if (!clientId) throw new Error('Slack OAuth client ID is missing')
+  const clientSecret = settings.oauthClientSecret?.trim() || ''
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: settings.refreshToken.trim(),
+    client_id: clientId,
+  })
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+  }
+  if (clientSecret) {
+    headers.Authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+  }
+
+  const response = await fetchImpl('https://slack.com/api/oauth.v2.access', {
+    method: 'POST',
+    headers,
+    body: body.toString(),
+  })
+  const payload = await response.json() as SlackTokenRotationResponse
+  if (!response.ok || !payload.ok || !payload.access_token) {
+    throw new Error(`Slack token refresh failed: ${payload.error || response.statusText}`)
+  }
+  return {
+    ...settings,
+    userToken: payload.access_token,
+    refreshToken: payload.refresh_token || settings.refreshToken,
+    tokenExpiresAt: Date.now() + Math.max(1, payload.expires_in ?? 43200) * 1000,
+  }
+}
+
 class SlackRateLimitError extends Error {
   retryAfterSec: number
 

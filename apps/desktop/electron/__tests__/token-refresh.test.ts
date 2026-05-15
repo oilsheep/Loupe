@@ -31,12 +31,13 @@ function makeStore(): { store: SettingsStore; tmp: string } {
   return { store: new SettingsStore(join(tmp, 'settings.json'), MIN_DEFAULTS), tmp }
 }
 
-// Most tests focus on one service; provide a default no-op for the other
+// Most tests focus on one service; provide a default no-op for the others
 // so consumers can pass partial deps.
 function deps(overrides: Partial<RefreshDeps>): RefreshDeps {
   return {
     refreshGoogle: vi.fn().mockResolvedValue({ token: 'unused', tokenExpiresAt: 0 }),
     refreshGitLab: vi.fn().mockResolvedValue({ token: 'unused', tokenExpiresAt: 0 }),
+    refreshSlack: vi.fn().mockResolvedValue({ token: 'unused', tokenExpiresAt: 0 }),
     ...overrides,
   }
 }
@@ -216,5 +217,89 @@ describe('refreshAllExpiringTokens — GitLab', () => {
     await refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn }))
     expect(store.get().profiles[0].gitlab.refreshError).toBeDefined()
     expect(store.get().profiles[0].gitlab.refreshError?.code).toMatch(/invalid_grant/i)
+  })
+})
+
+describe('refreshAllExpiringTokens — Slack', () => {
+  it('attempts a refresh when a Slack user has refreshToken + oauthTeamId + oauthClientId', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      slack: {
+        ...store.get().profiles[0].slack,
+        publishIdentity: 'user',
+        oauthTeamId: 'T01',
+        oauthClientId: 'cid',
+        refreshToken: 'r1',
+        userToken: 'old',
+        tokenExpiresAt: 0,
+      },
+    })
+    const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 43200_000, refreshToken: 'r2' })
+    await refreshAllExpiringTokens(store, deps({ refreshSlack: refreshFn }))
+    expect(refreshFn).toHaveBeenCalledTimes(1)
+    const after = store.get().profiles[0].slack
+    expect(after.userToken).toBe('NEW')
+    expect(after.refreshToken).toBe('r2')
+    expect(after.refreshError).toBeUndefined()
+  })
+
+  it('skips bot-mode profiles', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      slack: {
+        ...store.get().profiles[0].slack,
+        publishIdentity: 'bot',
+        oauthTeamId: 'T01',
+        oauthClientId: 'cid',
+        refreshToken: 'r1',
+      },
+    })
+    const refreshFn = vi.fn()
+    await refreshAllExpiringTokens(store, deps({ refreshSlack: refreshFn }))
+    expect(refreshFn).not.toHaveBeenCalled()
+  })
+
+  it('dedupes concurrent refresh calls per oauthTeamId', async () => {
+    const { store } = makeStore()
+    store.addProfile({ name: 'Cytus', duplicateFromId: store.get().profiles[0].id })
+    const ids = store.get().profiles.map(p => p.id)
+    for (const id of ids) {
+      store.setProfile(id, {
+        slack: {
+          ...store.get().profiles.find(p => p.id === id)!.slack,
+          publishIdentity: 'user',
+          oauthTeamId: 'T01',
+          oauthClientId: 'cid',
+          refreshToken: 'r1',
+          tokenExpiresAt: 0,
+        },
+      })
+    }
+    const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 43200_000 })
+    await Promise.all([
+      refreshAllExpiringTokens(store, deps({ refreshSlack: refreshFn })),
+      refreshAllExpiringTokens(store, deps({ refreshSlack: refreshFn })),
+    ])
+    expect(refreshFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('records refreshError when refresh fails', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      slack: {
+        ...store.get().profiles[0].slack,
+        publishIdentity: 'user',
+        oauthTeamId: 'T01',
+        oauthClientId: 'cid',
+        refreshToken: 'r1',
+        tokenExpiresAt: 0,
+      },
+    })
+    const refreshFn = vi.fn().mockRejectedValue(Object.assign(new Error('token_revoked'), { code: 'token_revoked' }))
+    await refreshAllExpiringTokens(store, deps({ refreshSlack: refreshFn }))
+    expect(store.get().profiles[0].slack.refreshError?.code).toMatch(/token_revoked/i)
   })
 })

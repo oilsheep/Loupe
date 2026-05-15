@@ -19,6 +19,7 @@ import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { refreshAllExpiringTokens, type RefreshDeps } from './token-refresh'
 import { refreshGoogleAccessToken } from './google-publisher'
 import { refreshGitLabAccessToken } from './gitlab-publisher'
+import { refreshSlackAccessToken } from './slack-publisher'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { HotkeySettings, ProfileSettings } from '@shared/types'
 
@@ -246,7 +247,7 @@ app.whenReady().then(async () => {
   const defaultProfile: ProfileSettings = {
     id: randomUUID(),
     name: 'Default',
-    slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
+    slack: { botToken: '', userToken: '', refreshToken: undefined, tokenExpiresAt: null, publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
     gitlab: { baseUrl: getBundledOAuthInstances()[0]?.url ?? 'https://gitlab.com', token: '', refreshToken: undefined, tokenExpiresAt: null, authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
@@ -440,6 +441,26 @@ app.whenReady().then(async () => {
       return {
         token: refreshed.token,
         tokenExpiresAt: refreshed.tokenExpiresAt ?? Date.now() + 7200_000,
+        refreshToken: refreshed.refreshToken,
+      }
+    },
+    refreshSlack: async ({ refreshToken, oauthTeamId, oauthClientId }) => {
+      const target = settings.get().profiles.find(p =>
+        p.slack.publishIdentity !== 'bot' &&
+        (p.slack.oauthTeamId ?? '') === oauthTeamId &&
+        (p.slack.oauthClientId ?? '') === oauthClientId)
+      if (!target) throw new Error(`No Slack profile found for team ${oauthTeamId}/client ${oauthClientId}`)
+      const refreshed = await refreshSlackAccessToken(
+        { ...target.slack, refreshToken },
+        undefined,
+        // Proactive sweep — refresh well before Slack's 12-hour expiry.
+        { forceRefresh: true },
+      )
+      const newUserToken = refreshed.userToken?.trim() || ''
+      const newExpiresAt = typeof refreshed.tokenExpiresAt === 'number' ? refreshed.tokenExpiresAt : Date.now() + 43200_000
+      return {
+        token: newUserToken,
+        tokenExpiresAt: newExpiresAt,
         refreshToken: refreshed.refreshToken,
       }
     },

@@ -16,7 +16,7 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, PublishService, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
-import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
+import { fetchSlackChannels, fetchSlackMentionUsers, refreshSlackAccessToken } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, refreshGitLabAccessToken } from './gitlab-publisher'
@@ -2061,6 +2061,12 @@ export function registerIpc(deps: IpcDeps): void {
       let settings = deps.settings.setProfile(projectId, { slack: {
         ...current,
         userToken: oauth.userToken,
+        // Capture rotation fields when the Slack app has token rotation
+        // enabled (xoxe.xoxp-... tokens). Undefined when rotation is off
+        // (legacy long-lived xoxp-* tokens).
+        refreshToken: oauth.refreshToken,
+        tokenExpiresAt: oauth.tokenExpiresAt,
+        oauthClientId: oauth.oauthClientId,
         publishIdentity: 'user',
         oauthUserId: oauth.userId,
         oauthTeamId: oauth.teamId,
@@ -2403,12 +2409,27 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, profileId: string, slack: SlackPublishSettings) => {
     let settings = deps.settings.setProfile(profileId, { slack })
     const profile = findProfileByIdOrActive(settings, profileId)
-    const token = slackApiTokenForUsers(profile.slack)
-    if (token && (profile.slack.mentionUsers ?? []).length === 0 && (profile.slack.channels ?? []).length === 0) {
+    // Proactive refresh — for user-mode OAuth, rotate the access_token
+    // if it's past the 5-minute lead window before hitting slack.com/api.
+    // No-op for bot mode or tokens without rotation enabled.
+    let refreshedSlack: SlackPublishSettings
+    try {
+      refreshedSlack = await refreshSlackAccessToken(profile.slack)
+    } catch {
+      // Refresh-token expired or revoked. Fall through with the existing
+      // (possibly stale) token; the directory fetch below will surface a
+      // friendlier error.
+      refreshedSlack = profile.slack
+    }
+    if (refreshedSlack.userToken !== profile.slack.userToken) {
+      settings = deps.settings.setProfile(profileId, { slack: refreshedSlack })
+    }
+    const token = slackApiTokenForUsers(refreshedSlack)
+    if (token && (refreshedSlack.mentionUsers ?? []).length === 0 && (refreshedSlack.channels ?? []).length === 0) {
       try {
-        const directory = await refreshSlackDirectory(profile.slack, token)
+        const directory = await refreshSlackDirectory(refreshedSlack, token)
         settings = deps.settings.setProfile(profileId, { slack: {
-          ...profile.slack,
+          ...refreshedSlack,
           ...directory,
         } })
       } catch (err) {
@@ -2546,18 +2567,25 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsRefreshSlackUsers, async (_e, projectId: string) => {
     const settings = deps.settings.get()
     const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
-    const token = slackApiTokenForUsers(project.slack)
-    let directory: Partial<SlackPublishSettings>
+    let refreshedSlack: SlackPublishSettings
     try {
-      directory = (project.slack.mentionUsers ?? []).length > 0 && (project.slack.channels ?? []).length === 0
-        ? await refreshSlackChannelsOnly(project.slack, token)
-        : await refreshSlackDirectory(project.slack, token)
+      refreshedSlack = await refreshSlackAccessToken(project.slack)
     } catch (err) {
       maybeClearExpiredSlackTokenForProject(deps.settings, projectId, project.slack, err)
       throw friendlySlackDirectoryError(project.slack, err)
     }
+    const token = slackApiTokenForUsers(refreshedSlack)
+    let directory: Partial<SlackPublishSettings>
+    try {
+      directory = (refreshedSlack.mentionUsers ?? []).length > 0 && (refreshedSlack.channels ?? []).length === 0
+        ? await refreshSlackChannelsOnly(refreshedSlack, token)
+        : await refreshSlackDirectory(refreshedSlack, token)
+    } catch (err) {
+      maybeClearExpiredSlackTokenForProject(deps.settings, projectId, refreshedSlack, err)
+      throw friendlySlackDirectoryError(refreshedSlack, err)
+    }
     deps.settings.setProfile(projectId, { slack: {
-      ...project.slack,
+      ...refreshedSlack,
       ...directory,
     } })
     return deps.settings.refreshMentionIdentities()
@@ -2581,15 +2609,22 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async (_e, projectId: string) => {
     const settings = deps.settings.get()
     const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
-    let directory: Partial<SlackPublishSettings>
+    let refreshedSlack: SlackPublishSettings
     try {
-      directory = await refreshSlackChannelsOnly(project.slack, slackApiTokenForUsers(project.slack))
+      refreshedSlack = await refreshSlackAccessToken(project.slack)
     } catch (err) {
       maybeClearExpiredSlackTokenForProject(deps.settings, projectId, project.slack, err)
       throw friendlySlackDirectoryError(project.slack, err)
     }
+    let directory: Partial<SlackPublishSettings>
+    try {
+      directory = await refreshSlackChannelsOnly(refreshedSlack, slackApiTokenForUsers(refreshedSlack))
+    } catch (err) {
+      maybeClearExpiredSlackTokenForProject(deps.settings, projectId, refreshedSlack, err)
+      throw friendlySlackDirectoryError(refreshedSlack, err)
+    }
     return deps.settings.setProfile(projectId, { slack: {
-      ...project.slack,
+      ...refreshedSlack,
       ...directory,
     } })
   })

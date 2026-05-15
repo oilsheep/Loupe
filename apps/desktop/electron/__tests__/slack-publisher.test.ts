@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { publishManifestToSlack } from '../slack-publisher'
+import { publishManifestToSlack, refreshSlackAccessToken } from '../slack-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function response(payload: unknown, ok = true): Response {
@@ -244,5 +244,96 @@ describe('Slack publisher', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('refreshSlackAccessToken', () => {
+  const baseSettings = {
+    botToken: '',
+    userToken: 'xoxe.xoxp-old',
+    refreshToken: 'xoxe-1-r1',
+    tokenExpiresAt: 0,
+    publishIdentity: 'user' as const,
+    channelId: '',
+    oauthClientId: 'cid',
+  }
+
+  it('bot mode short-circuits with no network call', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshSlackAccessToken(
+      { ...baseSettings, publishIdentity: 'bot' },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.userToken).toBe('xoxe.xoxp-old')
+  })
+
+  it('no refresh_token but a user token returns settings unchanged', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshSlackAccessToken(
+      { ...baseSettings, refreshToken: undefined },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.userToken).toBe('xoxe.xoxp-old')
+  })
+
+  it('non-expired token short-circuits without network', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshSlackAccessToken(
+      { ...baseSettings, tokenExpiresAt: Date.now() + 3600_000 },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.userToken).toBe('xoxe.xoxp-old')
+  })
+
+  it('expired token POSTs to oauth.v2.access and updates userToken/refreshToken/expiresAt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: true, access_token: 'xoxe.xoxp-NEW', refresh_token: 'xoxe-1-r2', expires_in: 43200, token_type: 'user' }),
+      { status: 200 },
+    ))
+    const out = await refreshSlackAccessToken(baseSettings, fetchMock as any)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://slack.com/api/oauth.v2.access')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toContain('grant_type=refresh_token')
+    expect(init?.body).toContain('refresh_token=xoxe-1-r1')
+    expect(init?.body).toContain('client_id=cid')
+    expect(out.userToken).toBe('xoxe.xoxp-NEW')
+    expect(out.refreshToken).toBe('xoxe-1-r2')
+    expect(out.tokenExpiresAt).toBeGreaterThan(Date.now() + 43000_000)
+  })
+
+  it('throws on Slack error response (e.g. invalid_grant)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: false, error: 'invalid_grant' }),
+      { status: 200 },
+    ))
+    await expect(refreshSlackAccessToken(baseSettings, fetchMock as any))
+      .rejects.toThrow(/invalid_grant/)
+  })
+
+  it('keeps the old refresh_token when Slack response omits a rotated one', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: true, access_token: 'xoxe.xoxp-NEW', expires_in: 43200 }),
+      { status: 200 },
+    ))
+    const out = await refreshSlackAccessToken(baseSettings, fetchMock as any)
+    expect(out.refreshToken).toBe('xoxe-1-r1')
+  })
+
+  it('sends Basic auth when client_secret is configured (confidential apps)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: true, access_token: 'xoxe.xoxp-NEW', expires_in: 43200 }),
+      { status: 200 },
+    ))
+    await refreshSlackAccessToken(
+      { ...baseSettings, oauthClientSecret: 'csec' },
+      fetchMock as any,
+    )
+    const init = fetchMock.mock.calls[0][1]
+    expect(init?.headers?.Authorization).toMatch(/^Basic /)
   })
 })

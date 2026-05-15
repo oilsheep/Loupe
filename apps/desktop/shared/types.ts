@@ -37,6 +37,11 @@ export type PublishService = 'slack' | 'gitlab' | 'google'
 export interface SlackPublishSettings {
   botToken: string
   userToken?: string
+  // Refresh token paired with userToken when Slack app has token rotation
+  // enabled (user tokens look like xoxe.xoxp-...; access token expires every
+  // ~12h and must be rotated via grant_type=refresh_token).
+  refreshToken?: string
+  tokenExpiresAt?: number | null
   publishIdentity?: 'bot' | 'user'
   channelId: string
   oauthClientId?: string

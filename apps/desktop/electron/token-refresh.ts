@@ -12,9 +12,16 @@ export interface RefreshGitLabResult {
   refreshToken?: string
 }
 
+export interface RefreshSlackResult {
+  token: string // userToken (xoxe.xoxp-...)
+  tokenExpiresAt: number
+  refreshToken?: string
+}
+
 export interface RefreshDeps {
   refreshGoogle: (args: { refreshToken: string; accountEmail: string }) => Promise<RefreshGoogleResult>
   refreshGitLab: (args: { refreshToken: string; baseUrl: string; oauthClientId: string }) => Promise<RefreshGitLabResult>
+  refreshSlack: (args: { refreshToken: string; oauthTeamId: string; oauthClientId: string }) => Promise<RefreshSlackResult>
 }
 
 const inFlight = new Map<string, Promise<void>>()
@@ -23,6 +30,7 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
   const settings = store.get()
   const seenAccounts = new Set<string>()
   const seenGitLab = new Set<string>()
+  const seenSlack = new Set<string>()
   const tasks: Array<Promise<void>> = []
 
   for (const profile of settings.profiles) {
@@ -61,6 +69,51 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
           if (latest) {
             store.setProfile(profileId, {
               google: { ...latest.google, refreshError: { at: Date.now(), code: String(code) } },
+            })
+          }
+        } finally {
+          inFlight.delete(flightKey)
+        }
+      })()
+      inFlight.set(flightKey, task)
+    }
+    tasks.push(task)
+  }
+
+  for (const profile of settings.profiles) {
+    if (profile.slack.publishIdentity === 'bot') continue
+    const slackTeamId = profile.slack.oauthTeamId?.trim()
+    const slackClientId = profile.slack.oauthClientId?.trim()
+    const slackRefreshToken = profile.slack.refreshToken
+    if (!slackTeamId || !slackClientId || !slackRefreshToken) continue
+    if (seenSlack.has(slackTeamId)) continue
+    seenSlack.add(slackTeamId)
+
+    const flightKey = `slack:${slackTeamId}`
+    let task = inFlight.get(flightKey)
+    if (!task) {
+      const profileId = profile.id
+      task = (async () => {
+        try {
+          const result = await deps.refreshSlack({ refreshToken: slackRefreshToken, oauthTeamId: slackTeamId, oauthClientId: slackClientId })
+          const latest = store.get().profiles.find(p => p.id === profileId)
+          if (!latest) return
+          // setProfile triggers syncProfileToken → propagates to siblings sharing oauthTeamId.
+          store.setProfile(profileId, {
+            slack: {
+              ...latest.slack,
+              userToken: result.token,
+              tokenExpiresAt: result.tokenExpiresAt,
+              ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),
+              refreshError: undefined,
+            },
+          })
+        } catch (err: any) {
+          const code = err?.code || err?.message || 'refresh_failed'
+          const latest = store.get().profiles.find(p => p.id === profileId)
+          if (latest) {
+            store.setProfile(profileId, {
+              slack: { ...latest.slack, refreshError: { at: Date.now(), code: String(code) } },
             })
           }
         } finally {

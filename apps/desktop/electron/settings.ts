@@ -98,6 +98,8 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
   return {
     botToken: raw?.botToken || '',
     userToken: raw?.userToken || '',
+    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
+    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
     publishIdentity,
     channelId: raw?.channelId || '',
     oauthClientId: raw?.oauthClientId || '',
@@ -640,7 +642,7 @@ function identityKey(service: TokenSyncableService, p: ProfileSettings): string 
 
 // Fields where missing means "don't overwrite" (don't accidentally wipe a sibling's token).
 const TOKEN_FIELDS_COPY_IF_DEFINED: Record<TokenSyncableService, string[]> = {
-  slack: ['botToken', 'userToken', 'oauthUserScopes', 'oauthConnectedAt'],
+  slack: ['botToken', 'userToken', 'refreshToken', 'tokenExpiresAt', 'oauthUserScopes', 'oauthConnectedAt'],
   gitlab: ['token', 'refreshToken', 'tokenExpiresAt', 'authType'],
   google: ['token', 'refreshToken', 'tokenExpiresAt', 'accountEmail'],
 }

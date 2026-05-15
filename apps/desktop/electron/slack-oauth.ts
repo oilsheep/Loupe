@@ -22,6 +22,11 @@ interface SlackOAuthAccessResponse {
     scope?: string
     access_token?: string
     token_type?: string
+    // Present when Slack app has token rotation enabled. Previously dropped
+    // by Loupe, causing user tokens to silently expire after ~12 hours with
+    // no refresh path. See refreshSlackAccessToken in slack-publisher.ts.
+    refresh_token?: string
+    expires_in?: number
   }
   team?: {
     id?: string
@@ -35,6 +40,15 @@ export interface SlackOAuthResult {
   teamId: string
   teamName: string
   scopes: string[]
+  // The resolved OAuth client_id used in the code exchange. Captured so that
+  // the periodic token-refresh sweep can build a matching refresh request
+  // without re-deriving the fallback chain in slackOAuthConfig().
+  oauthClientId: string
+  // Populated only when the Slack app has token rotation enabled. Otherwise
+  // refresh-related state stays undefined (legacy long-lived xoxp-/xoxb-
+  // tokens). Mirrors GooglePublishSettings / GitLabPublishSettings shape.
+  refreshToken?: string
+  tokenExpiresAt?: number | null
 }
 
 export function createSlackPkce(): { codeVerifier: string; codeChallenge: string } {
@@ -103,11 +117,16 @@ export async function exchangeSlackOAuthCode(args: {
   const userId = payload.authed_user?.id?.trim()
   if (!userToken) throw new Error('Slack OAuth did not return a user access token')
   if (!userId) throw new Error('Slack OAuth did not return an authenticated user ID')
+  const refreshToken = payload.authed_user?.refresh_token?.trim() || undefined
+  const expiresIn = typeof payload.authed_user?.expires_in === 'number' ? payload.authed_user.expires_in : undefined
   return {
     userToken,
     userId,
     teamId: payload.team?.id?.trim() || '',
     teamName: payload.team?.name?.trim() || '',
     scopes: (payload.authed_user?.scope ?? '').split(',').map(scope => scope.trim()).filter(Boolean),
+    oauthClientId: clientId,
+    refreshToken,
+    tokenExpiresAt: typeof expiresIn === 'number' ? Date.now() + Math.max(1, expiresIn) * 1000 : null,
   }
 }
