@@ -75,6 +75,76 @@ function validateProjectListSettings(settings: GitLabPublishSettings): void {
   if (!settings.token.trim()) throw new Error('GitLab token is missing')
 }
 
+// Refresh 5 minutes before actual expiry to avoid races where the request
+// is in flight when the token flips invalid.
+const REFRESH_LEAD_MS = 5 * 60 * 1000
+
+function tokenExpired(settings: GitLabPublishSettings): boolean {
+  if (typeof settings.tokenExpiresAt !== 'number') return false
+  return Date.now() >= settings.tokenExpiresAt - REFRESH_LEAD_MS
+}
+
+interface GitLabTokenResponse {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+  error?: string
+  error_description?: string
+}
+
+// Refreshes a GitLab OAuth access token using its refresh_token. Mirrors
+// refreshGoogleAccessToken in google-publisher.ts.
+//
+//   - PAT auth path: short-circuits (no refresh applicable).
+//   - No refresh token present: returns settings as-is if a token is held
+//     (caller can still try the API and surface a 401), or throws if both
+//     are missing.
+//   - Token still within expiry window and not forced: returns as-is.
+//   - Otherwise POSTs `${baseUrl}/oauth/token` with grant_type=refresh_token
+//     and returns settings with rolled access_token + (possibly rotated)
+//     refresh_token + new tokenExpiresAt.
+export async function refreshGitLabAccessToken(
+  settings: GitLabPublishSettings,
+  fetchImpl: GitLabPublisherFetch = fetch,
+  options: { forceRefresh?: boolean } = {},
+): Promise<GitLabPublishSettings> {
+  if (settings.authType === 'pat') return settings
+  if (!settings.refreshToken?.trim()) {
+    if (settings.token.trim()) return settings
+    throw new Error('GitLab refresh token is missing')
+  }
+  if (!options.forceRefresh && settings.token.trim() && !tokenExpired(settings)) return settings
+
+  const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
+  if (!baseUrl) throw new Error('GitLab base URL is missing')
+  const clientId = settings.oauthClientId?.trim()
+  if (!clientId) throw new Error('GitLab OAuth client ID is missing')
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: settings.refreshToken.trim(),
+    client_id: clientId,
+  })
+  if (settings.oauthClientSecret?.trim()) body.set('client_secret', settings.oauthClientSecret.trim())
+
+  const response = await fetchImpl(`${baseUrl}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+  const text = await response.text()
+  const payload = text ? JSON.parse(text) as GitLabTokenResponse : {}
+  if (!response.ok || !payload.access_token) {
+    throw new Error(`GitLab token refresh failed: ${payload.error_description || payload.error || response.statusText}`)
+  }
+  return {
+    ...settings,
+    token: payload.access_token,
+    refreshToken: payload.refresh_token || settings.refreshToken,
+    tokenExpiresAt: Date.now() + Math.max(1, payload.expires_in ?? 7200) * 1000,
+  }
+}
+
 export async function fetchGitLabProjects(settings: GitLabPublishSettings, fetchImpl: GitLabPublisherFetch = fetch): Promise<GitLabProject[]> {
   validateProjectListSettings(settings)
   const projects: GitLabProject[] = []

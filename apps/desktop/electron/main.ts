@@ -18,6 +18,7 @@ import { getBundledOAuthInstances } from './gitlab-oauth-config'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { refreshAllExpiringTokens, type RefreshDeps } from './token-refresh'
 import { refreshGoogleAccessToken } from './google-publisher'
+import { refreshGitLabAccessToken } from './gitlab-publisher'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { HotkeySettings, ProfileSettings } from '@shared/types'
 
@@ -246,7 +247,7 @@ app.whenReady().then(async () => {
     id: randomUUID(),
     name: 'Default',
     slack: { botToken: '', userToken: '', publishIdentity: 'user', channelId: '', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://slack-oauth', oauthUserId: '', oauthTeamId: '', oauthTeamName: '', oauthConnectedAt: null, oauthUserScopes: [], channels: [], channelsFetchedAt: null, mentionUserIds: [], mentionAliases: {}, mentionUsers: [], usersFetchedAt: null },
-    gitlab: { baseUrl: getBundledOAuthInstances()[0]?.url ?? 'https://gitlab.com', token: '', authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
+    gitlab: { baseUrl: getBundledOAuthInstances()[0]?.url ?? 'https://gitlab.com', token: '', refreshToken: undefined, tokenExpiresAt: null, authType: 'oauth', oauthClientId: '', oauthClientSecret: '', oauthRedirectUri: 'loupe://gitlab-oauth', projectId: '', mode: 'single-issue', emailLookup: 'off', labels: ['loupe', 'qa-evidence'], confidential: false, mentionUsernames: [], mentionUsers: [], usersFetchedAt: null, lastUserSyncWarning: null },
     google: { token: '', refreshToken: '', tokenExpiresAt: null, accountEmail: '', oauthClientId: GOOGLE_OAUTH_CONFIG.clientId, oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret, oauthRedirectUri: GOOGLE_OAUTH_CONFIG.redirectUri, driveFolderId: '', driveFolderName: '', updateSheet: false, spreadsheetId: '', spreadsheetName: '', sheetName: '' },
     markerFieldPresets: DEFAULT_MARKER_FIELD_PRESETS,
     publishTemplates: {},
@@ -418,6 +419,27 @@ app.whenReady().then(async () => {
       return {
         token: refreshed.token,
         tokenExpiresAt: refreshed.tokenExpiresAt ?? Date.now() + 3600_000,
+        refreshToken: refreshed.refreshToken,
+      }
+    },
+    refreshGitLab: async ({ refreshToken, baseUrl, oauthClientId }) => {
+      const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '')
+      const target = settings.get().profiles.find(p =>
+        p.gitlab.authType === 'oauth' &&
+        p.gitlab.baseUrl.trim().replace(/\/+$/, '') === normalizedBaseUrl &&
+        (p.gitlab.oauthClientId ?? '') === oauthClientId)
+      if (!target) throw new Error(`No GitLab profile found for ${normalizedBaseUrl}/${oauthClientId}`)
+      const refreshed = await refreshGitLabAccessToken(
+        { ...target.gitlab, refreshToken },
+        undefined,
+        // Proactive sweep — mirror Google's force-refresh; GitLab's
+        // refresh-token doesn't have a hard inactivity timer like Google's,
+        // but consistent semantics make the periodic sweep predictable.
+        { forceRefresh: true },
+      )
+      return {
+        token: refreshed.token,
+        tokenExpiresAt: refreshed.tokenExpiresAt ?? Date.now() + 7200_000,
         refreshToken: refreshed.refreshToken,
       }
     },

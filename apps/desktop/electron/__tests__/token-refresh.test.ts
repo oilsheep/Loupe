@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
-import { refreshAllExpiringTokens } from '../token-refresh'
+import { refreshAllExpiringTokens, type RefreshDeps } from '../token-refresh'
 import type { AppSettings } from '@shared/types'
 
 const MIN_DEFAULTS: AppSettings = {
@@ -31,6 +31,16 @@ function makeStore(): { store: SettingsStore; tmp: string } {
   return { store: new SettingsStore(join(tmp, 'settings.json'), MIN_DEFAULTS), tmp }
 }
 
+// Most tests focus on one service; provide a default no-op for the other
+// so consumers can pass partial deps.
+function deps(overrides: Partial<RefreshDeps>): RefreshDeps {
+  return {
+    refreshGoogle: vi.fn().mockResolvedValue({ token: 'unused', tokenExpiresAt: 0 }),
+    refreshGitLab: vi.fn().mockResolvedValue({ token: 'unused', tokenExpiresAt: 0 }),
+    ...overrides,
+  }
+}
+
 afterEach(() => {
   while (TMP_DIRS.length) rmSync(TMP_DIRS.pop()!, { recursive: true, force: true })
 })
@@ -43,7 +53,7 @@ describe('refreshAllExpiringTokens', () => {
       google: { ...store.get().profiles[0].google, accountEmail: 'a@b.com', refreshToken: 'r1', token: 'old', tokenExpiresAt: 0 },
     })
     const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 3600_000 })
-    await refreshAllExpiringTokens(store, { refreshGoogle: refreshFn })
+    await refreshAllExpiringTokens(store, deps({ refreshGoogle: refreshFn }))
     expect(refreshFn).toHaveBeenCalledTimes(1)
     expect(store.get().profiles[0].google.token).toBe('NEW')
     expect(store.get().profiles[0].google.refreshError).toBeUndefined()
@@ -52,7 +62,7 @@ describe('refreshAllExpiringTokens', () => {
   it('skips projects without a Google refreshToken', async () => {
     const { store } = makeStore()
     const refreshFn = vi.fn()
-    await refreshAllExpiringTokens(store, { refreshGoogle: refreshFn })
+    await refreshAllExpiringTokens(store, deps({ refreshGoogle: refreshFn }))
     expect(refreshFn).not.toHaveBeenCalled()
   })
 
@@ -69,7 +79,7 @@ describe('refreshAllExpiringTokens', () => {
     const refreshFn = vi.fn()
       .mockResolvedValueOnce({ token: 'NEW', tokenExpiresAt: Date.now() + 3600_000 })
       .mockRejectedValueOnce(Object.assign(new Error('invalid_grant'), { code: 'invalid_grant' }))
-    await refreshAllExpiringTokens(store, { refreshGoogle: refreshFn })
+    await refreshAllExpiringTokens(store, deps({ refreshGoogle: refreshFn }))
     const after = store.get()
     expect(after.profiles[0].google.token).toBe('NEW')
     expect(after.profiles[0].google.refreshError).toBeUndefined()
@@ -88,8 +98,8 @@ describe('refreshAllExpiringTokens', () => {
     }
     const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 3600_000 })
     await Promise.all([
-      refreshAllExpiringTokens(store, { refreshGoogle: refreshFn }),
-      refreshAllExpiringTokens(store, { refreshGoogle: refreshFn }),
+      refreshAllExpiringTokens(store, deps({ refreshGoogle: refreshFn })),
+      refreshAllExpiringTokens(store, deps({ refreshGoogle: refreshFn })),
     ])
     expect(refreshFn).toHaveBeenCalledTimes(1)
   })
@@ -132,8 +142,79 @@ describe('refreshAllExpiringTokens — integration with real refreshGoogleAccess
         refreshToken: refreshed.refreshToken,
       }
     }
-    await refreshAllExpiringTokens(store, { refreshGoogle })
+    await refreshAllExpiringTokens(store, deps({ refreshGoogle }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(store.get().profiles[0].google.token).toBe('NEW')
+  })
+})
+
+describe('refreshAllExpiringTokens — GitLab', () => {
+  it('attempts a refresh for each project with a GitLab oauth refreshToken', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      gitlab: { ...store.get().profiles[0].gitlab, authType: 'oauth', oauthClientId: 'cid', refreshToken: 'r1', token: 'old', tokenExpiresAt: 0 },
+    })
+    const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 7200_000, refreshToken: 'r2' })
+    await refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn }))
+    expect(refreshFn).toHaveBeenCalledTimes(1)
+    const after = store.get().profiles[0].gitlab
+    expect(after.token).toBe('NEW')
+    expect(after.refreshToken).toBe('r2')
+    expect(after.refreshError).toBeUndefined()
+  })
+
+  it('skips PAT-auth profiles even if a refreshToken is somehow present', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      gitlab: { ...store.get().profiles[0].gitlab, authType: 'pat', oauthClientId: 'cid', refreshToken: 'r1' },
+    })
+    const refreshFn = vi.fn()
+    await refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn }))
+    expect(refreshFn).not.toHaveBeenCalled()
+  })
+
+  it('skips profiles without baseUrl or oauthClientId or refreshToken', async () => {
+    const { store } = makeStore()
+    const refreshFn = vi.fn()
+    await refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn }))
+    expect(refreshFn).not.toHaveBeenCalled()
+  })
+
+  it('dedupes concurrent refresh calls per baseUrl::clientId identity', async () => {
+    const { store } = makeStore()
+    store.addProfile({ name: 'Cytus', duplicateFromId: store.get().profiles[0].id })
+    const ids = store.get().profiles.map(p => p.id)
+    for (const id of ids) {
+      store.setProfile(id, {
+        gitlab: {
+          ...store.get().profiles.find(p => p.id === id)!.gitlab,
+          baseUrl: 'https://gitlab.example.com',
+          authType: 'oauth',
+          oauthClientId: 'shared-client',
+          refreshToken: 'r1',
+          tokenExpiresAt: 0,
+        },
+      })
+    }
+    const refreshFn = vi.fn().mockResolvedValue({ token: 'NEW', tokenExpiresAt: Date.now() + 7200_000 })
+    await Promise.all([
+      refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn })),
+      refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn })),
+    ])
+    expect(refreshFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('sets refreshError on failing GitLab refresh', async () => {
+    const { store } = makeStore()
+    const defId = store.get().profiles[0].id
+    store.setProfile(defId, {
+      gitlab: { ...store.get().profiles[0].gitlab, authType: 'oauth', oauthClientId: 'cid', refreshToken: 'r1', tokenExpiresAt: 0 },
+    })
+    const refreshFn = vi.fn().mockRejectedValue(Object.assign(new Error('invalid_grant'), { code: 'invalid_grant' }))
+    await refreshAllExpiringTokens(store, deps({ refreshGitLab: refreshFn }))
+    expect(store.get().profiles[0].gitlab.refreshError).toBeDefined()
+    expect(store.get().profiles[0].gitlab.refreshError?.code).toMatch(/invalid_grant/i)
   })
 })

@@ -6,8 +6,15 @@ export interface RefreshGoogleResult {
   refreshToken?: string
 }
 
+export interface RefreshGitLabResult {
+  token: string
+  tokenExpiresAt: number
+  refreshToken?: string
+}
+
 export interface RefreshDeps {
   refreshGoogle: (args: { refreshToken: string; accountEmail: string }) => Promise<RefreshGoogleResult>
+  refreshGitLab: (args: { refreshToken: string; baseUrl: string; oauthClientId: string }) => Promise<RefreshGitLabResult>
 }
 
 const inFlight = new Map<string, Promise<void>>()
@@ -15,6 +22,7 @@ const inFlight = new Map<string, Promise<void>>()
 export async function refreshAllExpiringTokens(store: SettingsStore, deps: RefreshDeps): Promise<void> {
   const settings = store.get()
   const seenAccounts = new Set<string>()
+  const seenGitLab = new Set<string>()
   const tasks: Array<Promise<void>> = []
 
   for (const profile of settings.profiles) {
@@ -53,6 +61,55 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
           if (latest) {
             store.setProfile(profileId, {
               google: { ...latest.google, refreshError: { at: Date.now(), code: String(code) } },
+            })
+          }
+        } finally {
+          inFlight.delete(flightKey)
+        }
+      })()
+      inFlight.set(flightKey, task)
+    }
+    tasks.push(task)
+  }
+
+  for (const profile of settings.profiles) {
+    if (profile.gitlab.authType !== 'oauth') continue
+    const baseUrl = profile.gitlab.baseUrl?.trim().replace(/\/+$/, '')
+    const oauthClientId = profile.gitlab.oauthClientId?.trim()
+    const gitlabRefreshToken = profile.gitlab.refreshToken
+    if (!baseUrl || !oauthClientId || !gitlabRefreshToken) continue
+    const identityKey = `${baseUrl}::${oauthClientId}`
+    if (seenGitLab.has(identityKey)) continue
+    seenGitLab.add(identityKey)
+
+    const flightKey = `gitlab:${identityKey}`
+    let task = inFlight.get(flightKey)
+    if (!task) {
+      const profileId = profile.id
+      task = (async () => {
+        try {
+          const result = await deps.refreshGitLab({ refreshToken: gitlabRefreshToken, baseUrl, oauthClientId })
+          // Re-read the latest profile shape so concurrent edits to other
+          // gitlab fields (e.g. projectId) aren't clobbered by a stale snapshot.
+          const latest = store.get().profiles.find(p => p.id === profileId)
+          if (!latest) return
+          // setProfile triggers syncProfileToken → propagates to siblings
+          // sharing the same baseUrl + oauthClientId identity.
+          store.setProfile(profileId, {
+            gitlab: {
+              ...latest.gitlab,
+              token: result.token,
+              tokenExpiresAt: result.tokenExpiresAt,
+              ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),
+              refreshError: undefined,
+            },
+          })
+        } catch (err: any) {
+          const code = err?.code || err?.message || 'refresh_failed'
+          const latest = store.get().profiles.find(p => p.id === profileId)
+          if (latest) {
+            store.setProfile(profileId, {
+              gitlab: { ...latest.gitlab, refreshError: { at: Date.now(), code: String(code) } },
             })
           }
         } finally {

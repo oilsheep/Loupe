@@ -88,6 +88,8 @@ export type GitLabPublishMode = 'single-issue' | 'per-marker-issue'
 export interface GitLabPublishSettings {
   baseUrl: string
   token: string
+  refreshToken?: string
+  tokenExpiresAt?: number | null
   authType?: 'pat' | 'oauth'
   oauthClientId?: string
   oauthClientSecret?: string

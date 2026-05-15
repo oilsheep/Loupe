@@ -19,7 +19,7 @@ import { writeExportManifests } from './export-manifest'
 import { fetchSlackChannels, fetchSlackMentionUsers } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
-import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects } from './gitlab-publisher'
+import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, refreshGitLabAccessToken } from './gitlab-publisher'
 import { createGoogleDriveFolder, ensureDefaultGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import { findActiveProfile, findProfileByIdOrActive, type SettingsStore } from './settings'
@@ -495,7 +495,7 @@ function base64Url(buffer: Buffer): string {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<string> {
+async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<GitLabPublishSettings> {
   gitlabOAuthCancel?.()
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
   if (!baseUrl) throw new Error('GitLab base URL is missing')
@@ -571,7 +571,7 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
     body,
   })
   const text = await response.text()
-  const payload = text ? JSON.parse(text) as { access_token?: string; error?: string; error_description?: string } : {}
+  const payload = text ? JSON.parse(text) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string } : {}
   if (!response.ok || !payload.access_token) {
     const reason = payload.error_description || payload.error || response.statusText
     const hint = /client authentication|unknown client|invalid_client/i.test(reason)
@@ -579,7 +579,14 @@ async function connectGitLabOAuth(settings: GitLabPublishSettings): Promise<stri
       : ''
     throw new Error(`GitLab OAuth token exchange failed: ${reason}${hint}`)
   }
-  return payload.access_token
+  return {
+    ...settings,
+    token: payload.access_token,
+    refreshToken: payload.refresh_token || settings.refreshToken,
+    tokenExpiresAt: Date.now() + Math.max(1, payload.expires_in ?? 7200) * 1000,
+    authType: 'oauth',
+    oauthClientId: clientId,
+  }
 }
 
 async function connectGoogleOAuth(settings: GooglePublishSettings): Promise<GooglePublishSettings> {
@@ -2414,8 +2421,8 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsConnectGitLabOAuth, async (_e, profileId: string, gitlab: GitLabPublishSettings) => {
     const saved = deps.settings.setProfile(profileId, { gitlab })
     const savedProfile = findProfileByIdOrActive(saved, profileId)
-    const token = await connectGitLabOAuth(savedProfile.gitlab)
-    return deps.settings.setProfile(profileId, { gitlab: { ...savedProfile.gitlab, token, authType: 'oauth' } })
+    const connected = await connectGitLabOAuth(savedProfile.gitlab)
+    return deps.settings.setProfile(profileId, { gitlab: connected })
   })
   ipcMain.handle(CHANNEL.settingsCancelGitLabOAuth, async () => {
     gitlabOAuthCancel?.()
@@ -2426,7 +2433,21 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, profileId: string, gitlab: GitLabPublishSettings) => {
     try {
-      return await fetchGitLabProjects(gitlab)
+      // Proactive refresh — if the cached access_token is past the 5-min lead
+      // window, use refresh_token to get a new one before hitting /api/v4.
+      // Mirrors the Google flow in settingsListGoogleDriveFolders.
+      const refreshed = await refreshGitLabAccessToken(gitlab)
+      if (refreshed.token !== gitlab.token) {
+        deps.settings.setProfile(profileId, {
+          gitlab: {
+            ...gitlab,
+            token: refreshed.token,
+            refreshToken: refreshed.refreshToken,
+            tokenExpiresAt: refreshed.tokenExpiresAt,
+          },
+        })
+      }
+      return await fetchGitLabProjects(refreshed)
     } catch (err) {
       maybeClearExpiredGitLabTokenForProject(deps.settings, profileId, gitlab, err)
       throw friendlyGitLabProjectsError(err)
@@ -2544,9 +2565,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsRefreshGitLabUsers, async (_e, projectId: string) => {
     const settings = deps.settings.get()
     const project = settings.profiles.find(p => p.id === projectId) ?? findActiveProfile(settings)
-    const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(project.gitlab)
+    const refreshed = await refreshGitLabAccessToken(project.gitlab)
+    const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(refreshed)
     deps.settings.setProfile(projectId, { gitlab: {
       ...project.gitlab,
+      token: refreshed.token,
+      refreshToken: refreshed.refreshToken,
+      tokenExpiresAt: refreshed.tokenExpiresAt,
       mentionUsers,
       usersFetchedAt: new Date().toISOString(),
       lastUserSyncWarning: warning,

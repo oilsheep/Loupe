@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, publishManifestToGitLab } from '../gitlab-publisher'
+import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, publishManifestToGitLab, refreshGitLabAccessToken } from '../gitlab-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function response(payload: unknown, ok = true, status = ok ? 200 : 400): Response {
@@ -273,5 +273,119 @@ describe('GitLab publisher', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('refreshGitLabAccessToken', () => {
+  const baseSettings = {
+    baseUrl: 'https://gitlab.example.com',
+    token: 'old-access',
+    refreshToken: 'r-1',
+    tokenExpiresAt: 0, // expired
+    authType: 'oauth' as const,
+    oauthClientId: 'cid',
+    projectId: 'group/project',
+    mode: 'single-issue' as const,
+  }
+
+  it('PAT auth short-circuits with no network call', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshGitLabAccessToken(
+      { ...baseSettings, authType: 'pat', refreshToken: undefined },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.token).toBe('old-access')
+  })
+
+  it('no refresh_token but an access_token returns settings unchanged', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshGitLabAccessToken(
+      { ...baseSettings, refreshToken: undefined },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.token).toBe('old-access')
+  })
+
+  it('no refresh_token AND no access_token throws', async () => {
+    const fetchMock = vi.fn()
+    await expect(refreshGitLabAccessToken(
+      { ...baseSettings, refreshToken: undefined, token: '' },
+      fetchMock as any,
+    )).rejects.toThrow(/refresh token is missing/i)
+  })
+
+  it('non-expired token short-circuits without network', async () => {
+    const fetchMock = vi.fn()
+    const out = await refreshGitLabAccessToken(
+      { ...baseSettings, tokenExpiresAt: Date.now() + 3600_000 },
+      fetchMock as any,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.token).toBe('old-access')
+  })
+
+  it('forceRefresh hits /oauth/token even when not expired', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ access_token: 'NEW', refresh_token: 'NEW-R', expires_in: 7200 }),
+      { status: 200 },
+    ))
+    const out = await refreshGitLabAccessToken(
+      { ...baseSettings, tokenExpiresAt: Date.now() + 3600_000 },
+      fetchMock as any,
+      { forceRefresh: true },
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://gitlab.example.com/oauth/token')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toContain('grant_type=refresh_token')
+    expect(init?.body).toContain('refresh_token=r-1')
+    expect(init?.body).toContain('client_id=cid')
+    expect(out.token).toBe('NEW')
+    expect(out.refreshToken).toBe('NEW-R')
+    expect(out.tokenExpiresAt).toBeGreaterThan(Date.now() + 7000_000)
+  })
+
+  it('expired token triggers refresh and stores rotated refresh_token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ access_token: 'NEW', refresh_token: 'NEW-R', expires_in: 7200 }),
+      { status: 200 },
+    ))
+    const out = await refreshGitLabAccessToken(baseSettings, fetchMock as any)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(out.token).toBe('NEW')
+    expect(out.refreshToken).toBe('NEW-R')
+  })
+
+  it('refresh response without rotated refresh_token keeps the old one', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ access_token: 'NEW', expires_in: 7200 }),
+      { status: 200 },
+    ))
+    const out = await refreshGitLabAccessToken(baseSettings, fetchMock as any)
+    expect(out.refreshToken).toBe('r-1')
+  })
+
+  it('includes client_secret in body when present', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ access_token: 'NEW', expires_in: 7200 }),
+      { status: 200 },
+    ))
+    await refreshGitLabAccessToken(
+      { ...baseSettings, oauthClientSecret: 'csec' },
+      fetchMock as any,
+    )
+    expect(fetchMock.mock.calls[0][1]?.body).toContain('client_secret=csec')
+  })
+
+  it('throws with GitLab error_description when /oauth/token fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: 'invalid_grant', error_description: 'refresh token revoked' }),
+      { status: 400 },
+    ))
+    await expect(refreshGitLabAccessToken(baseSettings, fetchMock as any))
+      .rejects.toThrow(/refresh token revoked/)
   })
 })

@@ -431,6 +431,8 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
   return {
     baseUrl: (raw?.baseUrl?.trim() || getBundledOAuthInstances()[0]?.url || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
+    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
+    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
     authType,
     oauthClientId: typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '',
     oauthClientSecret: typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : '',
@@ -639,7 +641,7 @@ function identityKey(service: TokenSyncableService, p: ProfileSettings): string 
 // Fields where missing means "don't overwrite" (don't accidentally wipe a sibling's token).
 const TOKEN_FIELDS_COPY_IF_DEFINED: Record<TokenSyncableService, string[]> = {
   slack: ['botToken', 'userToken', 'oauthUserScopes', 'oauthConnectedAt'],
-  gitlab: ['token', 'authType'],
+  gitlab: ['token', 'refreshToken', 'tokenExpiresAt', 'authType'],
   google: ['token', 'refreshToken', 'tokenExpiresAt', 'accountEmail'],
 }
 
