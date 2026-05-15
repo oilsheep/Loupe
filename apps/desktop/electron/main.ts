@@ -433,9 +433,6 @@ app.whenReady().then(async () => {
       const refreshed = await refreshGitLabAccessToken(
         { ...target.gitlab, refreshToken },
         undefined,
-        // Proactive sweep — mirror Google's force-refresh; GitLab's
-        // refresh-token doesn't have a hard inactivity timer like Google's,
-        // but consistent semantics make the periodic sweep predictable.
         { forceRefresh: true },
       )
       return {
@@ -453,7 +450,6 @@ app.whenReady().then(async () => {
       const refreshed = await refreshSlackAccessToken(
         { ...target.slack, refreshToken },
         undefined,
-        // Proactive sweep — refresh well before Slack's 12-hour expiry.
         { forceRefresh: true },
       )
       const newUserToken = refreshed.userToken?.trim() || ''

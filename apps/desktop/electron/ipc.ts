@@ -2061,9 +2061,9 @@ export function registerIpc(deps: IpcDeps): void {
       let settings = deps.settings.setProfile(projectId, { slack: {
         ...current,
         userToken: oauth.userToken,
-        // Capture rotation fields when the Slack app has token rotation
-        // enabled (xoxe.xoxp-... tokens). Undefined when rotation is off
-        // (legacy long-lived xoxp-* tokens).
+        // refreshToken / tokenExpiresAt are only populated when the Slack
+        // app has token rotation enabled (xoxe.xoxp-... tokens); undefined
+        // for legacy xoxp-* tokens.
         refreshToken: oauth.refreshToken,
         tokenExpiresAt: oauth.tokenExpiresAt,
         oauthClientId: oauth.oauthClientId,
@@ -2409,16 +2409,12 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.settingsSetSlack, async (_e, profileId: string, slack: SlackPublishSettings) => {
     let settings = deps.settings.setProfile(profileId, { slack })
     const profile = findProfileByIdOrActive(settings, profileId)
-    // Proactive refresh — for user-mode OAuth, rotate the access_token
-    // if it's past the 5-minute lead window before hitting slack.com/api.
-    // No-op for bot mode or tokens without rotation enabled.
+    // Refresh-token errors swallowed — the directory fetch below surfaces the
+    // friendlier "Reconnect" error if the stale token actually 401s.
     let refreshedSlack: SlackPublishSettings
     try {
       refreshedSlack = await refreshSlackAccessToken(profile.slack)
     } catch {
-      // Refresh-token expired or revoked. Fall through with the existing
-      // (possibly stale) token; the directory fetch below will surface a
-      // friendlier error.
       refreshedSlack = profile.slack
     }
     if (refreshedSlack.userToken !== profile.slack.userToken) {
@@ -2454,9 +2450,6 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.settingsListGitLabProjects, async (_e, profileId: string, gitlab: GitLabPublishSettings) => {
     try {
-      // Proactive refresh — if the cached access_token is past the 5-min lead
-      // window, use refresh_token to get a new one before hitting /api/v4.
-      // Mirrors the Google flow in settingsListGoogleDriveFolders.
       const refreshed = await refreshGitLabAccessToken(gitlab)
       if (refreshed.token !== gitlab.token) {
         deps.settings.setProfile(profileId, {
@@ -2596,10 +2589,7 @@ export function registerIpc(deps: IpcDeps): void {
     const refreshed = await refreshGitLabAccessToken(project.gitlab)
     const { users: mentionUsers, warning } = await fetchGitLabMentionUsersWithEmailLookup(refreshed)
     deps.settings.setProfile(projectId, { gitlab: {
-      ...project.gitlab,
-      token: refreshed.token,
-      refreshToken: refreshed.refreshToken,
-      tokenExpiresAt: refreshed.tokenExpiresAt,
+      ...refreshed,
       mentionUsers,
       usersFetchedAt: new Date().toISOString(),
       lastUserSyncWarning: warning,

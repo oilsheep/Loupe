@@ -64,18 +64,8 @@ interface SlackTokenRotationResponse {
   token_type?: string
 }
 
-// Refreshes a Slack OAuth user token when the app has token rotation enabled
-// (xoxe.xoxp-... tokens, 12-hour expiry). Mirrors refreshGitLabAccessToken /
-// refreshGoogleAccessToken.
-//
-//   - Bot mode: short-circuits (bot tokens are pasted PATs in Loupe; no refresh).
-//   - No refresh_token but a user token: returns as-is (legacy long-lived
-//     xoxp-* tokens from apps without rotation enabled). The caller will
-//     surface a 401 if the token has been revoked.
-//   - Token still inside the 5-minute lead window: returns as-is.
-//   - Otherwise POSTs https://slack.com/api/oauth.v2.access with
-//     grant_type=refresh_token and returns settings with the rolled
-//     access_token + (rotated) refresh_token + new tokenExpiresAt.
+// Mirrors refreshGitLabAccessToken / refreshGoogleAccessToken. Only applies
+// to user-mode OAuth tokens — bot tokens in Loupe are paste-in PATs.
 export async function refreshSlackAccessToken(
   settings: SlackPublishSettings,
   fetchImpl: SlackPublisherFetch = fetch,

@@ -98,8 +98,8 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
   return {
     botToken: raw?.botToken || '',
     userToken: raw?.userToken || '',
-    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
-    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
+    refreshToken: normalizeRefreshToken(raw?.refreshToken),
+    tokenExpiresAt: normalizeTokenExpiresAt(raw?.tokenExpiresAt),
     publishIdentity,
     channelId: raw?.channelId || '',
     oauthClientId: raw?.oauthClientId || '',
@@ -187,6 +187,14 @@ function normalizeGitLabUsername(value: unknown): string {
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function normalizeRefreshToken(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function normalizeTokenExpiresAt(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function normalizeGitLabMentionUsers(raw?: unknown): GitLabMentionUser[] {
@@ -433,8 +441,8 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
   return {
     baseUrl: (raw?.baseUrl?.trim() || getBundledOAuthInstances()[0]?.url || 'https://gitlab.com').replace(/\/+$/, ''),
     token: raw?.token || '',
-    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
-    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
+    refreshToken: normalizeRefreshToken(raw?.refreshToken),
+    tokenExpiresAt: normalizeTokenExpiresAt(raw?.tokenExpiresAt),
     authType,
     oauthClientId: typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : '',
     oauthClientSecret: typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : '',
@@ -455,8 +463,8 @@ function normalizeGitLab(raw?: Partial<GitLabPublishSettings>): GitLabPublishSet
 function normalizeGoogle(raw?: Partial<GooglePublishSettings>): GooglePublishSettings {
   return {
     token: typeof raw?.token === 'string' ? raw.token : '',
-    refreshToken: typeof raw?.refreshToken === 'string' && raw.refreshToken.trim() ? raw.refreshToken.trim() : undefined,
-    tokenExpiresAt: typeof raw?.tokenExpiresAt === 'number' && Number.isFinite(raw.tokenExpiresAt) ? raw.tokenExpiresAt : null,
+    refreshToken: normalizeRefreshToken(raw?.refreshToken),
+    tokenExpiresAt: normalizeTokenExpiresAt(raw?.tokenExpiresAt),
     accountEmail: normalizeEmail(raw?.accountEmail) || undefined,
     oauthClientId: GOOGLE_OAUTH_CONFIG.clientId || (typeof raw?.oauthClientId === 'string' ? raw.oauthClientId.trim() : ''),
     oauthClientSecret: GOOGLE_OAUTH_CONFIG.clientSecret || (typeof raw?.oauthClientSecret === 'string' ? raw.oauthClientSecret.trim() : ''),

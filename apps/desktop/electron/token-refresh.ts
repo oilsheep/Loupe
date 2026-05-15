@@ -13,7 +13,7 @@ export interface RefreshGitLabResult {
 }
 
 export interface RefreshSlackResult {
-  token: string // userToken (xoxe.xoxp-...)
+  token: string
   tokenExpiresAt: number
   refreshToken?: string
 }
@@ -25,6 +25,10 @@ export interface RefreshDeps {
 }
 
 const inFlight = new Map<string, Promise<void>>()
+
+function refreshErrorCode(err: any): string {
+  return String(err?.code || err?.message || 'refresh_failed')
+}
 
 export async function refreshAllExpiringTokens(store: SettingsStore, deps: RefreshDeps): Promise<void> {
   const settings = store.get()
@@ -63,12 +67,11 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
             },
           })
         } catch (err: any) {
-          const code = err?.code || err?.message || 'refresh_failed'
           // Re-read the latest profile shape so we don't clobber concurrent edits.
           const latest = store.get().profiles.find(p => p.id === profileId)
           if (latest) {
             store.setProfile(profileId, {
-              google: { ...latest.google, refreshError: { at: Date.now(), code: String(code) } },
+              google: { ...latest.google, refreshError: { at: Date.now(), code: refreshErrorCode(err) } },
             })
           }
         } finally {
@@ -109,11 +112,10 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
             },
           })
         } catch (err: any) {
-          const code = err?.code || err?.message || 'refresh_failed'
           const latest = store.get().profiles.find(p => p.id === profileId)
           if (latest) {
             store.setProfile(profileId, {
-              slack: { ...latest.slack, refreshError: { at: Date.now(), code: String(code) } },
+              slack: { ...latest.slack, refreshError: { at: Date.now(), code: refreshErrorCode(err) } },
             })
           }
         } finally {
@@ -158,11 +160,10 @@ export async function refreshAllExpiringTokens(store: SettingsStore, deps: Refre
             },
           })
         } catch (err: any) {
-          const code = err?.code || err?.message || 'refresh_failed'
           const latest = store.get().profiles.find(p => p.id === profileId)
           if (latest) {
             store.setProfile(profileId, {
-              gitlab: { ...latest.gitlab, refreshError: { at: Date.now(), code: String(code) } },
+              gitlab: { ...latest.gitlab, refreshError: { at: Date.now(), code: refreshErrorCode(err) } },
             })
           }
         } finally {

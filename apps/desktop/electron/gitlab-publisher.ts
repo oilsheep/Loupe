@@ -92,17 +92,7 @@ interface GitLabTokenResponse {
   error_description?: string
 }
 
-// Refreshes a GitLab OAuth access token using its refresh_token. Mirrors
-// refreshGoogleAccessToken in google-publisher.ts.
-//
-//   - PAT auth path: short-circuits (no refresh applicable).
-//   - No refresh token present: returns settings as-is if a token is held
-//     (caller can still try the API and surface a 401), or throws if both
-//     are missing.
-//   - Token still within expiry window and not forced: returns as-is.
-//   - Otherwise POSTs `${baseUrl}/oauth/token` with grant_type=refresh_token
-//     and returns settings with rolled access_token + (possibly rotated)
-//     refresh_token + new tokenExpiresAt.
+// Mirrors refreshGoogleAccessToken in google-publisher.ts.
 export async function refreshGitLabAccessToken(
   settings: GitLabPublishSettings,
   fetchImpl: GitLabPublisherFetch = fetch,
