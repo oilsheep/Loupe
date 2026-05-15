@@ -17,6 +17,7 @@ export function slackPublishToken(settings: SlackPublishSettings | null): string
 }
 
 export function isSlackConnected(settings: SlackPublishSettings | null): boolean {
+  if (!settings || settings.refreshError) return false
   return Boolean(slackPublishToken(settings))
 }
 
@@ -37,7 +38,8 @@ export function slackConnectionLabel(
 }
 
 export function isGitLabConnected(settings: GitLabPublishSettings | null): boolean {
-  return Boolean(settings?.token?.trim() && settings?.baseUrl?.trim())
+  if (!settings || settings.refreshError) return false
+  return Boolean(settings.token?.trim() && settings.baseUrl?.trim())
 }
 
 export function gitlabConnectionLabel(

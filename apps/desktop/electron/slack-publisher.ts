@@ -64,6 +64,31 @@ interface SlackTokenRotationResponse {
   token_type?: string
 }
 
+// Cheap probe (auth.test) that also handles refresh-if-needed. Used by the
+// validateConnections IPC to keep the connection chip accurate on
+// Preferences / publish-page open without re-fetching the full directory.
+//
+// Throws when the token is dead so the caller can route through
+// maybeClearExpiredSlackTokenForProject — error message must match its regex
+// (token_expired|invalid_auth|not_authed|account_inactive).
+export async function validateSlackConnection(
+  settings: SlackPublishSettings,
+  fetchImpl: SlackPublisherFetch = fetch,
+): Promise<SlackPublishSettings> {
+  const refreshed = await refreshSlackAccessToken(settings, fetchImpl)
+  const token = refreshed.publishIdentity === 'bot'
+    ? refreshed.botToken.trim()
+    : refreshed.userToken?.trim() || ''
+  if (!token) throw new Error('Slack token is missing')
+  const response = await fetchImpl('https://slack.com/api/auth.test', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const payload = await response.json() as { ok: boolean; error?: string }
+  if (!payload.ok) throw new Error(`Slack auth.test failed: ${payload.error || 'unknown'}`)
+  return refreshed
+}
+
 // Mirrors refreshGitLabAccessToken / refreshGoogleAccessToken. Only applies
 // to user-mode OAuth tokens — bot tokens in Loupe are paste-in PATs.
 export async function refreshSlackAccessToken(

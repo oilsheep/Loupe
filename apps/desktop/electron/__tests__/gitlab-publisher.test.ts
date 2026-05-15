@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, publishManifestToGitLab, refreshGitLabAccessToken } from '../gitlab-publisher'
+import { fetchGitLabMentionUsers, fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, publishManifestToGitLab, refreshGitLabAccessToken, validateGitLabConnection } from '../gitlab-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function response(payload: unknown, ok = true, status = ok ? 200 : 400): Response {
@@ -387,5 +387,43 @@ describe('refreshGitLabAccessToken', () => {
     ))
     await expect(refreshGitLabAccessToken(baseSettings, fetchMock as any))
       .rejects.toThrow(/refresh token revoked/)
+  })
+})
+
+describe('validateGitLabConnection', () => {
+  const baseSettings = {
+    baseUrl: 'https://gitlab.example.com',
+    token: 'glpat-active',
+    refreshToken: undefined,
+    tokenExpiresAt: null,
+    authType: 'oauth' as const,
+    oauthClientId: 'cid',
+    projectId: 'group/project',
+    mode: 'single-issue' as const,
+  }
+
+  it('returns settings when /user returns 200', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ id: 1, username: 'farl' }),
+      { status: 200 },
+    ))
+    const out = await validateGitLabConnection(baseSettings, fetchMock as any)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://gitlab.example.com/api/v4/user')
+    expect(init?.method).toBe('GET')
+    expect(init?.headers?.Authorization).toBe('Bearer glpat-active')
+    expect(out.token).toBe('glpat-active')
+  })
+
+  it('throws with a 401-matching message when /user is unauthorized', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 401, statusText: 'Unauthorized' }))
+    await expect(validateGitLabConnection(baseSettings, fetchMock as any))
+      .rejects.toThrow(/401/)
+  })
+
+  it('uses PRIVATE-TOKEN header for PAT auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 1 }), { status: 200 }))
+    await validateGitLabConnection({ ...baseSettings, authType: 'pat' }, fetchMock as any)
+    expect(fetchMock.mock.calls[0][1]?.headers?.['PRIVATE-TOKEN']).toBe('glpat-active')
   })
 })

@@ -16,10 +16,10 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, PublishService, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
-import { fetchSlackChannels, fetchSlackMentionUsers, refreshSlackAccessToken } from './slack-publisher'
+import { fetchSlackChannels, fetchSlackMentionUsers, refreshSlackAccessToken, validateSlackConnection } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
-import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, refreshGitLabAccessToken } from './gitlab-publisher'
+import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, refreshGitLabAccessToken, validateGitLabConnection } from './gitlab-publisher'
 import { createGoogleDriveFolder, ensureDefaultGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import { findActiveProfile, findProfileByIdOrActive, type SettingsStore } from './settings'
@@ -126,6 +126,7 @@ export const CHANNEL = {
   settingsSlackOAuthCompleted:'settings:slackOAuthCompleted',
   settingsDisconnectService:'settings:disconnectService',
   settingsRefreshGitLabUsers:'settings:refreshGitLabUsers',
+  settingsValidateConnections:'settings:validateConnections',
   settingsSetLocale:       'settings:setLocale',
   settingsSetSeverities:   'settings:setSeverities',
   settingsSetAudioAnalysis:'settings:setAudioAnalysis',
@@ -2595,6 +2596,38 @@ export function registerIpc(deps: IpcDeps): void {
       lastUserSyncWarning: warning,
     } })
     return deps.settings.refreshMentionIdentities()
+  })
+  ipcMain.handle(CHANNEL.settingsValidateConnections, async (_e, profileId: string) => {
+    // Cheap probe for each connected service so the connection chip is
+    // accurate on Preferences / BugList mount. For users with a refresh
+    // token the probe is preceded by a refresh; legacy installs without a
+    // refresh token are probed directly. Probe failures route through the
+    // existing maybeClearExpired*Token helpers so the dead token is cleared
+    // and the UI updates to "Reconnect".
+    const settings = deps.settings.get()
+    const project = settings.profiles.find(p => p.id === profileId) ?? findActiveProfile(settings)
+    const slackToken = slackApiTokenForUsers(project.slack)
+    if (slackToken) {
+      try {
+        const refreshed = await validateSlackConnection(project.slack)
+        if (refreshed.userToken !== project.slack.userToken) {
+          deps.settings.setProfile(project.id, { slack: refreshed })
+        }
+      } catch (err) {
+        maybeClearExpiredSlackTokenForProject(deps.settings, project.id, project.slack, err)
+      }
+    }
+    if (project.gitlab.token.trim() && project.gitlab.baseUrl.trim()) {
+      try {
+        const refreshed = await validateGitLabConnection(project.gitlab)
+        if (refreshed.token !== project.gitlab.token) {
+          deps.settings.setProfile(project.id, { gitlab: refreshed })
+        }
+      } catch (err) {
+        maybeClearExpiredGitLabTokenForProject(deps.settings, project.id, project.gitlab, err)
+      }
+    }
+    return deps.settings.get()
   })
   ipcMain.handle(CHANNEL.settingsRefreshSlackChannels, async (_e, projectId: string) => {
     const settings = deps.settings.get()

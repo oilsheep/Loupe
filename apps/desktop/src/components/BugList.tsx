@@ -1480,6 +1480,20 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     return api.onAppSettingsUpdated(apply)
   }, [api, overrideProfile])
 
+  // Validate Slack / GitLab token aliveness when BugList first sees a real
+  // profile id. Failed probes route through maybeClearExpired*Token in the
+  // IPC handler, which emits a settings update — the apply() subscription
+  // above then re-renders the publish-area chip without the user having to
+  // expand the section first.
+  const hasValidatedConnectionsRef = useRef(false)
+  useEffect(() => {
+    if (hasValidatedConnectionsRef.current) return
+    const profileId = overrideProfile?.id ?? globalActiveProfileId
+    if (!profileId) return
+    hasValidatedConnectionsRef.current = true
+    void api.settings.validateConnections(profileId).catch(() => {})
+  }, [api, globalActiveProfileId, overrideProfile?.id])
+
   useEffect(() => api.onSlackOAuthCompleted((result) => {
     setSlackConnecting(false)
     if (result.ok && result.settings) {

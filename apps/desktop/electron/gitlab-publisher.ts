@@ -92,6 +92,30 @@ interface GitLabTokenResponse {
   error_description?: string
 }
 
+// Cheap probe (GET /api/v4/user) that also handles refresh-if-needed. Used
+// by the validateConnections IPC to keep the connection chip accurate on
+// Preferences / publish-page open without re-fetching the full projects list.
+//
+// Throws when the token is dead so the caller can route through
+// maybeClearExpiredGitLabTokenForProject — error message must match its
+// regex (invalid_token|401|unauthorized).
+export async function validateGitLabConnection(
+  settings: GitLabPublishSettings,
+  fetchImpl: GitLabPublisherFetch = fetch,
+): Promise<GitLabPublishSettings> {
+  const refreshed = await refreshGitLabAccessToken(settings, fetchImpl)
+  if (!refreshed.token.trim()) throw new Error('GitLab token is missing')
+  if (!refreshed.baseUrl.trim()) throw new Error('GitLab base URL is missing')
+  const response = await fetchImpl(`${apiBase(refreshed.baseUrl)}/user`, {
+    method: 'GET',
+    headers: authHeaders(refreshed),
+  })
+  if (!response.ok) {
+    throw new Error(`GitLab /user failed: ${response.status} ${response.statusText}`)
+  }
+  return refreshed
+}
+
 // Mirrors refreshGoogleAccessToken in google-publisher.ts.
 export async function refreshGitLabAccessToken(
   settings: GitLabPublishSettings,

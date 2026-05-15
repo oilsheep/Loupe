@@ -215,6 +215,17 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Validate Slack / GitLab token aliveness whenever the dialog opens or the
+  // selected profile changes. Failed probes route through
+  // maybeClearExpired*Token in the IPC handler, which emits a settings
+  // update — the existing onAppSettingsUpdated subscription above then
+  // re-renders the connection chip without the user having to expand a
+  // section first.
+  useEffect(() => {
+    if (!open || !selectedProfileId) return
+    void api.settings.validateConnections(selectedProfileId).catch(() => {})
+  }, [open, selectedProfileId])
+
   useEffect(() => api.onSlackOAuthCompleted(result => {
     setStartingSlackOAuth(false)
     if (result.ok && result.settings) {

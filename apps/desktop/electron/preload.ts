@@ -98,6 +98,7 @@ const api: DesktopApi = {
     startSlackUserOAuth: (projectId, settings) => ipcRenderer.invoke(CHANNEL.settingsStartSlackUserOAuth, projectId, settings),
     disconnectService: (projectId, service) => ipcRenderer.invoke(CHANNEL.settingsDisconnectService, projectId, service),
     refreshGitLabUsers: (projectId) => ipcRenderer.invoke(CHANNEL.settingsRefreshGitLabUsers, projectId),
+    validateConnections: (profileId) => ipcRenderer.invoke(CHANNEL.settingsValidateConnections, profileId),
     setLocale:         (locale)  => ipcRenderer.invoke(CHANNEL.settingsSetLocale, locale),
     setSeverities:     (severities) => ipcRenderer.invoke(CHANNEL.settingsSetSeverities, severities),
     setAudioAnalysis:  (settings) => ipcRenderer.invoke(CHANNEL.settingsSetAudioAnalysis, settings),

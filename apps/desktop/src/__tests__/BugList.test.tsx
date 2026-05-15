@@ -111,6 +111,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       startSlackUserOAuth: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       disconnectService: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       refreshGitLabUsers: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      validateConnections: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setLocale: vi.fn() as any,
       setSeverities: vi.fn() as any,
       addProfile: vi.fn().mockResolvedValue(settingsWithOptions) as any,

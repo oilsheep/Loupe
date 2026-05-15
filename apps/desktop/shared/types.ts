@@ -535,6 +535,7 @@ export interface DesktopApi {
     startSlackUserOAuth(projectId: string, settings: SlackPublishSettings): Promise<AppSettings>
     disconnectService(projectId: string, service: PublishService): Promise<AppSettings>
     refreshGitLabUsers(projectId: string):                           Promise<AppSettings>
+    validateConnections(profileId: string):                          Promise<AppSettings>
     setLocale(locale: AppLocale):                                  Promise<AppSettings>
     setSeverities(severities: SeveritySettings):                   Promise<AppSettings>
     setAudioAnalysis(settings: AudioAnalysisSettings):             Promise<AppSettings>

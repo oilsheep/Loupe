@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
-import { publishManifestToSlack, refreshSlackAccessToken } from '../slack-publisher'
+import { publishManifestToSlack, refreshSlackAccessToken, validateSlackConnection } from '../slack-publisher'
 import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
 
 function response(payload: unknown, ok = true): Response {
@@ -335,5 +335,45 @@ describe('refreshSlackAccessToken', () => {
     )
     const init = fetchMock.mock.calls[0][1]
     expect(init?.headers?.Authorization).toMatch(/^Basic /)
+  })
+})
+
+describe('validateSlackConnection', () => {
+  const baseSettings = {
+    botToken: '',
+    userToken: 'xoxe.xoxp-active',
+    refreshToken: undefined,
+    tokenExpiresAt: null,
+    publishIdentity: 'user' as const,
+    channelId: '',
+    oauthClientId: 'cid',
+  }
+
+  it('returns settings when auth.test reports ok', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: true, team: 'rayark', user: 'farl' }),
+      { status: 200 },
+    ))
+    const out = await validateSlackConnection(baseSettings, fetchMock as any)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://slack.com/api/auth.test')
+    expect(out.userToken).toBe('xoxe.xoxp-active')
+  })
+
+  it('throws with a token_expired-shaped message when auth.test returns ok:false', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: false, error: 'token_expired' }),
+      { status: 200 },
+    ))
+    await expect(validateSlackConnection(baseSettings, fetchMock as any))
+      .rejects.toThrow(/token_expired/)
+  })
+
+  it('throws when no usable token is present', async () => {
+    const fetchMock = vi.fn()
+    await expect(validateSlackConnection({ ...baseSettings, userToken: '' }, fetchMock as any))
+      .rejects.toThrow(/is missing/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
