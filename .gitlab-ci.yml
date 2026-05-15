@@ -268,3 +268,27 @@ release:gitlab:
         - name: "Windows (x64) — Installer"
           url: "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/loupe/$PACKAGE_VERSION/loupe-windows-x64.exe"
           link_type: package
+
+# Publish a copy of the build to the [R&D] Tech Center / Public / Loupe Internal
+# Releases Shared Drive folder so any logged-in rayark.com Google account can
+# download without needing a gitlab.rayark.com membership. Independent of the
+# auto-update channel above (which stays on the GitLab Generic Package Registry
+# and is gated by the build-time-baked LOUPE_INTERNAL_UPDATE_TOKEN).
+release:drive:
+  stage: release
+  image:
+    name: rclone/rclone:latest
+    # rclone/rclone's default entrypoint is `rclone` itself; reset to a shell so
+    # `script:` can run our publish script.
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]/
+  needs:
+    - job: build:mac
+      artifacts: true
+      optional: true
+    - job: build:win
+      artifacts: true
+      optional: true
+  script:
+    - sh scripts/gitlab-ci-publish-drive.sh
