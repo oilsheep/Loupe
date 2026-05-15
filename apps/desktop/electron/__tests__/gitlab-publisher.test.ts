@@ -308,12 +308,14 @@ describe('refreshGitLabAccessToken', () => {
     expect(out.token).toBe('old-access')
   })
 
-  it('no refresh_token AND no access_token throws', async () => {
+  it('no refresh_token AND no access_token returns settings unchanged (caller handles the empty-token error)', async () => {
     const fetchMock = vi.fn()
-    await expect(refreshGitLabAccessToken(
+    const out = await refreshGitLabAccessToken(
       { ...baseSettings, refreshToken: undefined, token: '' },
       fetchMock as any,
-    )).rejects.toThrow(/refresh token is missing/i)
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(out.token).toBe('')
   })
 
   it('non-expired token short-circuits without network', async () => {

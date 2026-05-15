@@ -97,10 +97,9 @@ export async function refreshSlackAccessToken(
   options: { forceRefresh?: boolean } = {},
 ): Promise<SlackPublishSettings> {
   if (settings.publishIdentity === 'bot') return settings
-  if (!settings.refreshToken?.trim()) {
-    if (settings.userToken?.trim()) return settings
-    throw new Error('Slack refresh token is missing')
-  }
+  // No refresh token: nothing to do, return as-is. Caller decides whether
+  // the empty userToken case is an error.
+  if (!settings.refreshToken?.trim()) return settings
   if (!options.forceRefresh && settings.userToken?.trim() && !slackUserTokenExpired(settings)) return settings
 
   const clientId = settings.oauthClientId?.trim()

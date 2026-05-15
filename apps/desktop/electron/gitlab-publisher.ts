@@ -123,10 +123,10 @@ export async function refreshGitLabAccessToken(
   options: { forceRefresh?: boolean } = {},
 ): Promise<GitLabPublishSettings> {
   if (settings.authType === 'pat') return settings
-  if (!settings.refreshToken?.trim()) {
-    if (settings.token.trim()) return settings
-    throw new Error('GitLab refresh token is missing')
-  }
+  // No refresh token: nothing to do, return as-is. The caller (fetchGitLab*
+  // or validateGitLabConnection) is responsible for handling the empty-token
+  // case with a clearer "GitLab token is missing" error.
+  if (!settings.refreshToken?.trim()) return settings
   if (!options.forceRefresh && settings.token.trim() && !tokenExpired(settings)) return settings
 
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
