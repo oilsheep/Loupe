@@ -1795,7 +1795,13 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
 
   async function refreshGitLabProjectsForExport() {
     const current = await api.settings.get()
-    const sourceSettings = gitlabSettings ?? activeProfileFrom(current, overrideProfile).gitlab
+    // Always use the fresh store snapshot for token / refreshToken / baseUrl
+    // / oauthClientId — local gitlabSettings React state can lag behind by
+    // one render after connectGitLabForExport completes OAuth (the
+    // setGitLabSettings call there hasn't flushed when this fn fires),
+    // which used to cause listGitLabProjects to be invoked with an empty
+    // token and 'refresh token is missing' surfaced to the user.
+    const sourceSettings = activeProfileFrom(current, overrideProfile).gitlab
     const nextGitLab = {
       ...sourceSettings,
       projectId: gitlabProjectId.trim() || sourceSettings.projectId,
