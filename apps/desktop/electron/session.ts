@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, copyFileSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { extname, join } from 'node:path'
 import type { Adb } from './adb'
@@ -222,6 +222,7 @@ export class SessionManager {
   private iosSyslog: Pick<IosSyslogBuffer, 'start' | 'stop' | 'dumpRecentLinesToFile'>
   private activeIosLogCapture = false
   private finalizing: Promise<Session> | null = null
+  private pcRecordingFds = new Map<string, number>()
 
   constructor(private deps: SessionDeps) {
     this.capture = deps.captureScreenshot ?? defaultCapture
@@ -446,6 +447,9 @@ export class SessionManager {
     const { db, paths, scrcpy, logcat } = this.deps
     const sess = this.active
     if (!sess) throw new Error('no active session')
+    // No-op once the renderer has finalized normally; closes a leaked fd if the
+    // session is torn down (interrupt, quit, renderer crash) before that.
+    this.closePcRecordingStream(sess.id)
     if (sess.connectionMode !== 'pc') {
       if (args.stopRecorder) {
         await scrcpy.stop().catch((err) => {
@@ -490,6 +494,7 @@ export class SessionManager {
       }
       this.active = null
     }
+    this.closePcRecordingStream(sessionId)
     rmSync(this.deps.paths.sessionDir(sessionId), { recursive: true, force: true })
     this.deps.db.deleteSession(sessionId)
   }
@@ -581,6 +586,41 @@ export class SessionManager {
     this.deps.db.updateSessionPcRecording(sessionId, { pcRecordingEnabled: true, pcVideoPath: out })
     this.persistProject(sessionId)
     return out
+  }
+  // Renderer (macOS/Windows) records the screen with MediaRecorder and streams
+  // the per-second chunks here as they arrive, instead of buffering the whole
+  // video and base64-encoding it in one shot — which overflowed V8's max string
+  // length on long recordings and silently dropped the file. The first chunk
+  // truncates the file; later chunks append in order.
+  appendPcRecordingChunk(sessionId: string, bytes: Buffer): void {
+    if (bytes.length === 0) return
+    let fd = this.pcRecordingFds.get(sessionId)
+    if (fd === undefined) {
+      const session = this.deps.db.getSession(sessionId)
+      if (!session) throw new Error('session not found')
+      this.deps.paths.ensureSessionDirs(sessionId)
+      fd = openSync(this.deps.paths.pcVideoFile(sessionId), 'w')
+      this.pcRecordingFds.set(sessionId, fd)
+    }
+    writeSync(fd, bytes)
+  }
+  finishPcRecording(sessionId: string): string | null {
+    if (!this.pcRecordingFds.has(sessionId)) return null
+    this.closePcRecordingStream(sessionId)
+    const out = this.deps.paths.pcVideoFile(sessionId)
+    if (!existsSync(out) || statSync(out).size === 0) {
+      rmSync(out, { force: true })
+      return null
+    }
+    this.deps.db.updateSessionPcRecording(sessionId, { pcRecordingEnabled: true, pcVideoPath: out })
+    this.persistProject(sessionId)
+    return out
+  }
+  private closePcRecordingStream(sessionId: string): void {
+    const fd = this.pcRecordingFds.get(sessionId)
+    if (fd === undefined) return
+    try { closeSync(fd) } catch {}
+    this.pcRecordingFds.delete(sessionId)
   }
   saveMicRecording(sessionId: string, bytes: Buffer, durationMs: number, startOffsetMs = 0): string {
     const session = this.deps.db.getSession(sessionId)

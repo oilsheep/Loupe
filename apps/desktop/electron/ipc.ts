@@ -81,6 +81,8 @@ export const CHANNEL = {
   sessionUpdateMetadata:   'session:updateMetadata',
   sessionUpdateMicAudioOffset:'session:updateMicAudioOffset',
   sessionSavePcRecording:  'session:savePcRecording',
+  sessionAppendPcRecordingChunk: 'session:appendPcRecordingChunk',
+  sessionFinishPcRecording: 'session:finishPcRecording',
   sessionSaveMicRecording: 'session:saveMicRecording',
   sessionResolveAssetPath: 'session:resolveAssetPath',
   bugUpdate:               'bug:update',
@@ -2310,6 +2312,12 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.sessionSavePcRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string> => {
     const bytes = Buffer.from(args.base64, 'base64')
     return deps.manager.savePcRecording(args.sessionId, bytes)
+  })
+  ipcMain.handle(CHANNEL.sessionAppendPcRecordingChunk, async (_e, args: { sessionId: string; chunk: Uint8Array }): Promise<void> => {
+    deps.manager.appendPcRecordingChunk(args.sessionId, Buffer.from(args.chunk))
+  })
+  ipcMain.handle(CHANNEL.sessionFinishPcRecording, async (_e, args: { sessionId: string }): Promise<string | null> => {
+    return deps.manager.finishPcRecording(args.sessionId)
   })
   ipcMain.handle(CHANNEL.sessionSaveMicRecording, async (_e, args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string> => {
     const bytes = Buffer.from(args.base64, 'base64')

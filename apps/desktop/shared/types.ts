@@ -487,6 +487,8 @@ export interface DesktopApi {
     updateMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }): Promise<void>
     updateMicAudioOffset(id: string, startOffsetMs: number):       Promise<Session>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
+    appendPcRecordingChunk(args: { sessionId: string; chunk: Uint8Array }): Promise<void>
+    finishPcRecording(args: { sessionId: string }): Promise<string | null>
     saveMicRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number; startOffsetMs?: number }): Promise<string>
   }
   bug: {

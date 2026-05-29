@@ -157,6 +157,35 @@ describe('SessionManager', () => {
     expect(runner.run).toHaveBeenCalledWith(expect.any(String), expect.arrayContaining(['-map', '0:a:0']))
   })
 
+  it('streams PC recording chunks straight to disk and finalizes pcVideoPath', async () => {
+    // Long renderer recordings used to buffer the whole video in memory and
+    // base64-encode it in one shot, which blew past V8's max string length
+    // (~512MB) past ~10-20 min and silently failed, leaving pcVideoPath null
+    // and every export broken. Chunks must append to the file as they arrive.
+    await mgr.start({ deviceId: 'window:1:0', connectionMode: 'pc', buildVersion: '', testNote: '' })
+
+    mgr.appendPcRecordingChunk('sess-1', Buffer.from('AAAA'))
+    mgr.appendPcRecordingChunk('sess-1', Buffer.from('BBBB'))
+    mgr.appendPcRecordingChunk('sess-1', Buffer.from('CCCC'))
+    const out = mgr.finishPcRecording('sess-1')
+
+    expect(out).toBe(paths.pcVideoFile('sess-1'))
+    expect(readFileSync(out!)).toEqual(Buffer.from('AAAABBBBCCCC'))
+    const reloaded = db.getSession('sess-1')!
+    expect(reloaded.pcVideoPath).toBe(paths.pcVideoFile('sess-1'))
+    expect(reloaded.pcRecordingEnabled).toBe(true)
+  })
+
+  it('finishing a PC recording with no chunks saves nothing and leaves pcVideoPath null', async () => {
+    await mgr.start({ deviceId: 'window:1:0', connectionMode: 'pc', buildVersion: '', testNote: '' })
+
+    const out = mgr.finishPcRecording('sess-1')
+
+    expect(out).toBeNull()
+    expect(existsSync(paths.pcVideoFile('sess-1'))).toBe(false)
+    expect(db.getSession('sess-1')?.pcVideoPath).toBeNull()
+  })
+
   it('imports an external narration track with an adjustable offset', async () => {
     const inputPath = join(root, 'source.mp4')
     const audioPath = join(root, 'narration.wav')

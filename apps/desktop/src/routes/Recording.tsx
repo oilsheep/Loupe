@@ -173,7 +173,10 @@ export function Recording({ session }: { session: Session }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const previewVideoRef = useRef<HTMLVideoElement | null>(null)
-  const mediaChunksRef = useRef<Blob[]>([])
+  // Serialize chunk uploads so they reach the main process in capture order
+  // (WebM is a streamed container — out-of-order byte appends corrupt it).
+  const pcAppendChainRef = useRef<Promise<void>>(Promise.resolve())
+  const pcAppendFailedRef = useRef(false)
   const [pcRecorderError, setPcRecorderError] = useState<string | null>(null)
   const [pcSystemAudioStatus, setPcSystemAudioStatus] = useState<'off' | 'recording' | 'unavailable' | 'standby'>('off')
   const [pcSystemAudioError, setPcSystemAudioError] = useState<string | null>(null)
@@ -365,15 +368,28 @@ export function Recording({ session }: { session: Session }) {
             ? 'video/webm;codecs=vp8'
             : 'video/webm'
         const recorder = new MediaRecorder(stream, { mimeType })
-        mediaChunksRef.current = []
         mediaStreamRef.current = stream
         if (previewVideoRef.current) {
           previewVideoRef.current.srcObject = stream
           void previewVideoRef.current.play().catch(() => {})
         }
         mediaRecorderRef.current = recorder
+        pcAppendChainRef.current = Promise.resolve()
+        pcAppendFailedRef.current = false
+        const sessionId = session.id
         recorder.ondataavailable = event => {
-          if (event.data.size > 0) mediaChunksRef.current.push(event.data)
+          if (event.data.size <= 0) return
+          const chunk = event.data
+          // Stream each ~1s chunk straight to disk on the main process. Buffering
+          // the whole recording and base64-encoding it at stop() overflowed V8's
+          // max string length on long sessions and silently dropped the video.
+          pcAppendChainRef.current = pcAppendChainRef.current.then(async () => {
+            const bytes = new Uint8Array(await chunk.arrayBuffer())
+            await api.session.appendPcRecordingChunk({ sessionId, chunk: bytes })
+          }).catch(err => {
+            pcAppendFailedRef.current = true
+            setPcRecorderError(err instanceof Error ? err.message : String(err))
+          })
         }
         recorder.start(1000)
         setPcRecorderError(null)
@@ -496,17 +512,12 @@ export function Recording({ session }: { session: Session }) {
         recorder.stop()
         mediaStreamRef.current?.getTracks().forEach(track => track.stop())
         await stopped
-        const blob = new Blob(mediaChunksRef.current, { type: recorder.mimeType || 'video/webm' })
-        if (blob.size <= 0) {
+        // Flush any chunk uploads still in flight (stop() dispatches a final
+        // dataavailable before the stop event), then close the file on disk.
+        await pcAppendChainRef.current
+        const savedPath = await api.session.finishPcRecording({ sessionId: session.id })
+        if (!savedPath && !pcAppendFailedRef.current) {
           setPcRecorderError('PC recording was empty; no video was saved.')
-        } else {
-          const base64 = await blobToBase64(blob)
-          await api.session.savePcRecording({
-            sessionId: session.id,
-            base64,
-            mimeType: blob.type,
-            durationMs: Math.max(0, Date.now() - session.startedAt),
-          })
         }
       }
       const updated = await api.session.stop()

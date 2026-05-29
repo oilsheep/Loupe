@@ -52,6 +52,8 @@ const api: DesktopApi = {
     updateMetadata: (id, patch) => ipcRenderer.invoke(CHANNEL.sessionUpdateMetadata, id, patch),
     updateMicAudioOffset: (id, startOffsetMs) => ipcRenderer.invoke(CHANNEL.sessionUpdateMicAudioOffset, id, startOffsetMs),
     savePcRecording: (args)     => ipcRenderer.invoke(CHANNEL.sessionSavePcRecording, args),
+    appendPcRecordingChunk: (args) => ipcRenderer.invoke(CHANNEL.sessionAppendPcRecordingChunk, args),
+    finishPcRecording: (args)   => ipcRenderer.invoke(CHANNEL.sessionFinishPcRecording, args),
     saveMicRecording: (args)    => ipcRenderer.invoke(CHANNEL.sessionSaveMicRecording, args),
   },
   bug: {
