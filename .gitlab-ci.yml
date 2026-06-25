@@ -1,3 +1,14 @@
+include:
+  # SRE-maintained GCP Workload Identity Federation template. Provides
+  # .setup-gcp-adc (mints keyless ADC credentials as a dotenv+file artifact via
+  # an OIDC token exchange) and .use-gcp-adc (refreshes the OIDC token in the
+  # consuming job so any ADC-aware tool authenticates with no key on disk).
+  # Pinned to the feature branch until SRE merges sre/gitlab-ci!52.
+  # TODO(loupe): bump ref to the stable release branch once !52 lands.
+  - project: 'sre/gitlab-ci'
+    ref: feat/setup-gcp-adc
+    file: /GCP.gitlab-ci.yml
+
 default:
   image: node:20-bookworm
   tags:
@@ -269,12 +280,32 @@ release:gitlab:
           url: "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/loupe/$PACKAGE_VERSION/loupe-windows-x64.exe"
           link_type: package
 
+# Mint keyless GCP credentials for release:drive via Workload Identity
+# Federation. Replaces the build-time service-account key (LOUPE_DRIVE_SA_JSON):
+# the GitLab OIDC token is exchanged for short-lived ADC credentials at job
+# time, so no key sits on disk to leak. The service account
+# (loupe-qa-recorder@rayark-tc-tpm.iam.gserviceaccount.com) is bound to this
+# project's CI identity by SRE; this job exports the ADC config as an artifact
+# that release:drive consumes via `needs`.
+setup-gcp-adc:
+  extends: .setup-gcp-adc
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]/
+  variables:
+    GCP_SERVICE_ACCOUNT_EMAIL: loupe-qa-recorder@rayark-tc-tpm.iam.gserviceaccount.com
+
 # Publish a copy of the build to the [R&D] Tech Center / Public / Loupe Internal
 # Releases Shared Drive folder so any logged-in rayark.com Google account can
 # download without needing a gitlab.rayark.com membership. Independent of the
 # auto-update channel above (which stays on the GitLab Generic Package Registry
 # and is gated by the build-time-baked LOUPE_INTERNAL_UPDATE_TOKEN).
+#
+# Authenticates keyless via the SRE WIF template: `extends: .use-gcp-adc`
+# refreshes the OIDC token, `needs: setup-gcp-adc (artifacts)` pulls in the ADC
+# config + GOOGLE_APPLICATION_CREDENTIALS, and rclone's env_auth picks it up.
 release:drive:
+  extends: .use-gcp-adc
   stage: release
   image:
     name: rclone/rclone:latest
@@ -284,6 +315,8 @@ release:drive:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v[0-9]/
   needs:
+    - job: setup-gcp-adc
+      artifacts: true
     - job: build:mac
       artifacts: true
       optional: true
