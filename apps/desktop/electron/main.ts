@@ -30,6 +30,7 @@ const pendingProtocolUrls: string[] = []
 
 function handleDeepLink(url: string): void {
   if (!url.startsWith('loupe://')) return
+  console.log('Loupe: deep link received:', url)
   if (!win) {
     pendingProtocolUrls.push(url)
     return
@@ -49,7 +50,17 @@ function registerLoupeProtocolClient(): void {
     app.setAsDefaultProtocolClient('loupe')
     return
   }
-  app.setAsDefaultProtocolClient('loupe', process.execPath, [app.getAppPath()])
+  // In dev the binary is the generic Electron, not a packaged bundle. On
+  // Windows/Linux the path+args form is required so the OS knows how to relaunch
+  // Electron with this app's entry. On macOS that path+args form is a no-op
+  // (scheme handlers are bundle-based), so the running app never becomes the
+  // loupe:// default handler and OAuth callbacks are never delivered in dev —
+  // register the running app directly instead.
+  if (process.platform === 'darwin') {
+    app.setAsDefaultProtocolClient('loupe')
+  } else {
+    app.setAsDefaultProtocolClient('loupe', process.execPath, [app.getAppPath()])
+  }
 }
 
 function getAppIconPath(): string | undefined {
