@@ -547,7 +547,7 @@ function ExportConfirmDialog({
           <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" data-testid="export-scroll-body">
         <label className="mt-4 block text-xs text-zinc-500">
           {t('export.outputFolder')}
           <div className="mt-1 flex gap-2">
@@ -930,35 +930,6 @@ function ExportConfirmDialog({
           </div>
         )}
 
-        {busy && (
-          <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/70 p-3">
-            <div className="flex items-center justify-between gap-3 text-xs text-zinc-400">
-              <span>{progress?.message ?? t('export.progressStarting')}</span>
-              <span className="font-mono tabular-nums">{progressPct}%</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-200"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500">
-              <div>
-                {t('export.progressStep', {
-                  current: progress?.current ?? 0,
-                  total: progress?.total ?? 0,
-                })}
-              </div>
-              <div className="text-right">
-                {t('export.progressRemaining', { count: progress?.remaining ?? count })}
-              </div>
-            </div>
-            {progress?.detail && (
-              <div className="mt-2 break-words text-[11px] leading-4 text-zinc-500">{progress.detail}</div>
-            )}
-          </div>
-        )}
-
         {error && (
           <div className="mt-3 rounded border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-200">
             {error}
@@ -1000,7 +971,35 @@ function ExportConfirmDialog({
           </label>
         )}
         </div>
-        <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3">
+        <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3" data-testid="export-footer">
+          {busy && (
+            <div className="mb-3 rounded border border-zinc-800 bg-zinc-950/70 p-3" data-testid="export-progress">
+              <div className="flex items-center justify-between gap-3 text-xs text-zinc-400">
+                <span>{progress?.message ?? t('export.progressStarting')}</span>
+                <span className="font-mono tabular-nums">{progressPct}%</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500">
+                <div>
+                  {t('export.progressStep', {
+                    current: progress?.current ?? 0,
+                    total: progress?.total ?? 0,
+                  })}
+                </div>
+                <div className="text-right">
+                  {t('export.progressRemaining', { count: progress?.remaining ?? count })}
+                </div>
+              </div>
+              {progress?.detail && (
+                <div className="mt-2 break-words text-[11px] leading-4 text-zinc-500">{progress.detail}</div>
+              )}
+            </div>
+          )}
           <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
