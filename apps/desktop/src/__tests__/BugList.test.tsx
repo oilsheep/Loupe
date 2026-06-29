@@ -238,6 +238,38 @@ describe('BugList', () => {
     })))
   })
 
+  it('shows export progress in the always-visible footer, not buried in the scrollable body', async () => {
+    const api = fakeApi()
+    // Keep the export pending so `busy` (and therefore the progress UI) stays mounted.
+    api.bug.exportClips = vi.fn().mockReturnValue(new Promise(() => {})) as any
+    const ref = createRef<BugListHandle>()
+    render(
+      <BugList
+        ref={ref}
+        api={api}
+        sessionId="s1"
+        bugs={[bug(), bug({ id: 'b2', offsetMs: 8000 })]}
+        selectedBugId={null}
+        onSelect={vi.fn()}
+        onMutated={vi.fn()}
+        tester="Avery"
+      />
+    )
+    await waitFor(() => expect(ref.current).toBeTruthy())
+    ref.current!.exportAll()
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('confirm-export'))
+
+    const progress = await screen.findByTestId('export-progress')
+    const footer = screen.getByTestId('export-footer')
+    const scrollBody = screen.getByTestId('export-scroll-body')
+    // The progress indicator must live in the pinned footer so it stays visible
+    // during export — not inside the scrollable form body where it can scroll
+    // out of view on shorter windows.
+    expect(footer.contains(progress)).toBe(true)
+    expect(scrollBody.contains(progress)).toBe(false)
+  })
+
   it('changing pre slider saves preSec immediately', async () => {
     const api = fakeApi()
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
