@@ -16,6 +16,8 @@ import type { ToolCheck } from './doctor'
 import type { AppLocale, AppUpdateCheckResult, AppUpdateEvent, AudioAnalysisSettings, Bug, ExportProgress, ExportedMarkerFile, ExportPublishOptions, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, IosAppInfo, IosControlStatus, MentionIdentity, PcCaptureSource, PublishService, RecordingPreferences, Session, SessionLoadProgress, SeveritySettings, SlackPublishSettings, ToolInstallLog } from '@shared/types'
 import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
+import { isImageOnly } from './export-image-only'
+export { isImageOnly }
 import { fetchSlackChannels, fetchSlackMentionUsers, refreshSlackAccessToken, validateSlackConnection } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
@@ -896,10 +898,6 @@ function readLogcatTailForContactSheet(paths: Paths, session: Session, bug: { lo
     .filter(Boolean)
   if (lines.length === 0) return null
   return lines.slice(-maxLines).join('\n')
-}
-
-export function isImageOnly(bug: { preSec: number; postSec: number }): boolean {
-  return bug.preSec === 0 && bug.postSec === 0
 }
 
 /** Resolve the active screenshot for a bug to an absolute path, or null if none stored. */

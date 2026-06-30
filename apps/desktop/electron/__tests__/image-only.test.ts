@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isImageOnly } from '../ipc'
+import { isImageOnly } from '../export-image-only'
 
 describe('isImageOnly', () => {
   it('true only when both pre and post are 0', () => {
