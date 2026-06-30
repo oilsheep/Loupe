@@ -81,8 +81,16 @@ function CameraIcon() {
 function RevertIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 7v6h6" />
-      <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </svg>
+  )
+}
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="m6 9 6 6 6-6" />
     </svg>
   )
 }
@@ -1136,7 +1144,7 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
         style={{ backgroundColor: color }}
       >
         <span className="truncate">{severityLabel(severities, value)}</span>
-        <span className="text-black/70">v</span>
+        <ChevronDownIcon className="shrink-0 text-black/70" />
       </button>
       {open && (
         <div className="absolute left-0 top-full z-40 mt-1 min-w-40 overflow-hidden rounded border border-zinc-700 bg-zinc-950 shadow-xl">
