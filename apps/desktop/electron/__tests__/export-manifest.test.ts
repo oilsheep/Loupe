@@ -33,9 +33,11 @@ function bug(over: Partial<Bug> = {}): Bug {
     id: 'b1',
     sessionId: 's1',
     offsetMs: 1_000,
+    originalOffsetMs: 1_000,
     severity: 'major',
     note: 'login crash',
     screenshotRel: null,
+    originalScreenshotRel: null,
     logcatRel: 'logcat/b1.txt',
     audioRel: null,
     audioDurationMs: null,
@@ -51,7 +53,7 @@ function file(over: Partial<ExportedMarkerFile> = {}): ExportedMarkerFile {
     bugId: 'b1',
     videoPath: '/exports/b1.mp4',
     previewPath: '/exports/b1.jpg',
-    logcatPath: '/exports/b1.logcat.txt',
+    screenshotPath: null, logcatPath: '/exports/b1.logcat.txt',
     ...over,
   }
 }
@@ -80,7 +82,7 @@ describe('export manifest', () => {
       note: 'login crash',
       videoPath: '/exports/b1.mp4',
       previewPath: '/exports/b1.jpg',
-      logcatPath: '/exports/b1.logcat.txt',
+      screenshotPath: null, logcatPath: '/exports/b1.logcat.txt',
     })
   })
 

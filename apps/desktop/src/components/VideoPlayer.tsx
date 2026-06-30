@@ -50,8 +50,10 @@ interface Props {
   selectedAnnotationId?: string | null
   onMarkerClick(bug: Bug): void
   onClipWindowChange?(bug: Bug, preSec: number, postSec: number): void
+  onMarkerMove?(bug: Bug, offsetMs: number): void
+  onDeselect?(): void
   onAnnotationAdd?(bug: Bug, rect: Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height' | 'startMs' | 'endMs'> & Partial<Pick<BugAnnotation, 'kind' | 'points' | 'text'>>): void
-  onAnnotationUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height' | 'points' | 'text'>>): void
+  onAnnotationUpdate?(id: string, patch: Partial<Pick<BugAnnotation, 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>): void
   onAnnotationDelete?(id: string): void
   onAnnotationSelect?(annotationId: string): void
 }
@@ -200,7 +202,20 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
   )
 }
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, micAudioStartOffsetMs, transcriptSegments = [], severities, bugs, durationMs, selectedBugId, selectedAnnotationId, onMarkerClick, onClipWindowChange, onAnnotationAdd, onAnnotationUpdate, onAnnotationDelete, onAnnotationSelect }, ref) => {
+// Shared window-pointer drag plumbing: forward pointermove x to onMove until release, then clean up.
+function trackPointerDrag(onMove: (clientX: number) => void) {
+  const move = (event: PointerEvent) => onMove(event.clientX)
+  const up = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    window.removeEventListener('pointercancel', up)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+  window.addEventListener('pointercancel', up)
+}
+
+export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, micAudioSrc, micAudioStartOffsetMs, transcriptSegments = [], severities, bugs, durationMs, selectedBugId, selectedAnnotationId, onMarkerClick, onClipWindowChange, onMarkerMove, onDeselect, onAnnotationAdd, onAnnotationUpdate, onAnnotationDelete, onAnnotationSelect }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const micAudioRef = useRef<HTMLAudioElement>(null)
   const clipEndMsRef = useRef<number | null>(null)
@@ -248,8 +263,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
   const selectionEndRawPct = selectedBug && durationMs ? timelinePctForMs(selectedWindowEndMs) : 0
   const selectionStartPct = Math.max(0, Math.min(100, selectionStartRawPct))
   const selectionEndPct = Math.max(0, Math.min(100, selectionEndRawPct))
-  const showSelectionStartHandle = selectionStartRawPct >= 0 && selectionStartRawPct <= 100
-  const showSelectionEndHandle = selectionEndRawPct >= 0 && selectionEndRawPct <= 100
+  // Always show both handles whenever the clip window is visible. When an edge sits
+  // outside the timeline its pct is clamped to 0/100, so the handle pins to the edge
+  // and stays grabbable — dragging it inward brings an off-screen edge back into range.
+  const showClipHandles = !!selectedWindowVisible
   const overviewStartPct = durationMs ? Math.max(0, Math.min(100, (viewportStartMs / durationMs) * 100)) : 0
   const overviewWidthPct = durationMs ? Math.max(2, Math.min(100 - overviewStartPct, (viewportSpanMs / durationMs) * 100)) : 100
   const rulerStepMs = niceTickStep(viewportSpanMs)
@@ -664,26 +681,71 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
       const ms = timeFromPointer(timeline, clientX)
       if (ms === null) return
       if (kind === 'start') {
-        const preSec = Math.max(0, Math.min(60, Math.round((selectedBug.offsetMs - ms) / 100) / 10))
+        // Allow the start edge to cross the marker (negative preSec); just keep it left of the end edge.
+        const endMs = selectedBug.offsetMs + selectedBug.postSec * 1000
+        const startMs = Math.min(ms, endMs - 100)
+        const preSec = Math.round((selectedBug.offsetMs - startMs) / 100) / 10
         onClipWindowChange(selectedBug, preSec, selectedBug.postSec)
-        seekPlaybackToMs(selectedBug.offsetMs - preSec * 1000, { pause: true })
+        seekPlaybackToMs(startMs, { pause: true })
       } else {
-        const postSec = Math.max(0, Math.min(60, Math.round((ms - selectedBug.offsetMs) / 100) / 10))
+        const startMs = selectedBug.offsetMs - selectedBug.preSec * 1000
+        const endMs = Math.max(ms, startMs + 100)
+        const postSec = Math.round((endMs - selectedBug.offsetMs) / 100) / 10
         onClipWindowChange(selectedBug, selectedBug.preSec, postSec)
-        seekPlaybackToMs(selectedBug.offsetMs + postSec * 1000, { pause: true })
+        seekPlaybackToMs(endMs, { pause: true })
       }
     }
     update(e.clientX)
     e.currentTarget.setPointerCapture(e.pointerId)
-    const move = (event: PointerEvent) => update(event.clientX)
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', up)
+    trackPointerDrag(update)
+  }
+
+  function dragMarker(bug: Bug, e: ReactPointerEvent<HTMLButtonElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!onMarkerMove) return
+    const timeline = e.currentTarget.closest('[data-testid="timeline"]') as HTMLElement | null
+    if (!timeline) return
+    const update = (clientX: number) => {
+      const ms = timeFromPointer(timeline, clientX)
+      if (ms === null) return
+      const offsetMs = Math.max(0, Math.min(durationMs, Math.round(ms)))
+      onMarkerMove(bug, offsetMs)
+      seekPlaybackToMs(offsetMs, { pause: true })
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    trackPointerDrag(update)
+  }
+
+  function dragAnnotation(annotation: BugAnnotation, mode: 'start' | 'end' | 'move', e: ReactPointerEvent<HTMLElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    onAnnotationSelect?.(annotation.id)
+    if (!onAnnotationUpdate) return
+    const timeline = e.currentTarget.closest('[data-testid="timeline"]') as HTMLElement | null
+    if (!timeline) return
+    const grabMs = timeFromPointer(timeline, e.clientX)
+    const origStart = annotation.startMs
+    const origEnd = annotation.endMs
+    const length = origEnd - origStart
+    const MIN_LEN_MS = 100
+    const update = (clientX: number) => {
+      const ms = timeFromPointer(timeline, clientX)
+      if (ms === null || grabMs === null) return
+      let nextStart = origStart
+      let nextEnd = origEnd
+      if (mode === 'start') {
+        nextStart = Math.max(0, Math.min(origEnd - MIN_LEN_MS, Math.round(ms)))
+      } else if (mode === 'end') {
+        nextEnd = Math.min(durationMs, Math.max(origStart + MIN_LEN_MS, Math.round(ms)))
+      } else {
+        nextStart = Math.max(0, Math.min(durationMs - length, Math.round(origStart + (ms - grabMs))))
+        nextEnd = nextStart + length
+      }
+      onAnnotationUpdate(annotation.id, { startMs: nextStart, endMs: nextEnd })
+    }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    trackPointerDrag(update)
   }
 
   function timeFromTimelineEvent(e: MouseEvent<HTMLDivElement>): number | null {
@@ -730,15 +792,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
       setTimelineViewport(clampViewport(initialStartMs + deltaMs, spanMs))
     }
     update(e.clientX)
-    const move = (event: PointerEvent) => update(event.clientX)
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      window.removeEventListener('pointercancel', up)
+    trackPointerDrag(update)
+  }
+
+  function dragViewportEdge(edge: 'start' | 'end', e: ReactPointerEvent<HTMLElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (durationMs <= 0) return
+    const container = e.currentTarget.closest('[data-testid="timeline-overview"]') as HTMLElement | null
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const fixedStartMs = viewportStartMs
+    const fixedEndMs = viewportEndMs
+    const update = (clientX: number) => {
+      if (rect.width <= 0) return
+      const ms = Math.max(0, Math.min(durationMs, ((clientX - rect.left) / rect.width) * durationMs))
+      if (edge === 'start') {
+        const startMs = Math.min(ms, fixedEndMs - 1)
+        setTimelineViewport(clampViewport(startMs, fixedEndMs - startMs))
+      } else {
+        const endMs = Math.max(ms, fixedStartMs + 1)
+        setTimelineViewport(clampViewport(fixedStartMs, endMs - fixedStartMs))
+      }
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    window.addEventListener('pointercancel', up)
+    update(e.clientX)
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    trackPointerDrag(update)
   }
 
   function moveTranscriptCursor(e: MouseEvent<HTMLDivElement>) {
@@ -1197,11 +1276,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
           </button>
         ))}
       </div>
-      {annotationDisabledReason && selectedBug && (
-        <div className="w-28 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] leading-snug text-amber-200">
-          {annotationDisabledReason}
-        </div>
-      )}
     </div>
   )
 
@@ -1239,6 +1313,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
               data-testid="video-el"
             />
             {annotationLayer}
+            {annotationDisabledReason && selectedBug && (
+              <div className="pointer-events-none absolute left-2 top-2 z-30 max-w-[12rem] rounded border border-amber-500/40 bg-zinc-900/85 px-2 py-1 text-[10px] leading-snug text-amber-200 shadow-lg backdrop-blur-sm">
+                {annotationDisabledReason}
+              </div>
+            )}
           </div>
         </div>
         <button
@@ -1353,39 +1432,57 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
         </div>
       )}
       <div
-        className="rounded border border-zinc-800 bg-zinc-900/40 px-3 pb-2 pt-1"
+        className="rounded border border-zinc-800 bg-zinc-900/40 px-1 pb-2 pt-1"
         onWheel={zoomTimeline}
         title="Alt + mouse wheel zooms the timeline. Drag the lower overview bar to pan."
       >
-        <div className="relative mb-1 h-8 cursor-ew-resize touch-none" data-testid="timeline" onClick={seekFromTimeline} onPointerDown={dragPlayhead}>
-          <div className="pointer-events-none absolute left-0 right-0 top-1 h-4 rounded bg-zinc-800" />
+        <div className="relative mb-1 h-11 cursor-ew-resize touch-none" data-testid="timeline" onClick={seekFromTimeline} onPointerDown={dragPlayhead}>
+          <div className="pointer-events-none absolute left-0 right-0 top-3 h-4 rounded bg-zinc-800/80 ring-1 ring-inset ring-zinc-700/50" />
+          {micOffsetMs > 0 && (() => {
+            const leftPct = Math.max(0, Math.min(100, timelinePctForMs(0)))
+            const rightPct = Math.max(0, Math.min(100, timelinePctForMs(micOffsetMs)))
+            if (rightPct <= leftPct) return null
+            return (
+              <div
+                className="pointer-events-none absolute top-3 h-4 rounded-l-sm border-r border-dashed border-amber-300/50 bg-zinc-950/55"
+                style={{ left: `${leftPct}%`, width: `${rightPct - leftPct}%` }}
+                title="此區間無錄影內容（擷取啟動延遲，無法 seek）"
+              />
+            )
+          })()}
           {selectedWindowVisible && selectionEndPct > selectionStartPct && (
             <>
               <div
-                className="absolute top-3 h-3 -translate-y-1/2 rounded bg-blue-500/30 ring-1 ring-blue-300/40"
+                className="pointer-events-none absolute top-3 h-4 rounded-sm bg-sky-500/20 ring-1 ring-inset ring-sky-400/40"
                 data-testid="selected-clip-window"
                 style={{ left: `${selectionStartPct}%`, width: `${selectionEndPct - selectionStartPct}%` }}
                 title={`Export range: -${selectedBug!.preSec}s / +${selectedBug!.postSec}s`}
               />
-              {showSelectionStartHandle && (
+              {showClipHandles && (
                 <button
                   type="button"
                   data-clip-handle="true"
                   aria-label="Drag clip start"
                   onPointerDown={(e) => dragClipHandle('start', e)}
-                  className="absolute top-3 z-20 h-6 w-2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded bg-blue-400 ring-1 ring-white/70"
+                  onClick={(e) => e.stopPropagation()}
+                  className="group absolute top-2 z-20 flex h-6 w-3 -translate-x-1/2 cursor-ew-resize items-stretch justify-center"
                   style={{ left: `${selectionStartPct}%` }}
-                />
+                >
+                  <span className="w-0.5 rounded bg-sky-300 ring-1 ring-sky-200/50 transition-all group-hover:w-1" />
+                </button>
               )}
-              {showSelectionEndHandle && (
+              {showClipHandles && (
                 <button
                   type="button"
                   data-clip-handle="true"
                   aria-label="Drag clip end"
                   onPointerDown={(e) => dragClipHandle('end', e)}
-                  className="absolute top-3 z-20 h-6 w-2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded bg-blue-400 ring-1 ring-white/70"
+                  onClick={(e) => e.stopPropagation()}
+                  className="group absolute top-2 z-20 flex h-6 w-3 -translate-x-1/2 cursor-ew-resize items-stretch justify-center"
                   style={{ left: `${selectionEndPct}%` }}
-                />
+                >
+                  <span className="w-0.5 rounded bg-sky-300 ring-1 ring-sky-200/50 transition-all group-hover:w-1" />
+                </button>
               )}
             </>
           )}
@@ -1401,42 +1498,79 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
             return (
               <div
                 key={annotation.id}
-                className={`pointer-events-none absolute top-6 h-1.5 -translate-y-1/2 rounded ${isSelectedAnnotation ? 'ring-1 ring-white/70' : ''}`}
+                className={`group absolute top-8 h-2 cursor-grab rounded-sm active:cursor-grabbing ${isSelectedAnnotation ? 'ring-1 ring-white/80' : 'ring-1 ring-white/10'}`}
                 data-testid={`annotation-window-${annotation.id}`}
                 style={{
                   left: `${startPct}%`,
                   width: `${Math.max(0.4, endPct - startPct)}%`,
-                  backgroundColor: hexToRgba(color, isSelectedAnnotation ? 0.75 : 0.45),
+                  backgroundColor: hexToRgba(color, isSelectedAnnotation ? 0.85 : 0.55),
                 }}
                 title={`Annotation: ${formatTimelineMs(annotation.startMs)} - ${formatTimelineMs(annotation.endMs)}`}
-              />
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => dragAnnotation(annotation, 'move', e)}
+              >
+                <span
+                  role="slider"
+                  aria-label="Annotation start"
+                  onPointerDown={(e) => dragAnnotation(annotation, 'start', e)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute -left-0.5 top-1/2 h-3.5 w-1.5 -translate-y-1/2 cursor-ew-resize rounded-sm bg-white/85 opacity-0 transition-opacity group-hover:opacity-100"
+                />
+                <span
+                  role="slider"
+                  aria-label="Annotation end"
+                  onPointerDown={(e) => dragAnnotation(annotation, 'end', e)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute -right-0.5 top-1/2 h-3.5 w-1.5 -translate-y-1/2 cursor-ew-resize rounded-sm bg-white/85 opacity-0 transition-opacity group-hover:opacity-100"
+                />
+              </div>
             )
           })}
           {durationMs > 0 && (
-            <div
-              className="pointer-events-none absolute top-3 z-10 h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
-              data-testid="playhead"
-              style={{ left: `${cursorPct}%` }}
-            />
+            <>
+              <div
+                className="pointer-events-none absolute top-1.5 z-10 h-8 w-px -translate-x-1/2 bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.55)]"
+                data-testid="playhead"
+                style={{ left: `${cursorPct}%` }}
+              />
+              <div
+                className="pointer-events-none absolute top-1.5 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-white"
+                style={{ left: `${cursorPct}%` }}
+              />
+            </>
           )}
           {bugs.map(b => {
             const left = timelinePctForMs(b.offsetMs)
             if (left < -1 || left > 101) return null
-            const ring = b.id === selectedBugId ? 'ring-2 ring-white shadow-[0_0_10px_rgba(255,255,255,0.75)]' : ''
+            const isSelected = b.id === selectedBugId
             const url = thumbs[b.id]
             const label = severityLabel(severities, b.severity)
             return (
               <div
                 key={b.id}
-                className="group absolute top-3 -translate-y-1/2"
-                style={{ left: `calc(${left}% - 2px)` }}
+                className="group absolute top-0 -translate-x-1/2"
+                style={{ left: `${left}%` }}
               >
                 <button
-                  onClick={(e) => { e.stopPropagation(); onMarkerClick(b) }}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); if (isSelected && onDeselect) onDeselect(); else onMarkerClick(b) }}
+                  onPointerDown={isSelected && onMarkerMove ? (e) => dragMarker(b, e) : undefined}
                   data-testid={`marker-${b.id}`}
-                  className={`block h-3.5 w-1 rounded-sm ${ring}`}
-                  style={{ backgroundColor: severityColor(severities, b.severity) }}
-                />
+                  aria-label={`Marker at ${Math.floor(b.offsetMs / 1000)}s`}
+                  title={isSelected && onMarkerMove ? '拖曳移動標記時間點' : undefined}
+                  className={`relative block h-4 w-3.5 ${isSelected && onMarkerMove ? 'cursor-ew-resize' : 'cursor-pointer'}`}
+                >
+                  {isSelected && (
+                    <span
+                      className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2"
+                      style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '11px solid #ffffff' }}
+                    />
+                  )}
+                  <span
+                    className="pointer-events-none absolute left-1/2 top-px -translate-x-1/2 drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]"
+                    style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: `9px solid ${severityColor(severities, b.severity)}` }}
+                  />
+                </button>
                 <div
                   className="invisible absolute bottom-full left-1/2 z-20 mb-2 w-48 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl group-hover:visible"
                   data-testid={`tooltip-${b.id}`}
@@ -1479,13 +1613,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
           ))}
           <button
             type="button"
-            className="absolute top-1/2 h-3 -translate-y-1/2 cursor-grab rounded bg-blue-400/35 ring-1 ring-blue-300/70 active:cursor-grabbing"
+            className="group absolute top-0 h-4 cursor-grab rounded-sm border border-white/70 bg-white/5 active:cursor-grabbing"
             style={{ left: `${overviewStartPct}%`, width: `${overviewWidthPct}%` }}
             onPointerDown={dragViewportWindow}
             aria-label={`Timeline viewport ${formatTimelineMs(viewportStartMs, true)} to ${formatTimelineMs(viewportEndMs, true)}`}
             title={`Visible range: ${formatTimelineMs(viewportStartMs, true)} - ${formatTimelineMs(viewportEndMs, true)}`}
             data-testid="timeline-viewport-window"
-          />
+          >
+            <span
+              role="slider"
+              aria-label="Resize visible range start"
+              onPointerDown={(e) => dragViewportEdge('start', e)}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute left-0 top-0 z-10 flex h-full w-2.5 -translate-x-1/2 cursor-ew-resize items-center justify-center"
+            >
+              <span className="h-2 w-0.5 rounded bg-white/90" />
+            </span>
+            <span
+              role="slider"
+              aria-label="Resize visible range end"
+              onPointerDown={(e) => dragViewportEdge('end', e)}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-0 top-0 z-10 flex h-full w-2.5 translate-x-1/2 cursor-ew-resize items-center justify-center"
+            >
+              <span className="h-2 w-0.5 rounded bg-white/90" />
+            </span>
+          </button>
         </div>
       </div>
       {!(transcriptTokens.length > 0 || micAudioSrc) && (

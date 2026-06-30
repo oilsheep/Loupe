@@ -37,9 +37,11 @@ function bug(): Bug {
     id: 'b1',
     sessionId: 's1',
     offsetMs: 1_000,
+    originalOffsetMs: 1_000,
     severity: 'major',
     note: 'login crash',
     screenshotRel: null,
+    originalScreenshotRel: null,
     logcatRel: null,
     audioRel: null,
     audioDurationMs: null,
@@ -58,10 +60,10 @@ describe('Google Drive publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'records', 'b1.mp4'),
         previewPath: join(root, 'records', 'b1.jpg'),
-        logcatPath: null,
+        screenshotPath: null, logcatPath: null,
       }]
       mkdirSync(join(root, 'records'), { recursive: true })
-      writeFileSync(files[0].videoPath, 'video')
+      writeFileSync(files[0].videoPath!, 'video')
       writeFileSync(files[0].previewPath, 'preview')
       const manifest = buildExportManifest({
         session: session(),

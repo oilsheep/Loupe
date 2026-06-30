@@ -15,8 +15,8 @@ function fixSession(over: Partial<Session> = {}): Omit<Session, never> {
 }
 function fixBug(over: Partial<Bug> = {}): Omit<Bug, never> {
   return {
-    id: 'bug-1', sessionId: 'sess-1', offsetMs: 5000, severity: 'normal', note: 'cards stuck',
-    screenshotRel: null, logcatRel: null, createdAt: 1700000005000,
+    id: 'bug-1', sessionId: 'sess-1', offsetMs: 5000, originalOffsetMs: 5000, severity: 'normal', note: 'cards stuck',
+    screenshotRel: null, originalScreenshotRel: null, logcatRel: null, createdAt: 1700000005000,
     audioRel: null, audioDurationMs: null,
     preSec: 5, postSec: 5, ...over,
   }
@@ -87,6 +87,14 @@ describe('Db', () => {
     expect(b.severity).toBe('major')
     expect(b.preSec).toBe(8)
     expect(b.postSec).toBe(12)
+  })
+
+  it('updateBug changes offsetMs', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.updateBug('bug-1', { note: 'n', severity: 'normal', preSec: 5, postSec: 5, offsetMs: 4200 })
+    const b = db.listBugs('sess-1')[0]
+    expect(b.offsetMs).toBe(4200)
   })
 
   it('stores custom marker severities', () => {
@@ -176,6 +184,35 @@ describe('Db', () => {
     const b = db.listBugs('sess-1')[0]
     expect(b.screenshotRel).toBe('screenshots/bug-1.png')
     expect(b.logcatRel).toBe('logcat/bug-1.txt')
+  })
+
+  it('first screenshot sets both active and original; recapture keeps original; reset restores', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.updateBugAssets('bug-1', { screenshotRel: 'screenshots/bug-1.png', logcatRel: null })
+    let b = db.listBugs('sess-1')[0]
+    expect(b.screenshotRel).toBe('screenshots/bug-1.png')
+    expect(b.originalScreenshotRel).toBe('screenshots/bug-1.png')
+
+    db.setBugScreenshot('bug-1', 'screenshots/bug-1-recap.png')
+    b = db.listBugs('sess-1')[0]
+    expect(b.screenshotRel).toBe('screenshots/bug-1-recap.png')
+    expect(b.originalScreenshotRel).toBe('screenshots/bug-1.png')
+
+    db.resetBugScreenshot('bug-1')
+    b = db.listBugs('sess-1')[0]
+    expect(b.screenshotRel).toBe('screenshots/bug-1.png')
+    expect(b.originalScreenshotRel).toBe('screenshots/bug-1.png')
+  })
+
+  it('insertBug upsert does not clear an already-set original_screenshot_rel', () => {
+    db.insertSession(fixSession())
+    db.insertBug(fixBug())
+    db.updateBugAssets('bug-1', { screenshotRel: 'screenshots/bug-1.png', logcatRel: null })
+    // re-insert (upsert) the same bug carrying a null original — must NOT wipe the stored original
+    db.insertBug({ ...fixBug(), screenshotRel: 'screenshots/bug-1.png', originalScreenshotRel: null })
+    const b = db.listBugs('sess-1')[0]
+    expect(b.originalScreenshotRel).toBe('screenshots/bug-1.png')
   })
 
   it('deleteBug removes one bug', () => {

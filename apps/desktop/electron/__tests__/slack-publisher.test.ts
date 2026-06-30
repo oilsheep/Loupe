@@ -43,9 +43,11 @@ function bug(over: Partial<Bug> = {}): Bug {
     id: 'b1',
     sessionId: 's1',
     offsetMs: 1_000,
+    originalOffsetMs: 1_000,
     severity: 'major',
     note: 'login crash',
     screenshotRel: null,
+    originalScreenshotRel: null,
     logcatRel: null,
     audioRel: null,
     audioDurationMs: null,
@@ -59,7 +61,7 @@ function bug(over: Partial<Bug> = {}): Bug {
 
 describe('Slack publisher', () => {
   it('requires the selected Slack token type', async () => {
-    const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', logcatPath: null }]
+    const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, logcatPath: null }]
     const manifest = buildExportManifest({
       session: session(),
       bugs: [bug()],
@@ -83,7 +85,7 @@ describe('Slack publisher', () => {
     })).rejects.toThrow('Slack bot token is missing')
   })
 
-  it('posts summary text, attaches the PDF, and uploads only marker videos in single-thread mode', async () => {
+  it('posts summary text, attaches the PDF, and uploads marker screenshot + video in single-thread mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-slack-'))
     try {
       const jsonPath = join(root, 'export-manifest.json')
@@ -98,9 +100,9 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        logcatPath: join(root, 'b1.logcat.txt'),
+        screenshotPath: null, logcatPath: join(root, 'b1.logcat.txt'),
       }]
-      for (const file of [files[0].videoPath, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
+      for (const file of [files[0].videoPath!, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
       const manifest = buildExportManifest({
         session: session(),
         bugs: [bug()],
@@ -129,13 +131,13 @@ describe('Slack publisher', () => {
       expect(messageCalls).toHaveLength(1)
       expect(formBody(messageCalls[0][1]).get('text')).toBe('<@U123>\nsummary text from file')
       const completeCalls = fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))
-      expect(completeCalls).toHaveLength(2)
+      expect(completeCalls).toHaveLength(3)
       expect(formBody(completeCalls[0][1]).get('initial_comment')).toBe('Detailed PDF report')
       expect(formBody(completeCalls[1][1]).get('initial_comment')).toBe('<@U123>\n[Critical] login crash')
       const uploadFilenames = fetchImpl.mock.calls
         .filter(([url]) => String(url).endsWith('/files.getUploadURLExternal'))
         .map(([, init]) => formBody(init).get('filename'))
-      expect(uploadFilenames).toEqual(['QA_bug_report_1.0_2023-11-14.pdf', 'b1.mp4'])
+      expect(uploadFilenames).toEqual(['QA_bug_report_1.0_2023-11-14.pdf', 'b1.jpg', 'b1.mp4'])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -148,10 +150,10 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        logcatPath: join(root, 'b1.logcat.txt'),
+        screenshotPath: null, logcatPath: join(root, 'b1.logcat.txt'),
       }]
       const reportPdfPath = join(root, 'QA_bug_report_1.0_2023-11-14.pdf')
-      for (const file of [files[0].videoPath, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
+      for (const file of [files[0].videoPath!, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
       writeFileSync(reportPdfPath, 'pdf')
       const manifest = buildExportManifest({
         session: session(),
@@ -193,7 +195,93 @@ describe('Slack publisher', () => {
       expect(infoText).toContain('RAM: 8.0G')
       expect(infoText).toContain('Graphic Device: Qualcomm Adreno 740')
       expect(formBody(messageCalls[2]?.[1]).get('thread_ts')).toBe('123.456')
-      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))).toHaveLength(2)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))).toHaveLength(3)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('uploads the screenshot (previewPath) when videoPath is null in single-thread mode', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-slack-'))
+    try {
+      const files: ExportedMarkerFile[] = [{
+        bugId: 'b1',
+        videoPath: null,
+        previewPath: join(root, 'b1.jpg'),
+        screenshotPath: null, logcatPath: null,
+      }]
+      writeFileSync(files[0].previewPath, 'screenshot-data')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'slack', slackThreadMode: 'single-thread' },
+      })
+      const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.endsWith('/chat.postMessage')) return response({ ok: true, ts: '111.222' })
+        if (input.endsWith('/files.getUploadURLExternal')) return response({ ok: true, upload_url: 'https://upload.test/file', file_id: `F${fetchImpl.mock.calls.length}` })
+        if (input === 'https://upload.test/file') return new Response('', { status: 200 })
+        if (input.endsWith('/files.completeUploadExternal')) return response({ ok: true })
+        throw new Error(`unexpected URL ${input}`)
+      })
+
+      const result = await publishManifestToSlack({
+        manifest,
+        manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+        fetchImpl,
+      })
+
+      expect(result.uploadErrors).toEqual([])
+      const uploadFilenames = fetchImpl.mock.calls
+        .filter(([url]) => String(url).endsWith('/files.getUploadURLExternal'))
+        .map(([, init]) => formBody(init).get('filename'))
+      // Should upload the screenshot (b1.jpg), not skip it
+      expect(uploadFilenames).toEqual(['b1.jpg'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('uploads the screenshot (previewPath) when videoPath is null in per-marker-thread mode', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-slack-'))
+    try {
+      const files: ExportedMarkerFile[] = [{
+        bugId: 'b1',
+        videoPath: null,
+        previewPath: join(root, 'b1.jpg'),
+        screenshotPath: null, logcatPath: null,
+      }]
+      writeFileSync(files[0].previewPath, 'screenshot-data')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'slack', slackThreadMode: 'per-marker-thread' },
+      })
+      const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.endsWith('/chat.postMessage')) return response({ ok: true, ts: '111.222' })
+        if (input.endsWith('/files.getUploadURLExternal')) return response({ ok: true, upload_url: 'https://upload.test/file', file_id: `F${fetchImpl.mock.calls.length}` })
+        if (input === 'https://upload.test/file') return new Response('', { status: 200 })
+        if (input.endsWith('/files.completeUploadExternal')) return response({ ok: true })
+        throw new Error(`unexpected URL ${input}`)
+      })
+
+      const result = await publishManifestToSlack({
+        manifest,
+        manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
+        settings: { botToken: 'xoxb-test', channelId: 'C123', mentionUserIds: [], mentionAliases: {} },
+        fetchImpl,
+      })
+
+      expect(result.uploadErrors).toEqual([])
+      const uploadFilenames = fetchImpl.mock.calls
+        .filter(([url]) => String(url).endsWith('/files.getUploadURLExternal'))
+        .map(([, init]) => formBody(init).get('filename'))
+      // Should upload the screenshot (b1.jpg), not skip it
+      expect(uploadFilenames).toEqual(['b1.jpg'])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -206,9 +294,9 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'this is a very long clip filename with symbols 測試 and spaces that slack should not receive directly.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        logcatPath: null,
+        screenshotPath: null, logcatPath: null,
       }]
-      for (const file of [files[0].videoPath, files[0].previewPath]) writeFileSync(file, 'x')
+      for (const file of [files[0].videoPath!, files[0].previewPath]) writeFileSync(file, 'x')
       const manifest = buildExportManifest({
         session: session(),
         bugs: [bug()],
@@ -239,7 +327,8 @@ describe('Slack publisher', () => {
       })
 
       expect(result.uploadErrors[0]).toContain('invalid_arguments')
-      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))).toHaveLength(0)
+      // First upload (screenshot) fails; the video still uploads — publishing continues past the failure.
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/files.completeUploadExternal'))).toHaveLength(1)
       expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/chat.postMessage'))).toHaveLength(2)
     } finally {
       rmSync(root, { recursive: true, force: true })

@@ -5,8 +5,8 @@ import { BugList, type BugListHandle } from '@/components/BugList'
 import type { Bug, DesktopApi, MentionIdentity } from '@shared/types'
 
 const bug = (over: Partial<Bug> = {}): Bug => ({
-  id: 'b1', sessionId: 's1', offsetMs: 5000, severity: 'normal', note: 'note',
-  screenshotRel: null, logcatRel: null, createdAt: 0,
+  id: 'b1', sessionId: 's1', offsetMs: 5000, originalOffsetMs: 5000, severity: 'normal', note: 'note',
+  screenshotRel: null, originalScreenshotRel: null, logcatRel: null, createdAt: 0,
   audioRel: null, audioDurationMs: null,
   preSec: 5, postSec: 5, ...over,
 })
@@ -270,16 +270,18 @@ describe('BugList', () => {
     expect(scrollBody.contains(progress)).toBe(false)
   })
 
-  it('changing pre slider saves preSec immediately', async () => {
+  it('changing pre input saves preSec immediately', async () => {
     const api = fakeApi()
-    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    // offsetMs=30000ms → maxPreSec=30; value 12 is within range and passes through unchanged
+    render(<BugList api={api} sessionId="s1" bugs={[bug({ offsetMs: 30000 })]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" durationMs={60000} />)
     fireEvent.change(screen.getByTestId('pre-b1'), { target: { value: '12' } })
     await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ preSec: 12 })))
   })
 
-  it('changing post slider saves postSec immediately', async () => {
+  it('changing post input saves postSec immediately', async () => {
     const api = fakeApi()
-    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    // offsetMs=5000ms, durationMs=60000ms → maxPostSec=55; value 20 is within range
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" durationMs={60000} />)
     fireEvent.change(screen.getByTestId('post-b1'), { target: { value: '20' } })
     await waitFor(() => expect(api.bug.update).toHaveBeenCalledWith('b1', expect.objectContaining({ postSec: 20 })))
   })

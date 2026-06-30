@@ -53,8 +53,9 @@ export interface ExportManifest {
     createdAt: string
     preSec: number
     postSec: number
-    videoPath: string
+    videoPath: string | null
     previewPath: string
+    screenshotPath: string | null
     logcatPath: string | null
     mentionUserIds: string[]
     customFields: MarkerCustomField[]
@@ -106,6 +107,11 @@ function effectiveCustomFields(bug: Bug, presets: MarkerFieldPreset[] | undefine
   return [...byKey.values()].filter(field => Array.isArray(field.value) ? field.value.length > 0 : field.value)
 }
 
+/** The image to attach/link for a marker: the high-res screenshot when present, else the contact-sheet preview. */
+export function markerImagePath(marker: ExportManifest['markers'][number]): string {
+  return marker.screenshotPath ?? marker.previewPath
+}
+
 export function buildExportManifest(args: BuildExportManifestArgs): ExportManifest {
   const fileByBug = new Map(args.files.map(file => [file.bugId, file]))
   const publish = args.publish ?? { target: 'local' as const }
@@ -154,6 +160,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
         postSec: bug.postSec,
         videoPath: file.videoPath,
         previewPath: file.previewPath,
+        screenshotPath: file.screenshotPath,
         logcatPath: file.logcatPath,
         mentionUserIds: bug.mentionUserIds ?? [],
         customFields: effectiveCustomFields(bug, args.markerFieldPresets),
@@ -182,6 +189,7 @@ export function manifestToCsv(manifest: ExportManifest): string {
       'Created At',
       'Video Path',
       'Preview Path',
+      'Screenshot Path',
       'Logcat Path',
       'Report PDF Path',
       'Publish Target',
@@ -206,8 +214,9 @@ export function manifestToCsv(manifest: ExportManifest): string {
       marker.note,
       marker.offsetMs,
       marker.createdAt,
-      marker.videoPath,
+      marker.videoPath ?? '',
       marker.previewPath,
+      marker.screenshotPath ?? '',
       marker.logcatPath ?? '',
       manifest.reportPdfPath ?? '',
       manifest.publish.target,
@@ -259,7 +268,7 @@ function templateContext(manifest: ExportManifest, marker?: ExportManifest['mark
       severityLabel: marker.severityLabel,
       note: marker.note,
       markerCreatedAt: marker.createdAt,
-      videoPath: marker.videoPath,
+      videoPath: marker.videoPath ?? '',
       previewPath: marker.previewPath,
       logcatPath: marker.logcatPath ?? '',
     })
@@ -317,7 +326,7 @@ export function slackThreadPayload(manifest: ExportManifest): {
     markers: manifest.markers.map(marker => ({
       markerId: marker.id,
       text: markerTitle(marker),
-      files: [marker.videoPath],
+      files: [marker.videoPath].filter((p): p is string => p != null),
     })),
   }
 }

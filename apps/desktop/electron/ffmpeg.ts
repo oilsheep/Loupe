@@ -697,13 +697,14 @@ export async function extractContactSheet(runner: IProcessRunner, ffmpegPath: st
 }
 
 export function buildThumbnailArgs(opts: ThumbnailOptions): string[] {
+  // Extract the native-resolution frame (no downscale) so re-captured / fallback
+  // marker screenshots are high-res like the live capture, not a 320px thumbnail.
   return [
     '-y',
     '-ss', ms(opts.offsetMs),
     '-i', opts.inputPath,
     '-frames:v', '1',
-    '-vf', 'scale=320:-2',
-    '-q:v', '3',
+    '-q:v', '2',
     opts.outputPath,
   ]
 }

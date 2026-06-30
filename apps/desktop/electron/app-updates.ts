@@ -31,6 +31,11 @@ interface GithubRelease {
 }
 
 export async function checkForAppUpdates(currentVersion = app.getVersion(), platform = process.platform, arch = process.arch): Promise<AppUpdateCheckResult> {
+  // Local/dev builds carry the `99.0.0-dev` sentinel — never check for or offer updates
+  // (a dev build has no business replacing itself with a release).
+  if (currentVersion.endsWith('-dev')) {
+    return { currentVersion, updateAvailable: false, releaseUrl: PAGE_URL_TEMPLATE.replace('{version}', ''), error: 'Development build — update check disabled.' }
+  }
   if (PROVIDER === 'gitlab') return checkGitLabUpdate(currentVersion)
   return checkGithubUpdate(currentVersion, platform, arch)
 }

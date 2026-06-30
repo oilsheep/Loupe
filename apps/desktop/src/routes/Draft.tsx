@@ -238,8 +238,9 @@ export function Draft({ sessionId }: { sessionId: string }) {
   }, [severities])
 
   const updateBugClipWindow = useCallback(async (bug: Bug, preSec: number, postSec: number) => {
-    const nextPre = Math.max(0, Math.round(preSec * 10) / 10)
-    const nextPost = Math.max(0, Math.round(postSec * 10) / 10)
+    // preSec/postSec may be negative so the window can sit entirely on one side of the marker.
+    const nextPre = Math.round(preSec * 10) / 10
+    const nextPost = Math.round(postSec * 10) / 10
     const durationMs = data?.session.durationMs ?? 0
     const clipStartMs = Math.max(0, bug.offsetMs - nextPre * 1000)
     const requestedClipEndMs = bug.offsetMs + nextPost * 1000
@@ -276,6 +277,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
     await api.bug.update(bug.id, {
       note: bug.note,
       severity: bug.severity,
+      offsetMs: bug.offsetMs,
       preSec: nextPre,
       postSec: nextPost,
       mentionUserIds: bug.mentionUserIds ?? [],
@@ -285,6 +287,23 @@ export function Draft({ sessionId }: { sessionId: string }) {
       ...annotationUpdates.map(annotation => api.bug.updateAnnotation(annotation.id, { startMs: annotation.startMs, endMs: annotation.endMs })),
     ])
   }, [data?.session.durationMs, selectedAnnotationId])
+
+  const moveMarker = useCallback(async (bug: Bug, offsetMs: number) => {
+    const durationMs = data?.session.durationMs ?? 0
+    const next = durationMs > 0 ? Math.max(0, Math.min(durationMs, offsetMs)) : Math.max(0, offsetMs)
+    setData(prev => prev ? {
+      ...prev,
+      bugs: prev.bugs.map(item => item.id === bug.id ? { ...item, offsetMs: next } : item),
+    } : prev)
+    await api.bug.update(bug.id, {
+      note: bug.note,
+      severity: bug.severity,
+      offsetMs: next,
+      preSec: bug.preSec,
+      postSec: bug.postSec,
+      mentionUserIds: bug.mentionUserIds ?? [],
+    })
+  }, [data?.session.durationMs])
 
   useEffect(() => api.onBugMarkRequested(addMarkerAtCurrentTime), [addMarkerAtCurrentTime])
 
@@ -485,6 +504,8 @@ export function Draft({ sessionId }: { sessionId: string }) {
           selectedAnnotationId={selectedAnnotationId}
           onMarkerClick={selectBug}
           onClipWindowChange={updateBugClipWindow}
+          onMarkerMove={moveMarker}
+          onDeselect={() => { setSelectedBugId(null); setSelectedAnnotationId(null) }}
           onAnnotationAdd={(bug, rect) => { void addAnnotation(bug, rect) }}
           onAnnotationUpdate={(id, patch) => { void updateAnnotation(id, patch) }}
           onAnnotationDelete={(id) => { void deleteAnnotation(id) }}
@@ -692,6 +713,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
             testNote={testNote}
             hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}
             markerToolbar={markerToolbar}
+            durationMs={dur}
             overrideProfile={draftProfile}
           />
         </div>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, globalShortcut, nativeImage, protocol, session as electronSession } from 'electron'
+import { app, BrowserWindow, desktopCapturer, globalShortcut, nativeImage, protocol, screen, session as electronSession } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -332,10 +332,16 @@ app.whenReady().then(async () => {
     capturePcThumbnail: async (sourceIdOrWindowTitle, outPath) => {
       const capture = async () => {
         const isScreenSource = sourceIdOrWindowTitle.startsWith('screen:')
+        // Capture at the largest display's native pixel resolution (not a 360px thumbnail) so the
+        // marker screenshot is genuinely high-res. desktopCapturer caps at the source's own size,
+        // so windows still come out at their native resolution rather than upscaled.
+        const displays = screen.getAllDisplays()
+        const nativeW = Math.max(1280, ...displays.map(d => Math.round(d.size.width * (d.scaleFactor || 1))))
+        const nativeH = Math.max(720, ...displays.map(d => Math.round(d.size.height * (d.scaleFactor || 1))))
         const sources = await withTimeout(desktopCapturer.getSources({
           types: isScreenSource ? ['screen'] : ['window'],
-          thumbnailSize: { width: 360, height: 360 },
-        }), 2500, 'PC thumbnail capture')
+          thumbnailSize: { width: nativeW, height: nativeH },
+        }), 5000, 'PC thumbnail capture')
         const normalizedTitle = sourceIdOrWindowTitle.trim().toLowerCase()
         const source = sources.find(s => s.id === sourceIdOrWindowTitle)
           ?? sources.find(s => s.name.trim().toLowerCase() === normalizedTitle)

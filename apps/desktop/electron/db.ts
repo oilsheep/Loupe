@@ -33,9 +33,11 @@ CREATE TABLE IF NOT EXISTS bugs (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   offset_ms INTEGER NOT NULL,
+  original_offset_ms INTEGER,
   severity TEXT NOT NULL,
   note TEXT NOT NULL,
   screenshot_rel TEXT,
+  original_screenshot_rel TEXT,
   logcat_rel TEXT,
   audio_rel TEXT,
   audio_duration_ms INTEGER,
@@ -97,8 +99,9 @@ function rowToBug(r: any): Bug {
     : 'manual'
   return {
     id: r.id, sessionId: r.session_id, offsetMs: r.offset_ms,
+    originalOffsetMs: r.original_offset_ms ?? r.offset_ms,
     severity: r.severity, note,
-    screenshotRel: r.screenshot_rel, logcatRel: r.logcat_rel,
+    screenshotRel: r.screenshot_rel, originalScreenshotRel: r.original_screenshot_rel ?? null, logcatRel: r.logcat_rel,
     audioRel: r.audio_rel ?? null, audioDurationMs: r.audio_duration_ms ?? null,
     createdAt: r.created_at,
     preSec: r.pre_sec, postSec: r.post_sec,
@@ -262,6 +265,14 @@ function migrate(db: Database.Database): void {
   if (!cols.includes('mention_user_ids')) db.exec(`ALTER TABLE bugs ADD COLUMN mention_user_ids TEXT NOT NULL DEFAULT '[]'`)
   if (!cols.includes('custom_fields')) db.exec(`ALTER TABLE bugs ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'`)
   if (!cols.includes('source')) db.exec(`ALTER TABLE bugs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`)
+  if (!cols.includes('original_screenshot_rel')) {
+    db.exec(`ALTER TABLE bugs ADD COLUMN original_screenshot_rel TEXT`)
+    db.exec(`UPDATE bugs SET original_screenshot_rel = screenshot_rel WHERE original_screenshot_rel IS NULL`)
+  }
+  if (!cols.includes('original_offset_ms')) {
+    db.exec(`ALTER TABLE bugs ADD COLUMN original_offset_ms INTEGER`)
+    db.exec(`UPDATE bugs SET original_offset_ms = offset_ms WHERE original_offset_ms IS NULL`)
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS bug_annotations (
       id TEXT PRIMARY KEY,
@@ -292,9 +303,11 @@ function migrate(db: Database.Database): void {
         id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
         offset_ms INTEGER NOT NULL,
+        original_offset_ms INTEGER,
         severity TEXT NOT NULL,
         note TEXT NOT NULL,
         screenshot_rel TEXT,
+        original_screenshot_rel TEXT,
         logcat_rel TEXT,
         audio_rel TEXT,
         audio_duration_ms INTEGER,
@@ -305,8 +318,8 @@ function migrate(db: Database.Database): void {
         custom_fields TEXT NOT NULL DEFAULT '[]',
         source TEXT NOT NULL DEFAULT 'manual'
       );
-      INSERT INTO bugs_new (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source)
-      SELECT id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source FROM bugs;
+      INSERT INTO bugs_new (id, session_id, offset_ms, original_offset_ms, severity, note, screenshot_rel, original_screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source)
+      SELECT id, session_id, offset_ms, original_offset_ms, severity, note, screenshot_rel, original_screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source FROM bugs;
       DROP TABLE bugs;
       ALTER TABLE bugs_new RENAME TO bugs;
       CREATE INDEX IF NOT EXISTS idx_bugs_session_offset ON bugs(session_id, offset_ms);
@@ -385,14 +398,16 @@ export function openDb(file: string) {
   const deleteSessionStmt= db.prepare(`DELETE FROM sessions WHERE id = ?`)
 
   const insertBugStmt = db.prepare(`
-    INSERT INTO bugs (id, session_id, offset_ms, severity, note, screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source)
-    VALUES (@id, @sessionId, @offsetMs, @severity, @note, @screenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec, @mentionUserIdsJson, @customFieldsJson, @source)
+    INSERT INTO bugs (id, session_id, offset_ms, original_offset_ms, severity, note, screenshot_rel, original_screenshot_rel, logcat_rel, audio_rel, audio_duration_ms, created_at, pre_sec, post_sec, mention_user_ids, custom_fields, source)
+    VALUES (@id, @sessionId, @offsetMs, @originalOffsetMs, @severity, @note, @screenshotRel, @originalScreenshotRel, @logcatRel, @audioRel, @audioDurationMs, @createdAt, @preSec, @postSec, @mentionUserIdsJson, @customFieldsJson, @source)
     ON CONFLICT(id) DO UPDATE SET
       session_id=excluded.session_id,
       offset_ms=excluded.offset_ms,
+      original_offset_ms=COALESCE(bugs.original_offset_ms, excluded.original_offset_ms),
       severity=excluded.severity,
       note=excluded.note,
       screenshot_rel=excluded.screenshot_rel,
+      original_screenshot_rel=COALESCE(bugs.original_screenshot_rel, excluded.original_screenshot_rel),
       logcat_rel=excluded.logcat_rel,
       audio_rel=excluded.audio_rel,
       audio_duration_ms=excluded.audio_duration_ms,
@@ -403,8 +418,10 @@ export function openDb(file: string) {
       custom_fields=excluded.custom_fields,
       source=excluded.source
   `)
-  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, pre_sec=@preSec, post_sec=@postSec, mention_user_ids=@mentionUserIdsJson, custom_fields=@customFieldsJson WHERE id=@id`)
-  const updateBugAssetsStmt = db.prepare(`UPDATE bugs SET screenshot_rel=@screenshotRel, logcat_rel=@logcatRel WHERE id=@id`)
+  const updateBugStmt = db.prepare(`UPDATE bugs SET note=@note, severity=@severity, offset_ms=@offsetMs, pre_sec=@preSec, post_sec=@postSec, mention_user_ids=@mentionUserIdsJson, custom_fields=@customFieldsJson WHERE id=@id`)
+  const updateBugAssetsStmt = db.prepare(`UPDATE bugs SET screenshot_rel=@screenshotRel, logcat_rel=@logcatRel, original_screenshot_rel=COALESCE(original_screenshot_rel, @screenshotRel) WHERE id=@id`)
+  const setBugScreenshotStmt = db.prepare(`UPDATE bugs SET screenshot_rel=@screenshotRel WHERE id=@id`)
+  const resetBugScreenshotStmt = db.prepare(`UPDATE bugs SET screenshot_rel=original_screenshot_rel WHERE id=@id`)
   const updateBugAudioStmt = db.prepare(`UPDATE bugs SET audio_rel=@audioRel, audio_duration_ms=@audioDurationMs WHERE id=@id`)
   const deleteBugStmt = db.prepare(`DELETE FROM bugs WHERE id = ?`)
   const deleteBugsForSessionStmt = db.prepare(`DELETE FROM bugs WHERE session_id = ?`)
@@ -502,21 +519,23 @@ export function openDb(file: string) {
     },
     deleteSession(id: string) { deleteSessionStmt.run(id) },
     insertBug(b: Bug) {
-      insertBugStmt.run({ ...b, source: b.source ?? 'manual', mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []), customFieldsJson: serializeMarkerCustomFields(b.customFields) })
+      insertBugStmt.run({ ...b, source: b.source ?? 'manual', originalScreenshotRel: b.originalScreenshotRel ?? null, originalOffsetMs: b.originalOffsetMs ?? b.offsetMs, mentionUserIdsJson: JSON.stringify(b.mentionUserIds ?? []), customFieldsJson: serializeMarkerCustomFields(b.customFields) })
       if (b.annotations) {
         deleteAnnotationsForBugStmt.run(b.id)
         for (const annotation of b.annotations) insertAnnotationStmt.run(serializeAnnotation(annotation))
       }
     },
-    updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }) {
+    updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; offsetMs?: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }) {
       const currentRow = getBugStmt.get(id) as any
       if (!currentRow) return
       const current = rowToBug(currentRow)
-      updateBugStmt.run({ id, ...patch, mentionUserIdsJson: JSON.stringify(patch.mentionUserIds ?? current.mentionUserIds), customFieldsJson: serializeMarkerCustomFields(patch.customFields ?? current.customFields) })
+      updateBugStmt.run({ id, ...patch, offsetMs: patch.offsetMs ?? current.offsetMs, mentionUserIdsJson: JSON.stringify(patch.mentionUserIds ?? current.mentionUserIds), customFieldsJson: serializeMarkerCustomFields(patch.customFields ?? current.customFields) })
     },
     updateBugAssets(id: string, args: { screenshotRel: string | null; logcatRel: string | null }) {
       updateBugAssetsStmt.run({ id, ...args })
     },
+    setBugScreenshot(id: string, screenshotRel: string) { setBugScreenshotStmt.run({ id, screenshotRel }) },
+    resetBugScreenshot(id: string) { resetBugScreenshotStmt.run({ id }) },
     updateBugAudio(id: string, args: { audioRel: string | null; audioDurationMs: number | null }) {
       updateBugAudioStmt.run({ id, ...args })
     },
@@ -530,6 +549,10 @@ export function openDb(file: string) {
       updateAnnotationStmt.run(serializeAnnotation({ ...current, ...patch, id }))
     },
     deleteAnnotation(id: string) { deleteAnnotationStmt.run(id) },
+    getBug(id: string): Bug | undefined {
+      const r = getBugStmt.get(id) as any
+      return r ? rowToBug(r) : undefined
+    },
     deleteBug(id: string) { deleteBugStmt.run(id) },
     deleteBugsForSession(sessionId: string) { deleteBugsForSessionStmt.run(sessionId) },
     deleteBugsBySourceForSession(sessionId: string, source: NonNullable<Bug['source']>): number {

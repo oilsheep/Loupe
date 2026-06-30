@@ -1,7 +1,7 @@
 import { basename } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ExportManifest } from './export-manifest'
-import { renderPublishTemplate, slackSessionMessage } from './export-manifest'
+import { renderPublishTemplate, slackSessionMessage, markerImagePath } from './export-manifest'
 import type { MentionIdentity, PublishTemplateConfig, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { appendMentionLine, slackMentionText } from './mention-format'
 
@@ -410,7 +410,9 @@ export async function publishManifestToSlack(args: {
       await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, reportPdfPath, rootTs, 'Detailed PDF report')
     }
     for (const marker of args.manifest.markers) {
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, rootTs, markerMessageText(args.manifest, marker, fallbackMentions, mentionIdentities, template))
+      const imagePath = markerImagePath(marker)
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, imagePath, rootTs, markerMessageText(args.manifest, marker, fallbackMentions, mentionIdentities, template))
+      if (marker.videoPath) await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, rootTs)
     }
     if (uploadErrors.length > 0) {
       await postMessage(fetchImpl, token, channelId, `Loupe finished with ${uploadErrors.length} upload error(s):\n${uploadErrors.map(error => `- ${error}`).join('\n')}`, rootTs)
@@ -428,7 +430,9 @@ export async function publishManifestToSlack(args: {
       const markerRootTs = await postMessage(fetchImpl, token, channelId, markerText)
       markerThreadTs[marker.id] = markerRootTs
       await postMessage(fetchImpl, token, channelId, markerThreadInfoText(args.manifest), markerRootTs)
-      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, markerRootTs)
+      const imagePath = markerImagePath(marker)
+      await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, imagePath, markerRootTs)
+      if (marker.videoPath) await uploadFileCollectingErrors(uploadErrors, fetchImpl, token, channelId, marker.videoPath, markerRootTs)
       const markerErrors = uploadErrors.slice(firstErrorIndex)
       if (markerErrors.length > 0) {
         await postMessage(fetchImpl, token, channelId, `Loupe finished this marker with upload error(s):\n${markerErrors.map(error => `- ${error}`).join('\n')}`, markerRootTs)

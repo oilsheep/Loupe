@@ -40,9 +40,11 @@ function bug(over: Partial<Bug> = {}): Bug {
     id: 'b1',
     sessionId: 's1',
     offsetMs: 1_000,
+    originalOffsetMs: 1_000,
     severity: 'major',
     note: 'login crash',
     screenshotRel: null,
+    originalScreenshotRel: null,
     logcatRel: null,
     audioRel: null,
     audioDurationMs: null,
@@ -195,8 +197,8 @@ describe('GitLab publisher', () => {
   it('creates one issue and marker notes in single-issue mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), logcatPath: null }]
-      writeFileSync(files[0].videoPath, 'x')
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      writeFileSync(files[0].videoPath!, 'x')
       const reportPdfPath = join(root, 'report.pdf')
       const summaryTextPath = join(root, 'summary.txt')
       writeFileSync(reportPdfPath, 'pdf')
@@ -243,11 +245,94 @@ describe('GitLab publisher', () => {
     }
   })
 
+  it('uploads the screenshot (previewPath) when videoPath is null in single-issue mode', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
+    try {
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      writeFileSync(files[0].previewPath, 'screenshot-data')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'gitlab', gitlabMode: 'single-issue' },
+      })
+      let uploadedFormData: FormData | null = null
+      const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.endsWith('/uploads')) {
+          // Capture the FormData body sent with the upload request
+          const body = init?.body
+          if (body && typeof body === 'object' && 'get' in body) uploadedFormData = body as FormData
+          return response({ markdown: '[screenshot](/uploads/b1.jpg)' })
+        }
+        if (input.endsWith('/issues')) return response({ iid: 20, web_url: 'https://gitlab.example.com/group/project/-/issues/20' })
+        if (input.endsWith('/issues/20/notes')) return response({ id: 3 })
+        throw new Error(`unexpected URL ${input}`)
+      })
+
+      const result = await publishManifestToGitLab({
+        manifest,
+        manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
+        settings: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: [], confidential: false, mentionUsernames: [] },
+        fetchImpl,
+      })
+
+      expect(result.uploadErrors).toEqual([])
+      // The /uploads endpoint must have been called (screenshot was uploaded, not skipped)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+      // The upload body must be a FormData with a 'file' field (i.e. the previewPath screenshot was sent)
+      // Note: happy-dom returns 'blob' for File.name on Blob-constructed entries; we assert the field
+      // exists and its content matches the written screenshot bytes ('screenshot-data').
+      expect(uploadedFormData).not.toBeNull()
+      const uploadedFile = uploadedFormData!.get('file') as File | null
+      expect(uploadedFile).not.toBeNull()
+      const uploadedText = await uploadedFile!.text()
+      expect(uploadedText).toBe('screenshot-data')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('uploads the screenshot (previewPath) when videoPath is null in per-marker mode', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
+    try {
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      writeFileSync(files[0].previewPath, 'screenshot-data')
+      const manifest = buildExportManifest({
+        session: session(),
+        bugs: [bug()],
+        files,
+        outDir: root,
+        publish: { target: 'gitlab', gitlabMode: 'per-marker-issue' },
+      })
+      const fetchImpl = vi.fn(async (input: string) => {
+        if (input.endsWith('/uploads')) return response({ markdown: '[screenshot](/uploads/b1.jpg)' })
+        if (input.endsWith('/issues')) return response({ iid: 21, web_url: 'https://gitlab.example.com/group/project/-/issues/21' })
+        throw new Error(`unexpected URL ${input}`)
+      })
+
+      const result = await publishManifestToGitLab({
+        manifest,
+        manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
+        settings: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'per-marker-issue', labels: [], confidential: false, mentionUsernames: [] },
+        fetchImpl,
+      })
+
+      expect(result.uploadErrors).toEqual([])
+      // The /uploads endpoint must have been called (screenshot was uploaded, not skipped)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+      // One marker issue + one summary issue (per-marker mode adds a linking summary)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/issues'))).toHaveLength(2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('creates one issue per marker in per-marker mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), logcatPath: null }]
-      writeFileSync(files[0].videoPath, 'x')
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      writeFileSync(files[0].videoPath!, 'x')
       const manifest = buildExportManifest({
         session: session(),
         bugs: [bug()],
@@ -264,12 +349,16 @@ describe('GitLab publisher', () => {
       const result = await publishManifestToGitLab({
         manifest,
         manifestPaths: { jsonPath: join(root, 'export-manifest.json'), csvPath: join(root, 'export-manifest.csv') },
-        settings: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'single-issue', labels: [], confidential: true, mentionUsernames: [] },
+        settings: { baseUrl: 'https://gitlab.example.com', token: 'glpat-test', projectId: 'group/project', mode: 'per-marker-issue', labels: [], confidential: true, mentionUsernames: [] },
         fetchImpl,
       })
 
       expect(result.mode).toBe('per-marker-issue')
-      expect(result.issueUrls).toEqual(['https://gitlab.example.com/group/project/-/issues/12'])
+      // 1 marker issue + 1 summary issue (mock returns iid 12 for both)
+      expect(result.issueUrls).toEqual(['https://gitlab.example.com/group/project/-/issues/12', 'https://gitlab.example.com/group/project/-/issues/12'])
+      // Video uploaded for the marker (b1.jpg fixture not written, so the screenshot upload is skipped)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/uploads'))).toHaveLength(1)
+      expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/issues'))).toHaveLength(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

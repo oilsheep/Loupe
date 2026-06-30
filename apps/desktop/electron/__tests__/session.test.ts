@@ -59,7 +59,7 @@ describe('SessionManager', () => {
     nowMs = 1_700_000_000_000
     mgr = new SessionManager({
       db, paths, adb: stubs.adb, scrcpy: stubs.scrcpy, logcat: stubs.logcat,
-      runner: { run: vi.fn() as any, spawn: vi.fn() as any },
+      runner: { run: vi.fn().mockResolvedValue({ code: 0, stdout: '', stderr: '' }) as any, spawn: vi.fn() as any },
       captureScreenshot: stubs.screenshot,
       iosSyslog: stubs.iosSyslog,
       prepareVideoForPlayback: stubs.prepareVideo,
@@ -508,8 +508,8 @@ describe('SessionManager', () => {
       micAudioDurationMs: null, micAudioStartOffsetMs: null,
     }
     const bug = {
-      id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, severity: 'normal' as const,
-      note: 'restored', screenshotRel: null, logcatRel: null, createdAt: 3,
+      id: 'b-imported', sessionId: 'imported', offsetMs: 1_000, originalOffsetMs: 1_000, severity: 'normal' as const,
+      note: 'restored', screenshotRel: null, originalScreenshotRel: null, logcatRel: null, createdAt: 3,
       audioRel: null, audioDurationMs: null,
       preSec: 5, postSec: 5,
     }
@@ -525,6 +525,32 @@ describe('SessionManager', () => {
     await mgr.discard(s.id)
     expect(db.getSession(s.id)).toBeUndefined()
     expect(existsSync(paths.sessionDir(s.id))).toBe(false)
+  })
+
+  it('updateBug clamps offsetMs to [0, durationMs]', async () => {
+    const s = await mgr.start({ deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: '' })
+    db.finalizeSession(s.id, { durationMs: 10_000, endedAt: nowMs })
+    const bug = await mgr.addMarker({ sessionId: s.id, offsetMs: 3000 })
+    mgr.updateBug(bug.id, { note: '', severity: 'normal', preSec: 5, postSec: 5, offsetMs: 99_999 })
+    expect(db.listBugs(s.id)[0].offsetMs).toBe(10_000)
+    mgr.updateBug(bug.id, { note: '', severity: 'normal', preSec: 5, postSec: 5, offsetMs: -50 })
+    expect(db.listBugs(s.id)[0].offsetMs).toBe(0)
+  })
+
+  it('recaptureScreenshot writes a recap file and updates active only; reset restores original', async () => {
+    const s = await mgr.start({ deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: '' })
+    db.finalizeSession(s.id, { durationMs: 10_000, endedAt: nowMs })
+    const bug = await mgr.addMarker({ sessionId: s.id, offsetMs: 3000 })
+    db.updateBugAssets(bug.id, { screenshotRel: `screenshots/${bug.id}.png`, logcatRel: null })
+
+    await mgr.recaptureScreenshot(bug.id)
+    let b = db.listBugs(s.id).find(x => x.id === bug.id)!
+    expect(b.screenshotRel).toBe(`screenshots/${bug.id}-recap.png`)
+    expect(b.originalScreenshotRel).toBe(`screenshots/${bug.id}.png`)
+
+    await mgr.resetScreenshot(bug.id)
+    b = db.listBugs(s.id).find(x => x.id === bug.id)!
+    expect(b.screenshotRel).toBe(`screenshots/${bug.id}.png`)
   })
 })
 

@@ -1,7 +1,7 @@
 import { basename, dirname, relative, sep } from 'node:path'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import type { GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, MentionIdentity, PublishTemplateConfig } from '@shared/types'
-import { renderPublishTemplate, type ExportManifest } from './export-manifest'
+import { renderPublishTemplate, markerImagePath, type ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
   jsonPath: string
@@ -284,7 +284,7 @@ function exportedFiles(args: { manifest: ExportManifest; manifestPaths: Manifest
   add(args.manifestPaths.summaryTextPath)
   for (const marker of args.manifest.markers) {
     add(marker.videoPath)
-    add(marker.previewPath)
+    add(markerImagePath(marker))
     add(marker.logcatPath)
   }
   const walk = (dir: string) => {
@@ -381,8 +381,8 @@ function markerLinkMap(manifest: ExportManifest, uploaded: Array<{ path: string;
   const byMarker = new Map<string, { video?: string; preview?: string; logcat?: string }>()
   for (const marker of manifest.markers) {
     byMarker.set(marker.id, {
-      video: byPath.get(marker.videoPath),
-      preview: byPath.get(marker.previewPath),
+      video: marker.videoPath != null ? byPath.get(marker.videoPath) : undefined,
+      preview: byPath.get(markerImagePath(marker)),
       logcat: marker.logcatPath ? byPath.get(marker.logcatPath) : undefined,
     })
   }

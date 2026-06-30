@@ -1,7 +1,7 @@
 import { basename } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import type { GitLabMentionUser, GitLabProject, GitLabPublishSettings, MentionIdentity, PublishTemplateConfig } from '@shared/types'
-import { renderPublishTemplate, type ExportManifest } from './export-manifest'
+import { renderPublishTemplate, markerImagePath, type ExportManifest } from './export-manifest'
 
 interface ManifestPaths {
   jsonPath: string
@@ -401,7 +401,9 @@ function sessionLines(manifest: ExportManifest): string[] {
   return lines
 }
 
-function rootDescription(manifest: ExportManifest, summaryTextPath: string | null | undefined, attachments: string[], template?: PublishTemplateConfig): string {
+// Session-level issue body (single-issue root, or per-marker summary). The trailing
+// listSection is either the marker list or links to the per-marker issues.
+function buildIssueDescription(manifest: ExportManifest, summaryTextPath: string | null | undefined, attachments: string[], listSection: string[], template?: PublishTemplateConfig): string {
   const summary = summaryTextPath && existsSync(summaryTextPath) ? readFileSync(summaryTextPath, 'utf8').trim() : ''
   const templated = template?.session?.trim() ? renderPublishTemplate(template.session, manifest) : ''
   const lines = [
@@ -409,7 +411,7 @@ function rootDescription(manifest: ExportManifest, summaryTextPath: string | nul
     '',
     ...attachments,
     '',
-    ...manifest.markers.map((marker, index) => `${index + 1}. ${markerTitle(marker)}`),
+    ...listSection,
   ]
   return lines.filter((line, index, arr) => line || arr[index - 1]).join('\n')
 }
@@ -460,36 +462,61 @@ export async function publishManifestToGitLab(args: {
   const template = args.template
   const issueUrls: string[] = []
   const uploadErrors: string[] = []
-  const reportMarkdown = await uploadFileCollectingErrors(uploadErrors, fetchImpl, args.settings, args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath)
+  // Per marker, attach the high-res screenshot (falling back to the contact-sheet preview)
+  // plus the video clip if any. The shared session PDF belongs only on the single-issue
+  // root — repeating it on every per-marker issue is noise.
+  async function markerAttachments(marker: ExportManifest['markers'][number], markerErrors: string[]): Promise<string[]> {
+    // Screenshot and clip are independent uploads — run them concurrently; the
+    // destructure preserves [image, video] order regardless of completion order.
+    const [imageMarkdown, mediaMarkdown] = await Promise.all([
+      uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, markerImagePath(marker)),
+      uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, marker.videoPath),
+    ])
+    return [imageMarkdown, mediaMarkdown].filter(Boolean) as string[]
+  }
 
   if (mode === 'single-issue') {
+    const reportMarkdown = await uploadFileCollectingErrors(uploadErrors, fetchImpl, args.settings, args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath)
     const issue = await createIssue(
       fetchImpl,
       args.settings,
       template?.title?.trim() ? renderPublishTemplate(template.title, args.manifest) : `[Loupe QA] ${args.manifest.session.buildVersion || args.manifest.session.id} - ${args.manifest.markers.length} marker${args.manifest.markers.length === 1 ? '' : 's'}`,
-      rootDescription(args.manifest, args.manifestPaths.summaryTextPath, [reportMarkdown].filter(Boolean) as string[], template),
+      buildIssueDescription(args.manifest, args.manifestPaths.summaryTextPath, [reportMarkdown].filter(Boolean) as string[], args.manifest.markers.map((marker, index) => `${index + 1}. ${markerTitle(marker)}`), template),
     )
     if (issue.web_url) issueUrls.push(issue.web_url)
     for (const marker of args.manifest.markers) {
       const markerErrors: string[] = []
-      const videoMarkdown = await uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, marker.videoPath)
-      const body = markerBody(args.manifest, args.settings, marker, [videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities, template)
+      const body = markerBody(args.manifest, args.settings, marker, await markerAttachments(marker, markerErrors), markerErrors, mentionIdentities, template)
       await createIssueNote(fetchImpl, args.settings, issue.iid, body)
       uploadErrors.push(...markerErrors)
     }
   } else {
+    const issueLinks: Array<{ title: string; url: string }> = []
     for (const marker of args.manifest.markers) {
       const markerErrors: string[] = []
-      const videoMarkdown = await uploadFileCollectingErrors(markerErrors, fetchImpl, args.settings, marker.videoPath)
+      const attachments = await markerAttachments(marker, markerErrors)
       const issue = await createIssue(
         fetchImpl,
         args.settings,
         template?.title?.trim() ? renderPublishTemplate(template.title, args.manifest, marker) : `[Loupe QA] ${markerTitle(marker)}`,
-        markerBody(args.manifest, args.settings, marker, [reportMarkdown, videoMarkdown].filter(Boolean) as string[], markerErrors, mentionIdentities, template),
+        markerBody(args.manifest, args.settings, marker, attachments, markerErrors, mentionIdentities, template),
       )
-      if (issue.web_url) issueUrls.push(issue.web_url)
+      if (issue.web_url) {
+        issueUrls.push(issue.web_url)
+        issueLinks.push({ title: markerTitle(marker), url: issue.web_url })
+      }
       uploadErrors.push(...markerErrors)
     }
+    // One summary issue carries the session PDF + overview and links every marker issue,
+    // so the PDF appears exactly once instead of being repeated on each issue.
+    const reportMarkdown = await uploadFileCollectingErrors(uploadErrors, fetchImpl, args.settings, args.manifest.reportPdfPath ?? args.manifestPaths.reportPdfPath)
+    const summaryIssue = await createIssue(
+      fetchImpl,
+      args.settings,
+      `[Loupe QA] Summary — ${args.manifest.session.buildVersion || args.manifest.session.id} (${args.manifest.markers.length} marker${args.manifest.markers.length === 1 ? '' : 's'})`,
+      buildIssueDescription(args.manifest, args.manifestPaths.summaryTextPath, [reportMarkdown].filter(Boolean) as string[], issueLinks.length > 0 ? ['Issues:', ...issueLinks.map((link, index) => `${index + 1}. ${link.title} — ${link.url}`)] : [], template),
+    )
+    if (summaryIssue.web_url) issueUrls.push(summaryIssue.web_url)
   }
 
   return { projectId: args.settings.projectId.trim(), mode, issueUrls, uploadErrors }

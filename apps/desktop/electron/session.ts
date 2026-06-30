@@ -412,9 +412,11 @@ export class SessionManager {
 
     const bug: Bug = {
       id: bugId, sessionId: sess.id, offsetMs,
+      originalOffsetMs: offsetMs,
       severity: args.severity ?? 'normal',
       note: args.note ?? '',
       screenshotRel: null,
+      originalScreenshotRel: null,
       logcatRel: null,
       audioRel: null,
       audioDurationMs: null,
@@ -548,9 +550,11 @@ export class SessionManager {
       id: this.newId(),
       sessionId: session.id,
       offsetMs: Math.max(0, Math.min(durationMs, args.offsetMs)),
+      originalOffsetMs: Math.max(0, Math.min(durationMs, args.offsetMs)),
       severity: args.severity ?? 'normal',
       note: args.note ?? '',
       screenshotRel: null,
+      originalScreenshotRel: null,
       logcatRel: null,
       audioRel: null,
       audioDurationMs: null,
@@ -689,10 +693,13 @@ export class SessionManager {
     if (!updated) throw new Error('session not found')
     return updated
   }
-  updateBug(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }) {
-    this.deps.db.updateBug(id, patch)
-    const session = this.deps.db.raw.prepare(`SELECT session_id FROM bugs WHERE id = ?`).get(id) as { session_id?: string } | undefined
-    if (session?.session_id) this.persistProject(session.session_id)
+  updateBug(id: string, patch: { note: string; severity: BugSeverity; offsetMs: number; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }) {
+    const bug = this.deps.db.getBug(id)
+    const session = bug ? this.deps.db.getSession(bug.sessionId) : null
+    const durationMs = session?.durationMs ?? Math.max(0, patch.offsetMs)
+    const offsetMs = Math.max(0, Math.min(durationMs, patch.offsetMs))
+    this.deps.db.updateBug(id, { ...patch, offsetMs })
+    if (bug?.sessionId) this.persistProject(bug.sessionId)
   }
 
   addAnnotation(args: { bugId: string; kind?: BugAnnotation['kind']; x: number; y: number; width: number; height: number; points?: BugAnnotation['points']; text?: string; startMs: number; endMs: number }): BugAnnotation {
@@ -797,6 +804,30 @@ export class SessionManager {
     const session = this.deps.db.getSession(sessionId)
     if (!session) return
     writeProjectFile(this.deps.paths.projectFile(sessionId), session, this.deps.db.listBugs(sessionId), this.now())
+  }
+
+  async recaptureScreenshot(bugId: string): Promise<void> {
+    const { db, paths, runner } = this.deps
+    const bug = db.getBug(bugId)
+    if (!bug) throw new Error('bug not found')
+    const session = db.getSession(bug.sessionId)
+    if (!session) throw new Error('session not found')
+    const inputPath = session.connectionMode === 'pc'
+      ? session.pcVideoPath
+      : session.videoPath ?? paths.videoFile(session.id)
+    if (!inputPath) throw new Error('session has no video to re-capture from')
+    const outputPath = paths.screenshotFile(session.id, `${bugId}-recap`)
+    await extractThumbnail(runner, resolveBundledFfmpegPath(), { inputPath, outputPath, offsetMs: bug.offsetMs })
+    db.setBugScreenshot(bugId, `screenshots/${bugId}-recap.png`)
+    this.persistProject(session.id)
+  }
+
+  async resetScreenshot(bugId: string): Promise<void> {
+    const { db } = this.deps
+    const bug = db.getBug(bugId)
+    if (!bug) throw new Error('bug not found')
+    db.resetBugScreenshot(bugId)
+    this.persistProject(bug.sessionId)
   }
 
   private async captureMarkerAssets(session: Session, bugId: string): Promise<void> {

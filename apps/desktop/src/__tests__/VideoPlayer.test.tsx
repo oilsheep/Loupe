@@ -4,8 +4,8 @@ import { VideoPlayer } from '@/components/VideoPlayer'
 import type { Bug, DesktopApi } from '@shared/types'
 
 const bug = (over: Partial<Bug> = {}): Bug => ({
-  id: 'b1', sessionId: 's1', offsetMs: 10_000, severity: 'normal', note: '',
-  screenshotRel: null, logcatRel: null, createdAt: 0,
+  id: 'b1', sessionId: 's1', offsetMs: 10_000, originalOffsetMs: 10_000, severity: 'normal', note: '',
+  screenshotRel: null, originalScreenshotRel: null, logcatRel: null, createdAt: 0,
   audioRel: null, audioDurationMs: null,
   preSec: 3, postSec: 7, ...over,
 })

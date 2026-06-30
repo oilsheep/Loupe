@@ -268,9 +268,11 @@ export interface Bug {
   id: string
   sessionId: string
   offsetMs: number              // ms since session start (= scrcpy elapsed at mark time)
+  originalOffsetMs: number      // first-marked timestamp (write-once); reset-to-original target
   severity: BugSeverity
   note: string
   screenshotRel: string | null  // path relative to session dir, e.g. "screenshots/abc.png"
+  originalScreenshotRel: string | null
   logcatRel: string | null
   audioRel: string | null
   audioDurationMs: number | null
@@ -324,8 +326,10 @@ export interface ExportPublishOptions {
 
 export interface ExportedMarkerFile {
   bugId: string
-  videoPath: string
+  videoPath: string | null
   previewPath: string
+  /** High-res original/active marker screenshot (bug.screenshotRel resolved), if any. */
+  screenshotPath: string | null
   logcatPath: string | null
 }
 
@@ -494,7 +498,7 @@ export interface DesktopApi {
   bug: {
     addMarker(args: { sessionId: string; offsetMs: number; severity?: BugSeverity; note?: string; preSec?: number; postSec?: number }): Promise<Bug>
     getLogcatPreview(args: { sessionId: string; relPath: string; maxLines?: number }): Promise<string | null>
-    update(id: string, patch: { note: string; severity: BugSeverity; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }): Promise<void>
+    update(id: string, patch: { note: string; severity: BugSeverity; offsetMs: number; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: MarkerCustomField[] }): Promise<void>
     addAnnotation(args: { bugId: string; kind?: BugAnnotation['kind']; x: number; y: number; width: number; height: number; points?: BugAnnotation['points']; text?: string; startMs: number; endMs: number }): Promise<BugAnnotation>
     updateAnnotation(id: string, patch: Partial<Pick<BugAnnotation, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points' | 'text' | 'startMs' | 'endMs'>>): Promise<void>
     deleteAnnotation(id: string): Promise<void>
@@ -505,6 +509,8 @@ export interface DesktopApi {
     exportClip(args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string | null>
     exportClips(args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null>
     cancelExport(exportId: string):                                Promise<void>
+    recaptureScreenshot(bugId: string):                            Promise<void>
+    resetScreenshot(bugId: string):                                Promise<void>
   }
   hotkey: {
     /** Globally enable or disable the bug-mark hotkey. Used to suppress capture while typing in the dialog. */

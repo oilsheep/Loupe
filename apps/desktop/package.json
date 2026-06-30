@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.6.0-dev",
+  "version": "99.0.0-dev",
   "private": true,
   "license": "MIT",
   "main": "out/main/index.js",

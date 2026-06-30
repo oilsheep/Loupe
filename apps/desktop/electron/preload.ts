@@ -57,6 +57,8 @@ const api: DesktopApi = {
     saveMicRecording: (args)    => ipcRenderer.invoke(CHANNEL.sessionSaveMicRecording, args),
   },
   bug: {
+    recaptureScreenshot: (bugId) => ipcRenderer.invoke(CHANNEL.bugRecaptureScreenshot, bugId),
+    resetScreenshot:     (bugId) => ipcRenderer.invoke(CHANNEL.bugResetScreenshot, bugId),
     addMarker:  (args)          => ipcRenderer.invoke(CHANNEL.bugAddMarker, args),
     getLogcatPreview: (args)    => ipcRenderer.invoke(CHANNEL.bugGetLogcatPreview, args),
     update:     (id, patch)     => ipcRenderer.invoke(CHANNEL.bugUpdate, id, patch),

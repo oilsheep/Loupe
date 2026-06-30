@@ -43,6 +43,7 @@ interface Props {
   testNote?: string
   hasSessionMicTrack?: boolean
   markerToolbar?: ReactNode
+  durationMs?: number
   // Per-session profile override. Read sites prefer this over
   // activeProfileFrom(settings); write sites (setSlack/setGitLab/etc.) route to
   // this profile's id when present, so refreshing Slack channels for an old
@@ -62,7 +63,44 @@ function fmt(ms: number): string {
 
 const BASE_SEVERITIES: BugSeverity[] = ['note', 'major', 'normal', 'minor', 'improvement']
 const CLIP_MIN_SEC = 0
-const CLIP_MAX_SEC = 60
+
+export function clampClipSec(value: number, maxSec: number, minSec: number = CLIP_MIN_SEC): number {
+  const clamped = Math.max(minSec, Math.min(maxSec, value))
+  return Math.round(clamped * 10) / 10
+}
+
+function CameraIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  )
+}
+
+function RevertIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 7v6h6" />
+      <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+    </svg>
+  )
+}
+
+export function formatOffset(ms: number): string {
+  const totalSec = ms / 1000
+  const m = Math.floor(totalSec / 60)
+  const s = (totalSec - m * 60)
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`
+}
+
+export function parseOffset(text: string): number | null {
+  const m = text.trim().match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/)
+  if (!m) return null
+  const mins = m[1] ? Number(m[1]) : 0
+  const secs = Number(m[2])
+  return Math.round((mins * 60 + secs) * 1000)
+}
 const THUMB_PENDING_MS = 45_000
 const LOGCAT_COLLAPSED_LINES = 2
 const LOGCAT_EXPANDED_LINES = 10
@@ -1027,58 +1065,37 @@ interface ClipWindowControlProps {
   id: string
   pre: number
   post: number
-  onPreChange(value: number): void
-  onPostChange(value: number): void
+  maxPreSec: number
+  maxPostSec: number
+  onPreChange(n: number): void
+  onPostChange(n: number): void
 }
 
-function ClipWindowControl({ id, pre, post, onPreChange, onPostChange }: ClipWindowControlProps) {
+function ClipWindowControl({ id, pre, post, maxPreSec, maxPostSec, onPreChange, onPostChange }: ClipWindowControlProps) {
   const { t } = useI18n()
-  const prePct = 50 - (pre / CLIP_MAX_SEC) * 50
-  const postPct = 50 + (post / CLIP_MAX_SEC) * 50
-
   return (
-    <div className="grid grid-cols-[42px_1fr_42px] items-center gap-2 text-xs text-zinc-500">
-      <span className="text-right tabular-nums">-{pre}s</span>
-      <div className="relative h-8">
-        <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-zinc-800" />
-        <div
-          className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-blue-600/80"
-          style={{ left: `${prePct}%`, width: `${postPct - prePct}%` }}
-        />
-        <div className="absolute left-1/2 top-1/2 h-5 w-px -translate-y-1/2 bg-zinc-400" title={t('bug.markerTime')} />
-        <div
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-200 bg-blue-500 shadow"
-          style={{ left: `${prePct}%` }}
-        />
-        <div
-          className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-200 bg-blue-500 shadow"
-          style={{ left: `${postPct}%` }}
-        />
+    <div className="flex items-center gap-2 text-xs text-zinc-500">
+      <label className="flex items-center gap-1">
+        <span>-</span>
         <input
-          dir="rtl"
-          type="range"
-          min={CLIP_MIN_SEC}
-          max={CLIP_MAX_SEC}
-          step={0.1}
-          value={pre}
+          type="number" min={-maxPreSec} max={maxPreSec} step={0.1} value={pre}
           onChange={(e) => onPreChange(Number(e.target.value))}
-          data-testid={`pre-${id}`}
-          aria-label={t('bug.preAria')}
-          className="absolute left-0 top-0 h-8 w-1/2 cursor-ew-resize opacity-0"
+          data-testid={`pre-${id}`} aria-label={t('bug.preAria')}
+          className="w-16 rounded bg-zinc-800 px-1 py-0.5 tabular-nums text-zinc-200"
         />
+        <span>s</span>
+      </label>
+      <span className="text-zinc-600" title={t('bug.markerTime')}>◆</span>
+      <label className="flex items-center gap-1">
+        <span>+</span>
         <input
-          type="range"
-          min={CLIP_MIN_SEC}
-          max={CLIP_MAX_SEC}
-          step={0.1}
-          value={post}
+          type="number" min={-maxPostSec} max={maxPostSec} step={0.1} value={post}
           onChange={(e) => onPostChange(Number(e.target.value))}
-          data-testid={`post-${id}`}
-          aria-label={t('bug.postAria')}
-          className="absolute left-1/2 top-0 h-8 w-1/2 cursor-ew-resize opacity-0"
+          data-testid={`post-${id}`} aria-label={t('bug.postAria')}
+          className="w-16 rounded bg-zinc-800 px-1 py-0.5 tabular-nums text-zinc-200"
         />
-      </div>
-      <span className="tabular-nums">+{post}s</span>
+        <span>s</span>
+      </label>
     </div>
   )
 }
@@ -1334,7 +1351,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, overrideProfile: propOverrideProfile }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, durationMs = Infinity, overrideProfile: propOverrideProfile }: Props, ref) {
   const { t } = useI18n()
   // Per-publish profile override controlled by the Export dialog's Profile
   // dropdown. Defaults to the prop (which Draft computes via
@@ -2024,6 +2041,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
               else next.add(b.id)
               return next
             })}
+            durationMs={durationMs}
             onExportRequest={(bug) => beginExport({ bugs: [bug], bugIds: [bug.id] })}
           />
         ))}
@@ -2248,6 +2266,7 @@ interface RowProps {
   onAnnotationDelete?(id: string): void
   onToggleLogcat(): void
   onExportRequest(bug: Bug): void
+  durationMs: number
 }
 
 function MarkerCustomFieldsEditor({
@@ -2476,7 +2495,7 @@ function MultiValueInput({ value, options, onChange }: { value: string[]; option
   )
 }
 
-function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, selectedAnnotationId, mentionOptions, slackAliases, markerFieldPresets, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, onToggleLogcat, onExportRequest }: RowProps) {
+function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, logcatExpanded, nowMs, onSelect, onMutated, allowExport, shouldScrollIntoView, severities, visibleSeverities, selectedAnnotationId, mentionOptions, slackAliases, markerFieldPresets, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, onToggleLogcat, onExportRequest, durationMs }: RowProps) {
   const { t } = useI18n()
   const [note, setNote] = useState(bug.note)
   const [pre, setPre] = useState(bug.preSec)
@@ -2508,10 +2527,11 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
     el.style.height = `${el.scrollHeight}px`
   }, [note])
 
-  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'preSec' | 'postSec' | 'mentionUserIds' | 'customFields'>>) {
+  async function save(patch: Partial<Pick<Bug, 'note' | 'severity' | 'offsetMs' | 'preSec' | 'postSec' | 'mentionUserIds' | 'customFields'>>) {
     await api.bug.update(bug.id, {
       note: bug.note,
       severity: bug.severity,
+      offsetMs: bug.offsetMs,
       preSec: bug.preSec,
       postSec: bug.postSec,
       mentionUserIds: bug.mentionUserIds ?? [],
@@ -2526,14 +2546,20 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
     await save({ note: note.trim() })
   }
 
+  // Clip window is bounded by the whole video length, not the marker's position —
+  // export (clampClipWindow) clamps the actual cut to [0, durationMs].
+  const maxClipSec = durationMs > 0 ? durationMs / 1000 : Infinity
+  const maxPreSec = maxClipSec
+  const maxPostSec = maxClipSec
+
   async function changePre(n: number) {
-    const v = Math.max(CLIP_MIN_SEC, Math.min(CLIP_MAX_SEC, n))
+    const v = clampClipSec(n, maxPreSec, -maxPreSec)
     setPre(v)
     await save({ preSec: v })
   }
 
   async function changePost(n: number) {
-    const v = Math.max(CLIP_MIN_SEC, Math.min(CLIP_MAX_SEC, n))
+    const v = clampClipSec(n, maxPostSec, -maxPostSec)
     setPost(v)
     await save({ postSec: v })
   }
@@ -2638,6 +2664,24 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
                 : <div className="h-24 w-28 rounded border border-zinc-800 bg-zinc-950" />
             }
           </button>
+          <div className="flex w-28 gap-1">
+            <button
+              type="button"
+              title={t('bug.recaptureScreenshot')}
+              aria-label={t('bug.recaptureScreenshot')}
+              onClick={async () => { await api.bug.recaptureScreenshot(bug.id); onMutated() }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+            ><CameraIcon /></button>
+            {bug.screenshotRel !== bug.originalScreenshotRel && (
+              <button
+                type="button"
+                title={t('bug.resetScreenshot')}
+                aria-label={t('bug.resetScreenshot')}
+                onClick={async () => { await api.bug.resetScreenshot(bug.id); onMutated() }}
+                className="inline-flex h-7 w-7 items-center justify-center rounded bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+              ><RevertIcon /></button>
+            )}
+          </div>
         </div>
 
         <div className="min-w-0 flex-1 space-y-1">
@@ -2757,10 +2801,38 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
             </div>
           )}
 
+          <label className="flex items-center gap-1 text-xs text-zinc-500">
+            <span>{t('bug.markerTime')}</span>
+            <input
+              key={bug.offsetMs}
+              type="text" defaultValue={formatOffset(bug.offsetMs)}
+              onBlur={(e) => {
+                const parsed = parseOffset(e.target.value)
+                if (parsed === null) { e.target.value = formatOffset(bug.offsetMs); return }
+                const next = Math.max(0, Math.min(durationMs, parsed))
+                e.target.value = formatOffset(next)
+                if (next !== bug.offsetMs) void save({ offsetMs: next })
+              }}
+              data-testid={`offset-${bug.id}`}
+              className="w-20 rounded bg-zinc-800 px-1 py-0.5 font-mono tabular-nums text-zinc-200"
+            />
+            {bug.offsetMs !== bug.originalOffsetMs && (
+              <button
+                type="button"
+                title={t('bug.resetPosition')}
+                aria-label={t('bug.resetPosition')}
+                onClick={() => void save({ offsetMs: bug.originalOffsetMs })}
+                data-testid={`reset-offset-${bug.id}`}
+                className="inline-flex h-6 w-6 items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+              ><RevertIcon /></button>
+            )}
+          </label>
           <ClipWindowControl
             id={bug.id}
             pre={pre}
             post={post}
+            maxPreSec={maxPreSec}
+            maxPostSec={maxPostSec}
             onPreChange={changePre}
             onPostChange={changePost}
           />

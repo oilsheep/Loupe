@@ -6,7 +6,7 @@ import { createServer, request } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile, spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process'
 import type { Writable, Readable } from 'node:stream'
-import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, resolveBundledFfmpegPath } from './ffmpeg'
+import { assertVideoInputReadable, clampClipWindow, extractClip, extractClipWithIntro, extractContactSheet, extractThumbnail, resolveBundledFfmpegPath } from './ffmpeg'
 import type { Adb } from './adb'
 import type { SessionManager } from './session'
 import type { Paths } from './paths'
@@ -98,6 +98,8 @@ export const CHANNEL = {
   bugExportCancel:         'bug:exportCancel',
   bugSaveAudio:            'bug:saveAudio',
   bugTranscribeAudio:      'bug:transcribeAudio',
+  bugRecaptureScreenshot:  'bug:recaptureScreenshot',
+  bugResetScreenshot:      'bug:resetScreenshot',
   bugMarkRequested:        'bug:markRequested',
   sessionInterrupted:      'session:interrupted',
   hotkeySetEnabled:        'hotkey:setEnabled',
@@ -871,6 +873,19 @@ function exportLogcatSidecar(paths: Paths, session: Session, bug: { id: string; 
   return outputPath
 }
 
+// Copy the marker's high-res screenshot into the export folder so local/ZIP exports
+// include it (the screenshot otherwise lives only in the session dir). Returns the
+// copied path, which becomes ExportedMarkerFile.screenshotPath for publishers too.
+function exportScreenshotSidecar(paths: Paths, session: Session, bug: { screenshotRel: string | null }, outDir: string, baseName: string): string | null {
+  if (!bug.screenshotRel) return null
+  const sourcePath = join(paths.sessionDir(session.id), bug.screenshotRel)
+  if (!existsSync(sourcePath)) return null
+  const ext = bug.screenshotRel.toLowerCase().endsWith('.jpg') ? '.jpg' : '.png'
+  const outputPath = join(outDir, `${baseName}.screenshot${ext}`)
+  copyFileSync(sourcePath, outputPath)
+  return outputPath
+}
+
 function readLogcatTailForContactSheet(paths: Paths, session: Session, bug: { logcatRel: string | null }, maxLines = 12): string | null {
   if (!bug.logcatRel) return null
   const sourcePath = join(paths.sessionDir(session.id), bug.logcatRel)
@@ -881,6 +896,16 @@ function readLogcatTailForContactSheet(paths: Paths, session: Session, bug: { lo
     .filter(Boolean)
   if (lines.length === 0) return null
   return lines.slice(-maxLines).join('\n')
+}
+
+export function isImageOnly(bug: { preSec: number; postSec: number }): boolean {
+  return bug.preSec === 0 && bug.postSec === 0
+}
+
+/** Resolve the active screenshot for a bug to an absolute path, or null if none stored. */
+function resolveScreenshotAbsPath(paths: Paths, sessionId: string, screenshotRel: string | null): string | null {
+  if (!screenshotRel) return null
+  return join(paths.sessionDir(sessionId), screenshotRel)
 }
 
 async function exportBugEvidence(args: {
@@ -894,10 +919,23 @@ async function exportBugEvidence(args: {
 }): Promise<ExportedMarkerFile> {
   const outputPath = join(args.outDir, `${args.baseName}.mp4`)
   const imagePath = join(args.outDir, `${args.baseName}.jpg`)
-  const { startMs, endMs } = clampClipWindow({ ...args.bug, durationMs: args.session.durationMs })
   const ffmpegPath = resolveBundledFfmpegPath()
-  const clicks = readClickLog(args.deps.paths.clicksFile(args.session.id))
   const inputPath = sessionVideoInputPath(args.session, args.deps.paths)
+  const logcatPath = args.includeLogcat
+    ? exportLogcatSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName)
+    : null
+
+  if (isImageOnly(args.bug)) {
+    const screenshotAbs = resolveScreenshotAbsPath(args.deps.paths, args.session.id, args.bug.screenshotRel)
+    let previewPath = screenshotAbs && existsSync(screenshotAbs) ? screenshotAbs : imagePath
+    if (previewPath === imagePath) {
+      await extractThumbnail(args.deps.runner, ffmpegPath, { inputPath, outputPath: imagePath, offsetMs: args.bug.offsetMs })
+    }
+    return { bugId: args.bug.id, videoPath: null, previewPath, screenshotPath: exportScreenshotSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName), logcatPath }
+  }
+
+  const { startMs, endMs } = clampClipWindow({ ...args.bug, durationMs: args.session.durationMs })
+  const clicks = readClickLog(args.deps.paths.clicksFile(args.session.id))
   await assertVideoInputReadable(args.deps.runner, ffmpegPath, { inputPath })
   const tileSize = await contactSheetTileSize(args.deps.runner, inputPath)
   const clipOptions = {
@@ -924,13 +962,11 @@ async function exportBugEvidence(args: {
   }
   await extractClip(args.deps.runner, ffmpegPath, clipOptions)
   await extractContactSheet(args.deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
-  const logcatPath = args.includeLogcat
-    ? exportLogcatSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName)
-    : null
   return {
     bugId: args.bug.id,
     videoPath: outputPath,
     previewPath: imagePath,
+    screenshotPath: exportScreenshotSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName),
     logcatPath,
   }
 }
@@ -1041,7 +1077,7 @@ interface ReportEntry {
   index: number
   bug: Bug
   imagePath: string
-  videoPath: string
+  videoPath: string | null
   clipStartMs: number
   clipEndMs: number
   severityLabel: string
@@ -1172,7 +1208,7 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
         ${items.map(entry => {
           const note = entry.bug.note.trim() || 'marker'
           const imageUrl = pathToFileURL(entry.imagePath).toString()
-          const videoName = entry.videoPath.split(/[\\/]/).pop() ?? entry.videoPath
+          const videoName = entry.videoPath ? (entry.videoPath.split(/[\\/]/).pop() ?? entry.videoPath) : null
           return `
             <article class="bug-card">
               <div class="accent" style="background:${escapeHtml(entry.severityColor)}"></div>
@@ -2389,7 +2425,7 @@ export function registerIpc(deps: IpcDeps): void {
     return join(deps.paths.sessionDir(sessionId), relPath)
   })
 
-  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: Bug['customFields'] }) => deps.manager.updateBug(id, patch))
+  ipcMain.handle(CHANNEL.bugUpdate, async (_e, id: string, patch: { note: string; severity: Bug['severity']; offsetMs: number; preSec: number; postSec: number; mentionUserIds?: string[]; customFields?: Bug['customFields'] }) => deps.manager.updateBug(id, patch))
   ipcMain.handle(CHANNEL.bugAddAnnotation, async (_e, args: { bugId: string; x: number; y: number; width: number; height: number; startMs: number; endMs: number }) => deps.manager.addAnnotation(args))
   ipcMain.handle(CHANNEL.bugUpdateAnnotation, async (_e, id: string, patch: any) => deps.manager.updateAnnotation(id, patch))
   ipcMain.handle(CHANNEL.bugDeleteAnnotation, async (_e, id: string) => deps.manager.deleteAnnotation(id))
@@ -2405,6 +2441,8 @@ export function registerIpc(deps: IpcDeps): void {
     const maxLines = Math.max(1, args.maxLines)
     return lines.slice(-maxLines).join('\n')
   })
+  ipcMain.handle(CHANNEL.bugRecaptureScreenshot, async (_e, bugId: string) => deps.manager.recaptureScreenshot(bugId))
+  ipcMain.handle(CHANNEL.bugResetScreenshot, async (_e, bugId: string) => deps.manager.resetScreenshot(bugId))
   ipcMain.handle(CHANNEL.bugDelete, async (_e, id: string) => deps.manager.deleteBug(id))
 
   ipcMain.handle(CHANNEL.hotkeySetEnabled, async (_e, enabled: boolean) => deps.setHotkeyEnabled(enabled))
@@ -2815,76 +2853,99 @@ export function registerIpc(deps: IpcDeps): void {
 
       emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'Preparing clip metadata', `Marker 1 of 1 at ${Math.round(bug.offsetMs / 1000)}s.`, 1, total, 1, 1))
       throwIfExportCancelled(exportId, controller.signal)
-      const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
       const ffmpegPath = resolveBundledFfmpegPath()
-      const clicks = readClickLog(deps.paths.clicksFile(session.id))
       const inputPath = sessionVideoInputPath(session, deps.paths)
-      await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
-      const tileSize = await contactSheetTileSize(deps.runner, inputPath)
-      const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
       const severities = deps.settings.get().severities
       const severityStyle = severities[bug.severity]
       const telemetryLine = telemetryLineForMarker(deps.paths, session.id, bug.offsetMs)
-      const clipOptions = {
-        inputPath,
-        outputPath,
-        startMs, endMs,
-        narrationPath: null,
-        narrationDurationMs: null,
-        sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
-        severity: bug.severity,
-        severityLabel: severityStyle?.label ?? bug.severity,
-        severityColor: severityStyle?.color ?? '#888888',
-        note: bug.note,
-        markerMs: bug.offsetMs,
-        clipStartMs: startMs,
-        clipEndMs: endMs,
-        deviceModel: session.deviceModel,
-        buildVersion: session.buildVersion,
-        platform: session.platform,
-        project: session.project,
-        androidVersion: session.androidVersion,
-        testNote: session.testNote,
-        tester: session.tester,
-        testedAtMs: bug.createdAt,
-        telemetryLine,
-        clicks,
-        annotations: bug.annotations ?? [],
-      }
-      emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Writing ${imagePath}`, 2, total, 1, 1))
-      await extractContactSheet(deps.runner, ffmpegPath, {
-        ...clipOptions,
-        ...tileSize,
-        outputPath: imagePath,
-        logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
-      }, runOpts)
-      throwIfExportCancelled(exportId, controller.signal)
-      const introSize = await getVideoSize(deps.runner, imagePath)
-      emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Writing ${outputPath}`, 3, total, 1, 1))
-      if (bug.audioRel || !introSize) {
-        await extractClip(deps.runner, ffmpegPath, clipOptions, runOpts)
+      const logcatPath = args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null
+
+      let fileVideoPath: string | null
+      let filePreviewPath: string
+      let startMs: number
+      let endMs: number
+
+      if (isImageOnly(bug)) {
+        const screenshotAbs = resolveScreenshotAbsPath(deps.paths, session.id, bug.screenshotRel)
+        filePreviewPath = screenshotAbs && existsSync(screenshotAbs) ? screenshotAbs : imagePath
+        if (filePreviewPath === imagePath) {
+          await extractThumbnail(deps.runner, ffmpegPath, { inputPath, outputPath: imagePath, offsetMs: bug.offsetMs })
+        }
+        fileVideoPath = null
+        startMs = bug.offsetMs
+        endMs = bug.offsetMs
       } else {
-        await extractClipWithIntro(deps.runner, ffmpegPath, {
+        const clampResult = clampClipWindow({ ...bug, durationMs: session.durationMs })
+        startMs = clampResult.startMs
+        endMs = clampResult.endMs
+        const clicks = readClickLog(deps.paths.clicksFile(session.id))
+        await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
+        const tileSize = await contactSheetTileSize(deps.runner, inputPath)
+        const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
+        const clipOptions = {
+          inputPath,
+          outputPath,
+          startMs, endMs,
+          narrationPath: null,
+          narrationDurationMs: null,
+          sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
+          severity: bug.severity,
+          severityLabel: severityStyle?.label ?? bug.severity,
+          severityColor: severityStyle?.color ?? '#888888',
+          note: bug.note,
+          markerMs: bug.offsetMs,
+          clipStartMs: startMs,
+          clipEndMs: endMs,
+          deviceModel: session.deviceModel,
+          buildVersion: session.buildVersion,
+          platform: session.platform,
+          project: session.project,
+          androidVersion: session.androidVersion,
+          testNote: session.testNote,
+          tester: session.tester,
+          testedAtMs: bug.createdAt,
+          telemetryLine,
+          clicks,
+          annotations: bug.annotations ?? [],
+        }
+        emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Writing ${imagePath}`, 2, total, 1, 1))
+        await extractContactSheet(deps.runner, ffmpegPath, {
           ...clipOptions,
-          introImagePath: imagePath,
-          canvasWidth: introSize.width,
-          canvasHeight: introSize.height,
-          sourceHasAudio,
+          ...tileSize,
+          outputPath: imagePath,
+          logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
         }, runOpts)
+        throwIfExportCancelled(exportId, controller.signal)
+        const introSize = await getVideoSize(deps.runner, imagePath)
+        emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Writing ${outputPath}`, 3, total, 1, 1))
+        if (bug.audioRel || !introSize) {
+          await extractClip(deps.runner, ffmpegPath, clipOptions, runOpts)
+        } else {
+          await extractClipWithIntro(deps.runner, ffmpegPath, {
+            ...clipOptions,
+            introImagePath: imagePath,
+            canvasWidth: introSize.width,
+            canvasHeight: introSize.height,
+            sourceHasAudio,
+          }, runOpts)
+        }
+        if (!existsSync(outputPath)) throw new Error(`exported clip was not created: ${outputPath}`)
+        fileVideoPath = outputPath
+        filePreviewPath = imagePath
       }
-      if (!existsSync(outputPath)) throw new Error(`exported clip was not created: ${outputPath}`)
+
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating PDF report', `Writing PDF report for ${outputPath}`, 4, total, 1, 1))
       const reportTitle = normalizedReportTitle(args.reportTitle)
       const pdfPath = await writeQaReportPdf(reportDir, outDir, session, [{
         index: 1,
         bug,
-        imagePath,
-        videoPath: outputPath,
+        imagePath: filePreviewPath,
+        videoPath: fileVideoPath,
         clipStartMs: startMs,
         clipEndMs: endMs,
-        severityLabel: clipOptions.severityLabel,
-        severityColor: clipOptions.severityColor,
+        severityLabel: severityStyle?.label ?? bug.severity,
+        severityColor: severityStyle?.color ?? '#888888',
         telemetryLine,
       }], reportTitle, deps.getWindow())
       throwIfExportCancelled(exportId, controller.signal)
@@ -2892,20 +2953,21 @@ export function registerIpc(deps: IpcDeps): void {
       const summaryTextPath = await writeSummaryText(outDir, session, [{
         index: 1,
         bug,
-        imagePath,
-        videoPath: outputPath,
+        imagePath: filePreviewPath,
+        videoPath: fileVideoPath,
         clipStartMs: startMs,
         clipEndMs: endMs,
-        severityLabel: clipOptions.severityLabel,
-        severityColor: clipOptions.severityColor,
+        severityLabel: severityStyle?.label ?? bug.severity,
+        severityColor: severityStyle?.color ?? '#888888',
         telemetryLine,
       }], pdfPath, reportTitle)
       const transcriptSubtitlePath = writeSessionTranscriptSubtitle(outDir, deps.paths, session)
       const file: ExportedMarkerFile = {
         bugId: bug.id,
-        videoPath: outputPath,
-        previewPath: imagePath,
-        logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
+        videoPath: fileVideoPath,
+        previewPath: filePreviewPath,
+        screenshotPath: exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName),
+        logcatPath,
       }
       if (args.includeOriginalFiles) {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
@@ -2974,82 +3036,106 @@ export function registerIpc(deps: IpcDeps): void {
         const clipIndex = i + 1
         const baseProgress = 1 + i * 3
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', 'Preparing clip metadata', `Marker ${clipIndex} of ${bugs.length} at ${Math.round(bug.offsetMs / 1000)}s.`, baseProgress, total, clipIndex, bugs.length))
-        const { startMs, endMs } = clampClipWindow({ ...bug, durationMs: session.durationMs })
         const baseName = `${String(i + 1).padStart(2, '0')}-${exportBaseName(session, bug)}`
         const outputPath = join(recordsDir, `${baseName}.mp4`)
         const imagePath = join(recordsDir, `${baseName}.jpg`)
         const ffmpegPath = resolveBundledFfmpegPath()
         const inputPath = sessionVideoInputPath(session, deps.paths)
-        await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
-        const tileSize = await contactSheetTileSize(deps.runner, inputPath)
-        const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
         const severityStyle = severities[bug.severity]
         const telemetryLine = formatTelemetryLine(nearestTelemetrySample(telemetrySamples, bug.offsetMs))
-        const clipOptions = {
-          inputPath,
-          outputPath,
-          startMs,
-          endMs,
-          narrationPath: null,
-          narrationDurationMs: null,
-          sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
-          severity: bug.severity,
-          severityLabel: severityStyle?.label ?? bug.severity,
-          severityColor: severityStyle?.color ?? '#888888',
-          note: bug.note,
-          markerMs: bug.offsetMs,
-          clipStartMs: startMs,
-          clipEndMs: endMs,
-          deviceModel: session.deviceModel,
-          buildVersion: session.buildVersion,
-          platform: session.platform,
-          project: session.project,
-          androidVersion: session.androidVersion,
-          testNote: session.testNote,
-          tester: session.tester,
-          testedAtMs: bug.createdAt,
-          telemetryLine,
-          clicks,
-          annotations: bug.annotations ?? [],
-        }
-        emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Marker ${clipIndex} of ${bugs.length}: ${imagePath}`, baseProgress + 1, total, clipIndex, bugs.length))
-        await extractContactSheet(deps.runner, ffmpegPath, {
-          ...clipOptions,
-          ...tileSize,
-          outputPath: imagePath,
-          logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
-        }, runOpts)
-        throwIfExportCancelled(exportId, controller.signal)
-        const introSize = await getVideoSize(deps.runner, imagePath)
-        emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Marker ${clipIndex} of ${bugs.length}: ${outputPath}`, baseProgress + 2, total, clipIndex, bugs.length))
-        if (bug.audioRel || !introSize) {
-          await extractClip(deps.runner, ffmpegPath, clipOptions, runOpts)
+        const logcatPath = args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null
+
+        let markerVideoPath: string | null
+        let markerPreviewPath: string
+        let startMs: number
+        let endMs: number
+
+        if (isImageOnly(bug)) {
+          const screenshotAbs = resolveScreenshotAbsPath(deps.paths, session.id, bug.screenshotRel)
+          markerPreviewPath = screenshotAbs && existsSync(screenshotAbs) ? screenshotAbs : imagePath
+          if (markerPreviewPath === imagePath) {
+            await extractThumbnail(deps.runner, ffmpegPath, { inputPath, outputPath: imagePath, offsetMs: bug.offsetMs })
+          }
+          markerVideoPath = null
+          startMs = bug.offsetMs
+          endMs = bug.offsetMs
         } else {
-          await extractClipWithIntro(deps.runner, ffmpegPath, {
+          const clampResult = clampClipWindow({ ...bug, durationMs: session.durationMs })
+          startMs = clampResult.startMs
+          endMs = clampResult.endMs
+          await assertVideoInputReadable(deps.runner, ffmpegPath, { inputPath })
+          const tileSize = await contactSheetTileSize(deps.runner, inputPath)
+          const sourceHasAudio = await getVideoHasAudio(deps.runner, inputPath)
+          const clipOptions = {
+            inputPath,
+            outputPath,
+            startMs,
+            endMs,
+            narrationPath: null,
+            narrationDurationMs: null,
+            sessionMicPath: args.includeMicTrack ? session.micAudioPath : null,
+            severity: bug.severity,
+            severityLabel: severityStyle?.label ?? bug.severity,
+            severityColor: severityStyle?.color ?? '#888888',
+            note: bug.note,
+            markerMs: bug.offsetMs,
+            clipStartMs: startMs,
+            clipEndMs: endMs,
+            deviceModel: session.deviceModel,
+            buildVersion: session.buildVersion,
+            platform: session.platform,
+            project: session.project,
+            androidVersion: session.androidVersion,
+            testNote: session.testNote,
+            tester: session.tester,
+            testedAtMs: bug.createdAt,
+            telemetryLine,
+            clicks,
+            annotations: bug.annotations ?? [],
+          }
+          emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Marker ${clipIndex} of ${bugs.length}: ${imagePath}`, baseProgress + 1, total, clipIndex, bugs.length))
+          await extractContactSheet(deps.runner, ffmpegPath, {
             ...clipOptions,
-            introImagePath: imagePath,
-            canvasWidth: introSize.width,
-            canvasHeight: introSize.height,
-            sourceHasAudio,
+            ...tileSize,
+            outputPath: imagePath,
+            logcatText: args.includeLogcat ? readLogcatTailForContactSheet(deps.paths, session, bug) : null,
           }, runOpts)
+          throwIfExportCancelled(exportId, controller.signal)
+          const introSize = await getVideoSize(deps.runner, imagePath)
+          emitExportProgress(event.sender, exportProgress(exportId, 'video', 'Exporting video clip', `Marker ${clipIndex} of ${bugs.length}: ${outputPath}`, baseProgress + 2, total, clipIndex, bugs.length))
+          if (bug.audioRel || !introSize) {
+            await extractClip(deps.runner, ffmpegPath, clipOptions, runOpts)
+          } else {
+            await extractClipWithIntro(deps.runner, ffmpegPath, {
+              ...clipOptions,
+              introImagePath: imagePath,
+              canvasWidth: introSize.width,
+              canvasHeight: introSize.height,
+              sourceHasAudio,
+            }, runOpts)
+          }
+          if (!existsSync(outputPath)) throw new Error(`exported clip was not created: ${outputPath}`)
+          markerVideoPath = outputPath
+          markerPreviewPath = imagePath
+          outputs.push(outputPath)
         }
-        if (!existsSync(outputPath)) throw new Error(`exported clip was not created: ${outputPath}`)
-        outputs.push(outputPath)
+
         files.push({
           bugId: bug.id,
-          videoPath: outputPath,
-          previewPath: imagePath,
-          logcatPath: args.includeLogcat ? exportLogcatSidecar(deps.paths, session, bug, recordsDir, baseName) : null,
+          videoPath: markerVideoPath,
+          previewPath: markerPreviewPath,
+          screenshotPath: exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName),
+          logcatPath,
         })
         reportEntries.push({
           index: clipIndex,
           bug,
-          imagePath,
-          videoPath: outputPath,
+          imagePath: markerPreviewPath,
+          videoPath: markerVideoPath,
           clipStartMs: startMs,
           clipEndMs: endMs,
-          severityLabel: clipOptions.severityLabel,
-          severityColor: clipOptions.severityColor,
+          severityLabel: severityStyle?.label ?? bug.severity,
+          severityColor: severityStyle?.color ?? '#888888',
           telemetryLine,
         })
         emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Finished marker export', `Marker ${clipIndex} of ${bugs.length} complete.`, baseProgress + 3, total, clipIndex, bugs.length))
