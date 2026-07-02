@@ -94,7 +94,14 @@ function escapeDrawtextValue(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/\r?\n/g, ' ')
-    .replace(/'/g, "\\'")
+    // The value is embedded inside a single-quoted `text='...'` option. In
+    // ffmpeg's filtergraph syntax a backslash cannot escape a single quote
+    // inside single quotes, so `\'` prematurely CLOSES the quote and every
+    // following `:` is then parsed as an option separator — corrupting the
+    // whole drawtext filter (seen with Unity logcat like "couldn't" /
+    // "'Scroller'"). The portable idiom is close-quote, escaped-literal-quote,
+    // reopen-quote: `'\''`.
+    .replace(/'/g, "'\\''")
     .replace(/:/g, '\\:')
     .replace(/%/g, '\\%')
     .replace(/,/g, '\\,')

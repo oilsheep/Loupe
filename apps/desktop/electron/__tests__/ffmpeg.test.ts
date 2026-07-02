@@ -381,7 +381,7 @@ describe('buildContactSheetArgs', () => {
     expect(filter).toContain('2026-04-29 14\\:05')
   })
 
-  it('writes wrapped logcat lines below the 3x2 image info panel', () => {
+  const logcatContactSheetFilter = (logcatText: string): string => {
     const args = buildContactSheetArgs({
       inputPath: 'in.mp4',
       outputPath: 'out.jpg',
@@ -395,14 +395,31 @@ describe('buildContactSheetArgs', () => {
       tileHeight: 213,
       outputWidth: 360,
       outputHeight: 620,
-      logcatText: '04-30 12:48:52.344 WifiHAL : Creating message to get link statistics; iface = 47',
+      logcatText,
     })
-    const filter = args[args.indexOf('-filter:v') + 1]
+    return args[args.indexOf('-filter:v') + 1]
+  }
+
+  it('writes wrapped logcat lines below the 3x2 image info panel', () => {
+    const filter = logcatContactSheetFilter('04-30 12:48:52.344 WifiHAL : Creating message to get link statistics; iface = 47')
     expect(filter).toContain('tile=3x2')
     expect(filter).toContain('drawbox=x=0:y=426:w=iw:h=194:color=#d9d9d9@1:t=fill')
     expect(filter).toContain("text='logcat'")
     expect(filter).toContain("text='04-30 12\\:48\\:52.344 WifiHAL \\: Creating'")
     expect(filter).toContain("text='message to get link statistics\\; iface = 47'")
+  })
+
+  it('escapes apostrophes in logcat so single-quoted drawtext values are not broken', () => {
+    // Regression: Unity logcat lines contain apostrophes ("couldn't",
+    // "'Scroller'"). Escaping `'` as `\'` inside a single-quoted `text='...'`
+    // closes the quote early and makes ffmpeg parse the following `:` as an
+    // option separator, failing the whole contact sheet with "Both text and
+    // text file provided" / "Cannot find color". The portable escape is `'\''`.
+    const filter = logcatContactSheetFilter("07-02 02:24:23 E Unity : Coroutine couldn't be started because the game object 'Scroller' is inactive")
+    // apostrophes rendered via the close/escape/reopen idiom, never a bare \'
+    expect(filter).toContain("couldn'\\''t")
+    expect(filter).toContain("'\\''Scroller'\\''")
+    expect(filter).not.toContain("couldn\\'t")
   })
 })
 
