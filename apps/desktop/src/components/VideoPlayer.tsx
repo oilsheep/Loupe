@@ -434,6 +434,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, Props>(({ api, src, mic
     })
   }, [durationMs])
 
+  // When a marker becomes selected (e.g. picked from the right-side bug list) while the
+  // timeline is zoomed/panned elsewhere, pan the viewport so the marker is visible. Only
+  // reacts to the selection changing — not to viewport pans or bug edits — so clicking a
+  // marker that is already on-screen never yanks the timeline around. Zoom span is preserved.
+  useEffect(() => {
+    if (durationMs <= 0 || !selectedBug) return
+    const markerMs = selectedBug.offsetMs
+    setTimelineViewport(current => {
+      const span = Math.max(1, current.endMs - current.startMs)
+      // Keep a small margin so a marker sitting right on the edge still gets recentered.
+      const margin = span * 0.05
+      if (markerMs >= current.startMs + margin && markerMs <= current.endMs - margin) return current
+      return clampViewport(markerMs - span / 2, span)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBugId, durationMs])
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null

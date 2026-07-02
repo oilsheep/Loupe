@@ -156,6 +156,47 @@ describe('VideoPlayer', () => {
     expect(rect.height).toBeCloseTo(0.3)
   })
 
+  it('pans the timeline viewport to reveal a marker selected while it is off-screen', () => {
+    const bugs = [bug({ id: 'b1', offsetMs: 2000 }), bug({ id: 'b2', offsetMs: 90_000, preSec: 1, postSec: 1 })]
+    const { rerender } = render(
+      <VideoPlayer
+        api={fakeApi()}
+        src="file:///tmp/video.mp4"
+        bugs={bugs}
+        durationMs={100_000}
+        selectedBugId={null}
+        onMarkerClick={vi.fn()}
+      />
+    )
+
+    // Shrink the visible range to the first 15s by dragging the overview end handle inward,
+    // so the 90s marker scrolls out of the timeline viewport.
+    const overview = screen.getByTestId('timeline-overview')
+    Object.defineProperty(overview, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 0, width: 200, top: 0, bottom: 16, right: 200, height: 16, x: 0, y: 0, toJSON: () => {} }),
+    })
+    const endSlider = screen.getByLabelText('Resize visible range end') as HTMLElement
+    endSlider.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(endSlider, { clientX: 200, pointerId: 1 })
+    fireEvent.pointerMove(endSlider, { clientX: 30, pointerId: 1 })
+    fireEvent.pointerUp(endSlider, { pointerId: 1 })
+    expect(screen.queryByTestId('marker-b2')).toBeNull()
+
+    // Selecting it (as the right-side BugList does) should pan the viewport back onto it.
+    rerender(
+      <VideoPlayer
+        api={fakeApi()}
+        src="file:///tmp/video.mp4"
+        bugs={bugs}
+        durationMs={100_000}
+        selectedBugId="b2"
+        onMarkerClick={vi.fn()}
+      />
+    )
+    expect(screen.queryByTestId('marker-b2')).not.toBeNull()
+  })
+
   it('renders selected marker annotation durations on the timeline', () => {
     render(
       <VideoPlayer
