@@ -3,6 +3,7 @@ import type { SlackChannel } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import { slackChannelLabel } from '@/lib/connection'
 import { useClickOutside } from '@/lib/useClickOutside'
+import { ChevronDownIcon } from './ChevronDownIcon'
 
 interface SlackChannelPickerProps {
   channels: SlackChannel[]
@@ -45,10 +46,10 @@ export function SlackChannelPicker({ channels, value, disabled = false, loading 
         type="button"
         disabled={disabled}
         onClick={toggleOpen}
-        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-800 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-2 rounded bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-900 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
       >
         <span className="min-w-0 truncate">{selected ? slackChannelLabel(selected) : (loading ? t('picker.loadingChannels') : t('picker.selectChannel'))}</span>
-        <span className="shrink-0 text-zinc-500">v</span>
+        <ChevronDownIcon className="shrink-0 text-zinc-500" />
       </button>
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">

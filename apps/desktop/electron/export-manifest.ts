@@ -1,6 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Bug, BugSeverity, ExportedMarkerFile, ExportPublishOptions, MarkerCustomField, MarkerFieldPreset, Session, SeveritySettings } from '@shared/types'
+import type { Bug, BugAnnotation, BugSeverity, ExportedMarkerFile, ExportPublishOptions, MarkerCustomField, MarkerFieldPreset, Session, SeveritySettings } from '@shared/types'
+import { computeRenderFingerprint } from './render-fingerprint'
+import { normalizeReportTitle } from '@shared/reportTitle'
+import type { ExportQuality } from '@shared/exportQuality'
 
 interface BuildExportManifestArgs {
   session: Session
@@ -12,13 +15,35 @@ interface BuildExportManifestArgs {
   severities?: SeveritySettings
   markerFieldPresets?: MarkerFieldPreset[]
   now?: number
+  quality?: ExportQuality | null
+}
+
+export interface ExportManifestMarker {
+  id: string
+  offsetMs: number
+  severity: Bug['severity']
+  severityLabel: string
+  severityColor: string
+  note: string
+  createdAt: string
+  preSec: number
+  postSec: number
+  videoPath: string | null
+  previewPath: string
+  screenshotPath: string | null
+  logcatPath: string | null
+  mentionUserIds: string[]
+  customFields: MarkerCustomField[]
+  annotations: BugAnnotation[]      // v2
+  renderFingerprint: string         // v2
 }
 
 export interface ExportManifest {
-  version: 1
+  version: 2
   createdAt: string
   exportDir: string
   reportPdfPath: string | null
+  quality: { tier: string; preset: string; crf: number } | null   // v2
   publish: {
     target: 'local' | 'slack' | 'gitlab' | 'google-drive'
     targets: Array<'local' | 'slack' | 'gitlab' | 'google-drive'>
@@ -32,6 +57,7 @@ export interface ExportManifest {
     project?: string
     profileId?: string | null
     testNote: string
+    reportTitle?: string
     tester: string
     deviceId: string
     deviceModel: string
@@ -43,23 +69,7 @@ export interface ExportManifest {
     endedAt: string | null
     durationMs: number | null
   }
-  markers: Array<{
-    id: string
-    offsetMs: number
-    severity: Bug['severity']
-    severityLabel: string
-    severityColor: string
-    note: string
-    createdAt: string
-    preSec: number
-    postSec: number
-    videoPath: string | null
-    previewPath: string
-    screenshotPath: string | null
-    logcatPath: string | null
-    mentionUserIds: string[]
-    customFields: MarkerCustomField[]
-  }>
+  markers: ExportManifestMarker[]
 }
 
 function isoOrNull(ms: number | null): string | null {
@@ -83,7 +93,7 @@ const DEFAULT_SEVERITY_STYLE: Record<BugSeverity, { label: string; color: string
   custom4: { label: 'custom 4', color: '#eab308' },
 }
 
-function severityStyle(severities: SeveritySettings | undefined, severity: BugSeverity): { label: string; color: string } {
+export function severityStyle(severities: SeveritySettings | undefined, severity: BugSeverity): { label: string; color: string } {
   const configured = severities?.[severity]
   return {
     label: configured?.label?.trim() || DEFAULT_SEVERITY_STYLE[severity]?.label || severity,
@@ -91,7 +101,7 @@ function severityStyle(severities: SeveritySettings | undefined, severity: BugSe
   }
 }
 
-function effectiveCustomFields(bug: Bug, presets: MarkerFieldPreset[] | undefined): MarkerCustomField[] {
+export function effectiveCustomFields(bug: Bug, presets: MarkerFieldPreset[] | undefined): MarkerCustomField[] {
   const byKey = new Map<string, MarkerCustomField>()
   for (const preset of presets ?? []) {
     const key = preset.key.trim()
@@ -116,11 +126,15 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
   const fileByBug = new Map(args.files.map(file => [file.bugId, file]))
   const publish = args.publish ?? { target: 'local' as const }
   const targets = Array.from(new Set(publish.targets && publish.targets.length > 0 ? publish.targets : [publish.target]))
+  const qualityForFingerprint = args.quality
+    ? { preset: args.quality.preset, crf: args.quality.crf }
+    : { preset: 'veryfast', crf: 20 }
   return {
-    version: 1,
+    version: 2,
     createdAt: new Date(args.now ?? Date.now()).toISOString(),
     exportDir: args.outDir,
     reportPdfPath: args.reportPdfPath ?? null,
+    quality: args.quality ? { tier: args.quality.tier, preset: args.quality.preset, crf: args.quality.crf } : null,
     publish: {
       target: publish.target,
       targets,
@@ -134,6 +148,7 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
       project: args.session.project ?? '',
       profileId: args.session.profileId ?? null,
       testNote: args.session.testNote,
+      reportTitle: normalizeReportTitle(args.session.reportTitle),
       tester: args.session.tester,
       deviceId: args.session.deviceId,
       deviceModel: args.session.deviceModel,
@@ -148,12 +163,14 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
     markers: args.bugs.map(bug => {
       const file = fileByBug.get(bug.id)
       if (!file) throw new Error(`missing exported files for marker ${bug.id}`)
+      const annotations = bug.annotations ?? []
+      const { label: severityLabel, color: severityColor } = severityStyle(args.severities, bug.severity)
       return {
         id: bug.id,
         offsetMs: bug.offsetMs,
         severity: bug.severity,
-        severityLabel: severityStyle(args.severities, bug.severity).label,
-        severityColor: severityStyle(args.severities, bug.severity).color,
+        severityLabel,
+        severityColor,
         note: bug.note,
         createdAt: new Date(bug.createdAt).toISOString(),
         preSec: bug.preSec,
@@ -164,6 +181,18 @@ export function buildExportManifest(args: BuildExportManifestArgs): ExportManife
         logcatPath: file.logcatPath,
         mentionUserIds: bug.mentionUserIds ?? [],
         customFields: effectiveCustomFields(bug, args.markerFieldPresets),
+        annotations,
+        renderFingerprint: computeRenderFingerprint({
+          sessionId: args.session.id,
+          offsetMs: bug.offsetMs,
+          preSec: bug.preSec,
+          postSec: bug.postSec,
+          quality: qualityForFingerprint,
+          annotations,
+          screenshotHash: file.screenshotHash ?? null,
+          severityLabel,     // the same resolved label stored on this marker entry
+          severityColor,     // the same resolved color stored on this marker entry
+        }),
       }
     }),
   }

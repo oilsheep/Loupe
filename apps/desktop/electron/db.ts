@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import type { Session, Bug, BugAnnotation, BugSeverity, MarkerCustomField, SessionStatus } from '@shared/types'
+import { DEFAULT_REPORT_TITLE, normalizeReportTitle } from '@shared/reportTitle'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -8,6 +9,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   platform TEXT NOT NULL DEFAULT '',
   project TEXT NOT NULL DEFAULT '',
   test_note TEXT NOT NULL DEFAULT '',
+  report_title TEXT NOT NULL DEFAULT '${DEFAULT_REPORT_TITLE}',
   tester TEXT NOT NULL DEFAULT '',
   device_id TEXT NOT NULL,
   device_model TEXT NOT NULL,
@@ -73,7 +75,7 @@ type Row<T> = { [K in keyof T]: T[K] }
 
 function rowToSession(r: any): Session {
   return {
-    id: r.id, buildVersion: r.build_version, testNote: r.test_note, deviceId: r.device_id,
+    id: r.id, buildVersion: r.build_version, testNote: r.test_note, reportTitle: normalizeReportTitle(r.report_title), deviceId: r.device_id,
     platform: r.platform ?? '',
     project: r.project ?? '',
     tester: r.tester ?? '',
@@ -215,6 +217,7 @@ function migrate(db: Database.Database): void {
   if (!sessionCols.includes('mic_audio_start_offset_ms')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_start_offset_ms INTEGER`)
   if (!sessionCols.includes('mic_audio_source')) db.exec(`ALTER TABLE sessions ADD COLUMN mic_audio_source TEXT`)
   if (!sessionCols.includes('profile_id')) db.exec(`ALTER TABLE sessions ADD COLUMN profile_id TEXT`)
+  if (!sessionCols.includes('report_title')) db.exec(`ALTER TABLE sessions ADD COLUMN report_title TEXT NOT NULL DEFAULT '${DEFAULT_REPORT_TITLE}'`)
   const sessionTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'`).get() as { sql?: string } | undefined
   if (sessionTable?.sql?.includes(`connection_mode IN ('usb','wifi')`)) {
     db.pragma('foreign_keys = OFF')
@@ -371,6 +374,9 @@ export function openDb(file: string) {
   const updateSessionMetadataStmt = db.prepare(`
     UPDATE sessions SET build_version=@buildVersion, platform=@platform, project=@project, test_note=@testNote, tester=@tester WHERE id=@id
   `)
+  const updateSessionReportTitleStmt = db.prepare(`
+    UPDATE sessions SET report_title=@reportTitle WHERE id=@id
+  `)
   const updateSessionPcRecordingStmt = db.prepare(`
     UPDATE sessions SET pc_recording_enabled=@pcRecordingEnabled, pc_video_path=@pcVideoPath WHERE id=@id
   `)
@@ -475,8 +481,9 @@ export function openDb(file: string) {
     finalizeSession(id: string, args: { durationMs: number; endedAt: number }) {
       finalizeSessionStmt.run({ id, ...args })
     },
-    updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) {
+    updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string; reportTitle?: string }) {
       updateSessionMetadataStmt.run({ id, ...patch, platform: patch.platform ?? '', project: patch.project ?? '' })
+      if (patch.reportTitle !== undefined) updateSessionReportTitleStmt.run({ id, reportTitle: patch.reportTitle })
     },
     updateSessionPcRecording(id: string, patch: { pcRecordingEnabled: boolean; pcVideoPath: string | null }) {
       updateSessionPcRecordingStmt.run({ id, pcRecordingEnabled: patch.pcRecordingEnabled ? 1 : 0, pcVideoPath: patch.pcVideoPath })

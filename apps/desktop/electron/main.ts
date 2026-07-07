@@ -21,6 +21,7 @@ import { refreshGoogleAccessToken } from './google-publisher'
 import { refreshGitLabAccessToken } from './gitlab-publisher'
 import { refreshSlackAccessToken } from './slack-publisher'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 import type { HotkeySettings, ProfileSettings } from '@shared/types'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -266,6 +267,7 @@ app.whenReady().then(async () => {
   }
   const settings = new SettingsStore(paths.settingsFile(), {
     exportRoot: join(app.getPath('videos'), 'Loupe'),
+    exportQuality: DEFAULT_EXPORT_QUALITY,
     hotkeys: DEFAULT_HOTKEYS,
     locale: 'system',
     severities: DEFAULT_SEVERITIES,

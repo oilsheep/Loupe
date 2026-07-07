@@ -60,7 +60,7 @@ describe('Google Drive publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'records', 'b1.mp4'),
         previewPath: join(root, 'records', 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       mkdirSync(join(root, 'records'), { recursive: true })
       writeFileSync(files[0].videoPath!, 'video')

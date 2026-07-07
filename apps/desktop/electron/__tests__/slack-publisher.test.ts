@@ -61,7 +61,7 @@ function bug(over: Partial<Bug> = {}): Bug {
 
 describe('Slack publisher', () => {
   it('requires the selected Slack token type', async () => {
-    const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, logcatPath: null }]
+    const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, screenshotHash: null, logcatPath: null }]
     const manifest = buildExportManifest({
       session: session(),
       bugs: [bug()],
@@ -100,7 +100,7 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: join(root, 'b1.logcat.txt'),
+        screenshotPath: null, screenshotHash: null, logcatPath: join(root, 'b1.logcat.txt'),
       }]
       for (const file of [files[0].videoPath!, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
       const manifest = buildExportManifest({
@@ -150,7 +150,7 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: join(root, 'b1.logcat.txt'),
+        screenshotPath: null, screenshotHash: null, logcatPath: join(root, 'b1.logcat.txt'),
       }]
       const reportPdfPath = join(root, 'QA_bug_report_1.0_2023-11-14.pdf')
       for (const file of [files[0].videoPath!, files[0].previewPath, files[0].logcatPath!]) writeFileSync(file, 'x')
@@ -208,7 +208,7 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: null,
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       writeFileSync(files[0].previewPath, 'screenshot-data')
       const manifest = buildExportManifest({
@@ -251,7 +251,7 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: null,
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       writeFileSync(files[0].previewPath, 'screenshot-data')
       const manifest = buildExportManifest({
@@ -294,7 +294,7 @@ describe('Slack publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'this is a very long clip filename with symbols 測試 and spaces that slack should not receive directly.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       for (const file of [files[0].videoPath!, files[0].previewPath]) writeFileSync(file, 'x')
       const manifest = buildExportManifest({

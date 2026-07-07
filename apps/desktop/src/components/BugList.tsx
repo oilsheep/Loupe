@@ -1,12 +1,16 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, MouseEvent, ReactNode } from 'react'
-import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTarget, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { CSSProperties, MouseEvent, ReactNode, RefObject } from 'react'
+import type { AppSettings, Bug, BugAnnotation, BugSeverity, CommonSessionSettings, DesktopApi, ExportProgress, GitLabProject, GitLabPublishMode, GitLabPublishSettings, GooglePublishSettings, MarkerCustomField, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishTarget, RepublishOverrides, SessionExportInfo, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings, SlackThreadMode } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY, normalizeExportQuality, type ExportQuality } from '@shared/exportQuality'
+import { DEFAULT_REPORT_TITLE, normalizeReportTitle } from '@shared/reportTitle'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { canPublishToGoogleDrive, friendlySlackRefreshMessage, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel, slackPublishToken } from '@/lib/connection'
 import { useClickOutside } from '@/lib/useClickOutside'
-import { GitLabProjectPicker } from './GitLabProjectPicker'
-import { SlackChannelPicker } from './SlackChannelPicker'
+import { ChevronDownIcon } from './ChevronDownIcon'
+import { ExportConfirmDialog, MentionOption, MentionPicker, formatManualSlackMentions } from './export/ExportConfirmDialog'
+import { PublishTargetsForm } from './export/PublishTargetsForm'
 
 // Resolve the profile to read from. Prefer the per-session override (e.g. when
 // Draft opens an old session whose profile differs from the global active),
@@ -41,9 +45,32 @@ interface Props {
   project?: string
   tester?: string
   testNote?: string
+  reportTitle?: string
+  // Session metadata is owned by the parent (Draft); the export modal edits it
+  // through these setters and persists via onCommitMetadata — no local copy here.
+  onBuildVersionChange?(value: string): void
+  onPlatformChange?(value: string): void
+  onProjectChange?(value: string): void
+  onTesterChange?(value: string): void
+  onTestNoteChange?(value: string): void
+  onReportTitleChange?(value: string): void
+  onCommitMetadata?(): Promise<void> | void
+  /** Bumped by the parent after session metadata is persisted, so the export
+   *  dirty check re-runs once per save instead of on every keystroke. */
+  metadataVersion?: number
   hasSessionMicTrack?: boolean
   markerToolbar?: ReactNode
   durationMs?: number
+  // The 輸出/發布 buttons live in the Draft header; publish-panel open state is
+  // lifted there and passed back down, and the panel's dirty status is reported
+  // up so the header 發布 button can show its dot.
+  publishPanelOpen?: boolean
+  onExportsDirtyChange?(dirty: boolean): void
+  onExportsAvailableChange?(available: boolean): void
+  // The publish panel renders as a fixed overlay anchored under the header's
+  // 發布 button; Draft passes that button's ref and a close callback.
+  publishAnchorRef?: RefObject<HTMLElement | null>
+  onClosePublishPanel?(): void
   // Per-session profile override. Read sites prefer this over
   // activeProfileFrom(settings); write sites (setSlack/setGitLab/etc.) route to
   // this profile's id when present, so refreshing Slack channels for an old
@@ -83,14 +110,6 @@ function RevertIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 14 4 9l5-5" />
       <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
-    </svg>
-  )
-}
-
-function ChevronDownIcon({ className }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      <path d="m6 9 6 6 6-6" />
     </svg>
   )
 }
@@ -227,35 +246,6 @@ function mentionIdentityLabel(identity: MentionIdentity): string {
   return identity.displayName || identity.email || identity.googleEmail || identity.gitlabUsername || identity.slackUserId || identity.id
 }
 
-function MentionProviderBadges({ hasSlack, hasGitLab, hasGoogle }: { hasSlack: boolean; hasGitLab: boolean; hasGoogle: boolean }) {
-  if (!hasSlack && !hasGitLab && !hasGoogle) {
-    return (
-      <span className="rounded-full border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-        No mappings
-      </span>
-    )
-  }
-  return (
-    <>
-      {hasSlack && (
-        <span className="rounded-full border border-sky-900/70 bg-sky-950/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
-          Slack
-        </span>
-      )}
-      {hasGitLab && (
-        <span className="rounded-full border border-orange-900/70 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
-          GitLab
-        </span>
-      )}
-      {hasGoogle && (
-        <span className="rounded-full border border-emerald-900/70 bg-emerald-950/50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
-          Google
-        </span>
-      )}
-    </>
-  )
-}
-
 function normalizeManualSlackMentions(value: string): string[] {
   return Array.from(new Set(value
     .split(/[\s,;]+/)
@@ -266,8 +256,19 @@ function normalizeManualSlackMentions(value: string): string[] {
     .filter(part => part.startsWith('!'))))
 }
 
-function formatManualSlackMentions(ids: string[]): string {
-  return ids.filter(id => id.startsWith('!')).map(id => id.replace(/^!(here|channel|everyone)$/, '@$1')).join(', ')
+// The published Slack mention set: structured picks (minus the '!'-prefixed
+// broadcast tokens) merged with the manually-typed broadcast mentions, deduped.
+// Shared by the export modal (confirmExport) and the republish panel so the two
+// never diverge.
+// Fallback for optional metadata setters when BugList is used without the export
+// modal (e.g. Recording, allowExport=false) — the modal never mounts there.
+const noop = () => {}
+
+function mergeSlackMentionIds(mentionIds: string[], manualInput: string): string[] {
+  return Array.from(new Set([
+    ...mentionIds.filter(id => !id.startsWith('!')),
+    ...normalizeManualSlackMentions(manualInput),
+  ]))
 }
 
 function channelIdFromSettings(slack: SlackPublishSettings): string {
@@ -390,684 +391,6 @@ interface ExportRequest {
   bugIds: string[]
 }
 
-interface ExportConfirmDialogProps {
-  count: number
-  outputRoot: string
-  reportTitle: string
-  buildVersion: string
-  platform: string
-  project: string
-  tester: string
-  testNote: string
-  commonSession: CommonSessionSettings
-  profiles: ProfileSettings[]
-  selectedProfileId: string
-  onSelectedProfileIdChange(value: string): void
-  includeLogcat: boolean
-  includeMicTrack: boolean
-  includeOriginalFiles: boolean
-  mergeOriginalAudio: boolean
-  hasSessionMicTrack: boolean
-  hasMarkerAudioNotes: boolean
-  slackSettings: SlackPublishSettings | null
-  slackConnected: boolean
-  gitlabConnected: boolean
-  googleDriveConnected: boolean
-  canPublishGoogleDrive: boolean
-  slackConnecting: boolean
-  gitlabConnecting: boolean
-  googleConnecting: boolean
-  publishSlack: boolean
-  publishGitLab: boolean
-  publishGoogleDrive: boolean
-  slackThreadMode: SlackThreadMode
-  slackChannels: SlackChannel[]
-  slackChannelId: string
-  mentionOptions: MentionOption[]
-  slackMentionIds: string[]
-  slackMentionAliases: Record<string, string>
-  slackManualMentionInput: string
-  slackDirectoryRefreshing: boolean
-  slackDirectoryError: string
-  gitlabMode: GitLabPublishMode
-  gitlabProjectId: string
-  gitlabProjects: GitLabProject[]
-  gitlabProjectsRefreshing: boolean
-  gitlabProjectsError: string
-  busy: boolean
-  error: string
-  canceling: boolean
-  progress: ExportProgress | null
-  hasMissingNotes: boolean
-  onOutputRootChange(value: string): void
-  onReportTitleChange(value: string): void
-  onBuildVersionChange(value: string): void
-  onPlatformChange(value: string): void
-  onProjectChange(value: string): void
-  onTesterChange(value: string): void
-  onTestNoteChange(value: string): void
-  onIncludeLogcatChange(value: boolean): void
-  onIncludeMicTrackChange(value: boolean): void
-  onIncludeOriginalFilesChange(value: boolean): void
-  onMergeOriginalAudioChange(value: boolean): void
-  onConnectSlack(): void
-  onConnectGitLab(): void
-  onConnectGoogle(): void
-  onPublishSlackChange(value: boolean): void
-  onPublishGitLabChange(value: boolean): void
-  onPublishGoogleDriveChange(value: boolean): void
-  onSlackThreadModeChange(value: SlackThreadMode): void
-  onSlackChannelIdChange(value: string): void
-  onSlackMentionIdsChange(value: string[]): void
-  onSlackManualMentionInputChange(value: string): void
-  onRefreshSlackDirectory(): void
-  onGitLabModeChange(value: GitLabPublishMode): void
-  onGitLabProjectIdChange(value: string): void
-  onRefreshGitLabProjects(): void
-  onBrowseOutputRoot(): void
-  onCancel(): void
-  onConfirm(): void
-}
-
-function RefreshOrConnectButton({ connected, refreshing, connecting, busy, onRefresh, onConnect, refreshLabel, connectLabel }: {
-  connected: boolean
-  refreshing: boolean
-  connecting: boolean
-  busy: boolean
-  onRefresh(): void
-  onConnect(): void
-  refreshLabel: string
-  connectLabel: string
-}) {
-  return connected ? (
-    <button
-      type="button"
-      onClick={onRefresh}
-      disabled={busy || refreshing}
-      className="mt-5 shrink-0 rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-    >
-      {refreshLabel}
-    </button>
-  ) : (
-    <button
-      type="button"
-      onClick={onConnect}
-      disabled={busy || connecting}
-      className="mt-5 shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-    >
-      {connectLabel}
-    </button>
-  )
-}
-
-function ExportConfirmDialog({
-  count,
-  outputRoot,
-  reportTitle,
-  buildVersion,
-  platform,
-  project,
-  tester,
-  testNote,
-  commonSession,
-  profiles,
-  selectedProfileId,
-  onSelectedProfileIdChange,
-  includeLogcat,
-  includeMicTrack,
-  includeOriginalFiles,
-  mergeOriginalAudio,
-  hasSessionMicTrack,
-  hasMarkerAudioNotes,
-  slackSettings,
-  slackConnected,
-  gitlabConnected,
-  googleDriveConnected,
-  canPublishGoogleDrive,
-  slackConnecting,
-  gitlabConnecting,
-  googleConnecting,
-  publishSlack,
-  publishGitLab,
-  publishGoogleDrive,
-  slackThreadMode,
-  slackChannels,
-  slackChannelId,
-  mentionOptions,
-  slackMentionIds,
-  slackMentionAliases,
-  slackManualMentionInput,
-  slackDirectoryRefreshing,
-  slackDirectoryError,
-  gitlabMode,
-  gitlabProjectId,
-  gitlabProjects,
-  gitlabProjectsRefreshing,
-  gitlabProjectsError,
-  busy,
-  error,
-  canceling,
-  progress,
-  hasMissingNotes,
-  onOutputRootChange,
-  onReportTitleChange,
-  onBuildVersionChange,
-  onPlatformChange,
-  onProjectChange,
-  onTesterChange,
-  onTestNoteChange,
-  onIncludeLogcatChange,
-  onIncludeMicTrackChange,
-  onIncludeOriginalFilesChange,
-  onMergeOriginalAudioChange,
-  onConnectSlack,
-  onConnectGitLab,
-  onConnectGoogle,
-  onPublishSlackChange,
-  onPublishGitLabChange,
-  onPublishGoogleDriveChange,
-  onSlackThreadModeChange,
-  onSlackChannelIdChange,
-  onSlackMentionIdsChange,
-  onSlackManualMentionInputChange,
-  onRefreshSlackDirectory,
-  onGitLabModeChange,
-  onGitLabProjectIdChange,
-  onRefreshGitLabProjects,
-  onBrowseOutputRoot,
-  onCancel,
-  onConfirm,
-}: ExportConfirmDialogProps) {
-  const isSlack = publishSlack
-  const isGitLab = publishGitLab
-  const isGoogleDrive = publishGoogleDrive
-  const { t } = useI18n()
-  const progressPct = progress && progress.total > 0
-    ? Math.round((progress.current / progress.total) * 100)
-    : 0
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" data-testid="export-dialog">
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="shrink-0 px-4 pt-4">
-          <div className="text-sm font-medium text-zinc-100">{count === 0 ? t('export.title.noMarkers') : count === 1 ? t('export.title.one') : t('export.title.many', { count })}</div>
-          <div className="mt-1 text-xs text-zinc-500">{t('export.body')}</div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" data-testid="export-scroll-body">
-        <label className="mt-4 block text-xs text-zinc-500">
-          {t('export.outputFolder')}
-          <div className="mt-1 flex gap-2">
-            <input
-              value={outputRoot}
-              onChange={(e) => onOutputRootChange(e.target.value)}
-              className="min-w-0 flex-1 rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={onBrowseOutputRoot}
-              disabled={busy}
-              className="rounded bg-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-            >
-              {t('common.browse')}
-            </button>
-          </div>
-        </label>
-
-        <label className="mt-3 block text-xs font-semibold text-zinc-300">
-          {t('export.reportTitle')}
-          <input
-            value={reportTitle}
-            onChange={(e) => onReportTitleChange(e.target.value)}
-            placeholder="Loupe QA Report"
-            className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm font-normal text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-          />
-        </label>
-
-        <label className="mt-3 block text-xs font-semibold text-zinc-300">
-          {t('new.buildVersion')}
-          <input
-            value={buildVersion}
-            onChange={(e) => onBuildVersionChange(e.target.value)}
-            placeholder="1.4.2-RC3"
-            className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm font-normal text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-          />
-        </label>
-
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="text-xs text-zinc-500">
-            {t('export.platform')}
-            <input
-              value={platform}
-              onChange={(e) => onPlatformChange(e.target.value)}
-              list="export-common-platforms"
-              placeholder="android"
-              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </label>
-          <label className="text-xs text-zinc-500">
-            {t('export.project')}
-            <input
-              value={project}
-              onChange={(e) => onProjectChange(e.target.value)}
-              placeholder={t('export.project')}
-              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </label>
-          <datalist id="export-common-platforms">{commonSession.platforms.map(item => <option key={item} value={item} />)}</datalist>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="text-xs text-zinc-500">
-            {t('export.tester')}
-            <input
-              value={tester}
-              onChange={(e) => onTesterChange(e.target.value)}
-              list="export-common-testers"
-              placeholder={t('export.qaName')}
-              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </label>
-          <label className="text-xs text-zinc-500">
-            {t('export.testNote')}
-            <input
-              value={testNote}
-              onChange={(e) => onTestNoteChange(e.target.value)}
-              placeholder={t('export.scope')}
-              className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-            />
-          </label>
-          <datalist id="export-common-testers">{commonSession.testers.map(item => <option key={item} value={item} />)}</datalist>
-        </div>
-
-        <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
-          <input
-            type="checkbox"
-            checked={includeLogcat}
-            onChange={(e) => onIncludeLogcatChange(e.target.checked)}
-            className="h-4 w-4 accent-blue-600"
-          />
-          {t('export.includeLogcat')}
-        </label>
-
-        {hasSessionMicTrack && (
-          <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
-            <input
-              type="checkbox"
-              checked={includeMicTrack}
-              onChange={(e) => onIncludeMicTrackChange(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-blue-600"
-            />
-            <span>
-              <span className="block text-zinc-300">{t('export.useMicTrack')}</span>
-              {hasMarkerAudioNotes && (
-                <span className="mt-1 block text-amber-300">{t('export.useMicTrackWarning')}</span>
-              )}
-            </span>
-          </label>
-        )}
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <div className="text-xs font-medium text-zinc-300">{t('publish.title')}</div>
-            <div className="mt-1 text-xs text-zinc-500">{t('publish.localAlways')}</div>
-          </div>
-
-          {profiles.length > 0 && (
-            <label className="block text-xs text-zinc-400">
-              {t('export.profile')}
-              <select
-                aria-label={t('export.profile')}
-                value={selectedProfileId}
-                onChange={(e) => onSelectedProfileIdChange(e.target.value)}
-                className="mt-1 w-full rounded bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-              >
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <section className={`rounded border p-3 ${isSlack ? 'border-blue-700 bg-blue-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span>
-                <span className="block text-sm font-medium text-zinc-200">Slack</span>
-                <span className="mt-1 block text-xs text-zinc-500">{t('publish.slackDescription')}</span>
-                <span className={`mt-1 block text-xs ${slackConnected ? 'text-emerald-300' : 'text-amber-300'}`}>
-                  {slackConnectionLabel(slackSettings, t)}
-                </span>
-              </span>
-              {slackConnected ? (
-                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <span>{t('publish.toggle')}</span>
-                  <input
-                    type="checkbox"
-                    checked={isSlack}
-                    onChange={(e) => onPublishSlackChange(e.target.checked)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                </label>
-              ) : (
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <button
-                    type="button"
-                    onClick={onConnectSlack}
-                    disabled={busy || slackConnecting}
-                    className="rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                  >
-                    {slackConnecting ? t('publish.connecting') : t('publish.connectSlack')}
-                  </button>
-                  <span className="max-w-44 text-right text-[11px] leading-snug text-zinc-500">
-                    {slackSettings?.publishIdentity === 'bot' ? t('publish.configureBotTokenInPreferences') : t('publish.oauthRecommended')}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {isSlack && (
-              <div className="mt-3 space-y-3 border-t border-blue-900/60 pt-3">
-              {slackSettings?.publishIdentity === 'bot' && (
-                <div className="rounded border border-amber-900/60 bg-amber-950/20 px-2 py-1.5 text-xs text-amber-100/80">
-                  {t('publish.botTokenChannelHelp')}
-                </div>
-              )}
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <label className="min-w-0 flex-1 text-xs text-zinc-500">
-                    {t('publish.channel')}
-                    <SlackChannelPicker
-                      channels={slackChannels}
-                      value={slackChannelId}
-                      onChange={onSlackChannelIdChange}
-                      disabled={busy}
-                      loading={slackDirectoryRefreshing}
-                      onOpen={() => {
-                        if (slackChannels.length === 0 && !slackDirectoryRefreshing) onRefreshSlackDirectory()
-                      }}
-                    />
-                  </label>
-                  <RefreshOrConnectButton
-                    connected={slackConnected}
-                    refreshing={slackDirectoryRefreshing}
-                    connecting={slackConnecting}
-                    busy={busy}
-                    onRefresh={onRefreshSlackDirectory}
-                    onConnect={onConnectSlack}
-                    refreshLabel={slackDirectoryRefreshing ? t('publish.refreshing') : t('publish.refresh')}
-                    connectLabel={slackConnecting ? t('publish.connecting') : t('publish.connectSlack')}
-                  />
-                </div>
-                {slackDirectoryError && <div className="mt-1 text-xs text-red-300">{slackDirectoryError}</div>}
-                {slackChannels.length === 0 && !slackDirectoryError && (
-                  <div className="mt-1 text-xs text-zinc-500">{t('publish.reconnectSlackHelp')}</div>
-                )}
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">{t('publish.mentions')}</div>
-                <div className="mt-1">
-                  <MentionPicker
-                    options={mentionOptions}
-                    selectedIds={slackMentionIds}
-                    aliases={slackMentionAliases}
-                    dropdownMode="fixed"
-                    onChange={(ids) => {
-                      onSlackMentionIdsChange(ids)
-                      onSlackManualMentionInputChange(formatManualSlackMentions(ids))
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">{t('publish.slackThreadLayout')}</div>
-                <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label={t('publish.slackPublishMode')}>
-                  <button
-                    type="button"
-                    onClick={() => onSlackThreadModeChange('single-thread')}
-                    className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'single-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                  >
-                    {t('publish.singleThread')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSlackThreadModeChange('per-marker-thread')}
-                    className={`rounded px-3 py-2 text-sm ${slackThreadMode === 'per-marker-thread' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                  >
-                    {t('publish.perMarkerThread')}
-                  </button>
-                </div>
-                <div className="mt-2 text-xs text-zinc-500">
-                  {t('publish.markerMentionHelp')}
-                </div>
-              </div>
-            </div>
-            )}
-          </section>
-
-          <section className={`rounded border p-3 ${isGitLab ? 'border-sky-700 bg-sky-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span>
-                <span className="block text-sm font-medium text-zinc-200">GitLab</span>
-                <span className="mt-1 block text-xs text-zinc-500">{t('publish.gitlabDescription')}</span>
-              </span>
-              {gitlabConnected ? (
-                <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
-                  <span>{t('publish.toggle')}</span>
-                  <input
-                    type="checkbox"
-                    checked={isGitLab}
-                    onChange={(e) => onPublishGitLabChange(e.target.checked)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                </label>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onConnectGitLab}
-                  disabled={busy || gitlabConnecting}
-                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                >
-                  {gitlabConnecting ? t('publish.connecting') : t('publish.connectGitLab')}
-                </button>
-              )}
-            </div>
-
-            {isGitLab && (
-              <div className="mt-3 space-y-3 border-t border-sky-900/60 pt-3">
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="min-w-0 flex-1 text-xs text-zinc-500">
-                      {t('export.project')}
-                      <GitLabProjectPicker
-                        projects={gitlabProjects}
-                        value={gitlabProjectId}
-                        loading={gitlabProjectsRefreshing}
-                        onOpen={() => {
-                          if (gitlabProjects.length === 0 && !gitlabProjectsRefreshing) onRefreshGitLabProjects()
-                        }}
-                        onChange={onGitLabProjectIdChange}
-                      />
-                    </label>
-                    <RefreshOrConnectButton
-                      connected={gitlabConnected}
-                      refreshing={gitlabProjectsRefreshing}
-                      connecting={gitlabConnecting}
-                      busy={busy}
-                      onRefresh={onRefreshGitLabProjects}
-                      onConnect={onConnectGitLab}
-                      refreshLabel={gitlabProjectsRefreshing ? t('publish.refreshing') : t('publish.refresh')}
-                      connectLabel={gitlabConnecting ? t('publish.connecting') : t('publish.connectGitLab')}
-                    />
-                  </div>
-                  {gitlabProjectsError && <div className="mt-1 text-xs text-red-300">{gitlabProjectsError}</div>}
-                  {gitlabProjects.length === 0 && !gitlabProjectsError && (
-                    <div className="mt-1 text-xs text-zinc-500">{t('publish.gitlabProjectHelp')}</div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-xs text-zinc-500">{t('publish.gitlabMode')}</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label={t('publish.gitlabMode')}>
-                    <button
-                      type="button"
-                      onClick={() => onGitLabModeChange('single-issue')}
-                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'single-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                    >
-                      {t('publish.singleIssue')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onGitLabModeChange('per-marker-issue')}
-                      className={`rounded px-3 py-2 text-sm ${gitlabMode === 'per-marker-issue' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}
-                    >
-                      {t('publish.issuePerMarker')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <section className={`rounded border p-3 ${isGoogleDrive ? 'border-emerald-700 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span>
-                <span className="block text-sm font-medium text-zinc-200">Google Drive</span>
-                <span className="mt-1 block text-xs text-zinc-500">{t('publish.googleDriveDescription')}</span>
-                {googleDriveConnected && !canPublishGoogleDrive && (
-                  <span className="mt-1 block text-xs text-amber-300">{t('publish.googleNeedsDriveFolder')}</span>
-                )}
-              </span>
-              {googleDriveConnected ? (
-                <label className={`flex shrink-0 items-center gap-2 text-xs text-zinc-300 ${canPublishGoogleDrive ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
-                  <span>{t('publish.toggle')}</span>
-                  <input
-                    type="checkbox"
-                    checked={isGoogleDrive}
-                    disabled={!canPublishGoogleDrive}
-                    onChange={(e) => onPublishGoogleDriveChange(e.target.checked)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                </label>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onConnectGoogle}
-                  disabled={busy || googleConnecting}
-                  className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                >
-                  {googleConnecting ? t('publish.connecting') : t('publish.connectGoogle')}
-                </button>
-              )}
-            </div>
-          </section>
-        </div>
-
-        {hasMissingNotes && (
-          <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-            {t('export.missingNotes')}
-          </div>
-        )}
-
-        {count === 0 && (
-          <div className="mt-3 rounded border border-amber-700 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-            {t('export.noMarkersBody')}
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-3 rounded border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-200">
-            {error}
-          </div>
-        )}
-
-        <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
-          <input
-            type="checkbox"
-            aria-label={t('export.includeOriginalFiles')}
-            data-testid="include-original-files"
-            checked={includeOriginalFiles}
-            onChange={(e) => {
-              onIncludeOriginalFilesChange(e.target.checked)
-              if (!e.target.checked) onMergeOriginalAudioChange(false)
-            }}
-            className="mt-0.5 h-4 w-4 accent-blue-600"
-          />
-          <span>
-            <span className="block text-zinc-300">{t('export.includeOriginalFiles')}</span>
-            <span className="mt-1 block text-zinc-500">{t('export.includeOriginalFilesHelp')}</span>
-          </span>
-        </label>
-
-        {includeOriginalFiles && hasSessionMicTrack && (
-          <label className="ml-6 mt-2 flex items-start gap-2 text-xs text-zinc-400">
-            <input
-              type="checkbox"
-              aria-label={t('export.mergeOriginalAudio')}
-              data-testid="merge-original-audio"
-              checked={mergeOriginalAudio}
-              onChange={(e) => onMergeOriginalAudioChange(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-blue-600"
-            />
-            <span>
-              <span className="block text-zinc-300">{t('export.mergeOriginalAudio')}</span>
-              <span className="mt-1 block text-zinc-500">{t('export.mergeOriginalAudioHelp')}</span>
-            </span>
-          </label>
-        )}
-        </div>
-        <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-4 py-3" data-testid="export-footer">
-          {busy && (
-            <div className="mb-3 rounded border border-zinc-800 bg-zinc-950/70 p-3" data-testid="export-progress">
-              <div className="flex items-center justify-between gap-3 text-xs text-zinc-400">
-                <span>{progress?.message ?? t('export.progressStarting')}</span>
-                <span className="font-mono tabular-nums">{progressPct}%</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500">
-                <div>
-                  {t('export.progressStep', {
-                    current: progress?.current ?? 0,
-                    total: progress?.total ?? 0,
-                  })}
-                </div>
-                <div className="text-right">
-                  {t('export.progressRemaining', { count: progress?.remaining ?? count })}
-                </div>
-              </div>
-              {progress?.detail && (
-                <div className="mt-2 break-words text-[11px] leading-4 text-zinc-500">{progress.detail}</div>
-              )}
-            </div>
-          )}
-          <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            disabled={canceling}
-            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-          >
-            {canceling ? t('export.canceling') : t('common.cancel')}
-          </button>
-          <button
-            onClick={() => onConfirm()}
-            disabled={busy || !outputRoot.trim()}
-            data-testid="confirm-export"
-            className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {busy ? t('common.exporting') : t('common.export')}
-          </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 interface ClipWindowControlProps {
   id: string
@@ -1169,150 +492,6 @@ function SeveritySelect({ bugId, value, severities, visibleSeverities, onChange 
   )
 }
 
-interface MentionOption {
-  id: string
-  label: string
-  detail: string
-  hasSlack: boolean
-  hasGitLab: boolean
-  hasGoogle: boolean
-  slackUserId?: string
-}
-
-interface MentionPickerProps {
-  options: MentionOption[]
-  selectedIds: string[]
-  aliases: Record<string, string>
-  dropdownMode?: 'absolute' | 'fixed'
-  onChange(ids: string[]): void
-}
-
-
-function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'absolute', onChange }: MentionPickerProps) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [fixedMenuStyle, setFixedMenuStyle] = useState<CSSProperties | undefined>(undefined)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const selected = new Set(selectedIds)
-  const optionMap = new Map(options.map(option => [option.id, option]))
-  const slackOptionMap = new Map(options.flatMap(option => option.slackUserId ? [[option.slackUserId, option] as const] : []))
-  const labels = selectedIds.map(id => aliases[id] || optionMap.get(id)?.label || slackOptionMap.get(id)?.label || id)
-  const normalizedQuery = query.trim().toLowerCase()
-  const filteredOptions = normalizedQuery
-    ? options.filter(option => [
-        option.label,
-        option.detail,
-        option.id,
-        option.hasSlack ? 'slack' : '',
-        option.hasGitLab ? 'gitlab' : '',
-        option.hasGoogle ? 'google' : '',
-      ].some(value => value.toLowerCase().includes(normalizedQuery)))
-    : options
-
-  function optionSelected(option: MentionOption): boolean {
-    return selected.has(option.id) || Boolean(option.slackUserId && selected.has(option.slackUserId))
-  }
-
-  function toggle(option: MentionOption) {
-    const next = new Set(selected)
-    if (optionSelected(option)) {
-      next.delete(option.id)
-      if (option.slackUserId) next.delete(option.slackUserId)
-    } else {
-      next.add(option.id)
-    }
-    onChange([...next])
-  }
-
-  useEffect(() => {
-    if (!open) return
-    function updateFixedMenuStyle() {
-      if (dropdownMode !== 'fixed') return
-      const rect = rootRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const gap = 4
-      const margin = 16
-      const width = Math.min(320, window.innerWidth - margin * 2)
-      const maxHeight = Math.min(256, window.innerHeight - margin * 2)
-      const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
-      const opensAbove = rect.bottom + gap + maxHeight > window.innerHeight - margin && rect.top > window.innerHeight - rect.bottom
-      const top = opensAbove
-        ? Math.max(margin, rect.top - gap - maxHeight)
-        : Math.min(rect.bottom + gap, window.innerHeight - margin - maxHeight)
-      setFixedMenuStyle({ position: 'fixed', top, left, width, maxHeight })
-    }
-    updateFixedMenuStyle()
-    function onPointerDown(event: PointerEvent) {
-      const target = event.target as Node | null
-      if (target && rootRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', updateFixedMenuStyle)
-    window.addEventListener('scroll', updateFixedMenuStyle, true)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', updateFixedMenuStyle)
-      window.removeEventListener('scroll', updateFixedMenuStyle, true)
-    }
-  }, [dropdownMode, open])
-
-  return (
-    <div ref={rootRef} className="relative" data-row-click-ignore="true">
-      <button
-        type="button"
-        onClick={() => setOpen(value => !value)}
-        className="max-w-full rounded bg-zinc-800 px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-700"
-      >
-        {labels.length > 0 ? t('bug.mentionSelected', { people: labels.join(', ') }) : t('bug.mentionPeople')}
-      </button>
-      {open && (
-        <div
-          style={dropdownMode === 'fixed' ? fixedMenuStyle : undefined}
-          className={`${dropdownMode === 'fixed' ? 'fixed z-[70]' : 'absolute z-20 mt-1 w-80'} max-h-64 max-w-[calc(100vw-2rem)] overflow-auto rounded border border-zinc-700 bg-zinc-950 p-1 shadow-xl`}
-        >
-          {options.length > 0 && (
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search people"
-              className="mb-1 w-full rounded bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-blue-600"
-              autoFocus
-            />
-          )}
-          {options.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">{t('publish.refreshUsersHelp')}</div>
-          ) : filteredOptions.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-zinc-500">{t('publish.noMatchingPeople')}</div>
-          ) : filteredOptions.map(option => (
-            <label key={option.id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900">
-              <input
-                type="checkbox"
-                checked={optionSelected(option)}
-                onChange={() => toggle(option)}
-                className="mt-0.5 h-4 w-4 accent-blue-600"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{option.label}</span>
-                <span className="mt-1 flex flex-wrap gap-1">
-                  <MentionProviderBadges hasSlack={option.hasSlack} hasGitLab={option.hasGitLab} hasGoogle={option.hasGoogle} />
-                </span>
-              </span>
-              <span className="max-w-24 shrink-0 truncate text-[10px] text-zinc-600">{option.detail || option.id}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 interface OriginalFilesWarningDialogProps {
   remember: boolean
   onRememberChange(value: boolean): void
@@ -1359,7 +538,7 @@ function OriginalFilesWarningDialog({ remember, onRememberChange, onCancel, onCo
   )
 }
 
-export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', hasSessionMicTrack = false, markerToolbar, durationMs = Infinity, overrideProfile: propOverrideProfile }: Props, ref) {
+export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, sessionId, bugs, selectedBugId, selectedAnnotationId, onSelect, onMutated, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, allowExport = true, autoFocusLatest = false, buildVersion = '', platform = '', project = '', tester = '', testNote = '', reportTitle = DEFAULT_REPORT_TITLE, onBuildVersionChange, onPlatformChange, onProjectChange, onTesterChange, onTestNoteChange, onReportTitleChange, onCommitMetadata, metadataVersion = 0, hasSessionMicTrack = false, markerToolbar, durationMs = Infinity, publishPanelOpen = false, onExportsDirtyChange, onExportsAvailableChange, publishAnchorRef, onClosePublishPanel, overrideProfile: propOverrideProfile }: Props, ref) {
   const { t } = useI18n()
   // Per-publish profile override controlled by the Export dialog's Profile
   // dropdown. Defaults to the prop (which Draft computes via
@@ -1398,16 +577,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [cancelingExport, setCancelingExport] = useState(false)
   const [exportRequest, setExportRequest] = useState<ExportRequest | null>(null)
   const [exportRoot, setExportRoot] = useState('')
-  const [exportReportTitle, setExportReportTitle] = useState('Loupe QA Report')
-  const [exportBuildVersion, setExportBuildVersion] = useState(buildVersion)
-  const [exportPlatform, setExportPlatform] = useState(platform)
-  const [exportProject, setExportProject] = useState(project)
-  const [exportTester, setExportTester] = useState(tester)
-  const [exportTestNote, setExportTestNote] = useState(testNote)
   const [exportIncludeLogcat, setExportIncludeLogcat] = useState(false)
   const [exportIncludeMicTrack, setExportIncludeMicTrack] = useState(false)
   const [exportIncludeOriginalFiles, setExportIncludeOriginalFiles] = useState(false)
   const [exportMergeOriginalAudio, setExportMergeOriginalAudio] = useState(false)
+  const [exportQuality, setExportQuality] = useState<ExportQuality>(DEFAULT_EXPORT_QUALITY)
   const [showOriginalFilesWarning, setShowOriginalFilesWarning] = useState(false)
   const [rememberOriginalFilesWarning, setRememberOriginalFilesWarning] = useState(false)
   const [publishSlack, setPublishSlack] = useState(false)
@@ -1437,6 +611,9 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null)
   const [severities, setSeverities] = useState<SeveritySettings>(DEFAULT_SEVERITIES)
   const [commonSession, setCommonSession] = useState<CommonSessionSettings>(DEFAULT_COMMON_SESSION)
+  const [exportFolders, setExportFolders] = useState<SessionExportInfo[]>([])
+  const [republishingFolder, setRepublishingFolder] = useState<string | null>(null)
+  const [republishStatus, setRepublishStatus] = useState('')
   const [slackUsers, setSlackUsers] = useState<SlackMentionUser[]>([])
   const [slackAliases, setSlackAliases] = useState<Record<string, string>>({})
   const [mentionIdentities, setMentionIdentities] = useState<MentionIdentity[]>([])
@@ -1478,6 +655,13 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
   const knownBugIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
+    // Seed the editable publish selections (thread mode, GitLab project + mode)
+    // only on the first snapshot for this profile. Later settings-updated events
+    // (token validation, or our own on-change persistence of these prefs) must
+    // refresh connection state without clobbering an in-progress selection the
+    // user is editing. Profile switches re-run this effect, resetting the flag;
+    // explicit reseeds go through applyProfileToExportDialog.
+    let seededSelections = false
     const apply = (settings: AppSettings) => {
       const active = activeProfileFrom(settings, overrideProfile)
       setAllProfiles(settings.profiles)
@@ -1493,12 +677,16 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setSlackAliases(active.slack.mentionAliases ?? {})
       setSlackChannels((active.slack.channels ?? []).filter(channel => !channel.isArchived))
       setGitLabSettings(active.gitlab)
-      setGitLabProjectId(active.gitlab.projectId)
-      setGitLabMode(active.gitlab.mode)
       setGoogleSettings(active.google)
       setMentionIdentities(settings.mentionIdentities ?? [])
       setMarkerFieldPresets(active.markerFieldPresets ?? [])
       setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
+      if (!seededSelections) {
+        setSlackThreadMode(active.slack.threadMode ?? 'per-marker-thread')
+        setGitLabProjectId(active.gitlab.projectId)
+        setGitLabMode(active.gitlab.mode)
+        seededSelections = true
+      }
     }
     api.settings.get().then(apply).catch(() => {})
     return api.onAppSettingsUpdated(apply)
@@ -1574,6 +762,80 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       return progress
     })
   }), [api, exportId])
+
+  // Per-target publish status ("Publishing to Slack…") for the republish panel.
+  // The publish phase fires for both export and republish; the panel only shows
+  // it while a republish is in flight.
+  useEffect(() => api.onBugExportProgress((progress) => {
+    if (progress.phase === 'publish') setRepublishStatus(progress.message)
+  }), [api])
+
+  // Signature of the bug set that affects whether an export is up-to-date.
+  // Mirrors the old Draft.tsx `exportsChangeKey` — it belongs here with the
+  // list it invalidates. When any of these fields change, the newest export
+  // may become stale, so we reload the export list to refresh the dirty flag.
+  const exportsChangeKey = useMemo(
+    () => JSON.stringify([
+      bugs.map(b => [
+        b.id, b.offsetMs, b.preSec, b.postSec, b.severity, b.note,
+        b.screenshotRel, b.mentionUserIds ?? [], b.customFields ?? [], b.annotations ?? [],
+      ]),
+      // Session metadata is part of the dirty fingerprint, but the check reads the
+      // PERSISTED session on the main side — so key off metadataVersion (bumped after
+      // a save) rather than the live per-keystroke fields to avoid a disk scan per key.
+      metadataVersion,
+    ]),
+    [bugs, metadataVersion],
+  )
+  const reloadExports = useCallback(() => {
+    void api.export.listForSession(sessionId).then(setExportFolders).catch(() => setExportFolders([]))
+  }, [api, sessionId])
+  useEffect(() => { reloadExports() }, [reloadExports, exportsChangeKey])
+  useEffect(() => api.onBugExportProgress((p) => { if (p.phase === 'complete') reloadExports() }), [api, reloadExports])
+
+  // The output you'd republish = newest folder (list is createdAt-desc from main).
+  const newestExport = exportFolders[0] ?? null
+  const exportsDirty = newestExport?.status.status === 'stale'
+  useEffect(() => { onExportsDirtyChange?.(exportsDirty) }, [exportsDirty, onExportsDirtyChange])
+  useEffect(() => { onExportsAvailableChange?.(exportFolders.length > 0) }, [exportFolders.length, onExportsAvailableChange])
+
+  // Position the publish panel as a fixed overlay right-aligned under the
+  // header's 發布 button, and close it on outside-click / Escape.
+  const publishPanelRef = useRef<HTMLDivElement>(null)
+  const [publishPanelStyle, setPublishPanelStyle] = useState<CSSProperties | undefined>(undefined)
+  // useLayoutEffect so the panel is positioned before the browser paints —
+  // otherwise the first open flashes at an unpositioned spot then jumps.
+  useLayoutEffect(() => {
+    if (!publishPanelOpen) return
+    function reposition() {
+      const rect = publishAnchorRef?.current?.getBoundingClientRect()
+      if (!rect) return
+      const margin = 16
+      const width = Math.min(440, window.innerWidth - margin * 2)
+      const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin))
+      const top = rect.bottom + 6
+      setPublishPanelStyle({ position: 'fixed', top, left, width, maxHeight: window.innerHeight - top - margin })
+    }
+    reposition()
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null
+      if (!target) return
+      if (publishPanelRef.current?.contains(target)) return
+      if (publishAnchorRef?.current?.contains(target)) return
+      onClosePublishPanel?.()
+    }
+    function onKeyDown(event: KeyboardEvent) { if (event.key === 'Escape') onClosePublishPanel?.() }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [publishPanelOpen, publishAnchorRef, onClosePublishPanel])
 
   useEffect(() => {
     let cancelled = false
@@ -1673,6 +935,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setSlackMentionIds(active.slack.mentionUserIds ?? [])
     setSlackManualMentionInput(formatManualSlackMentions(active.slack.mentionUserIds ?? []))
     applySlackDirectory(settings)
+    setSlackThreadMode(active.slack.threadMode ?? 'per-marker-thread')
     setGitLabSettings(active.gitlab)
     setGitLabProjectId(active.gitlab.projectId)
     setGitLabMode(active.gitlab.mode)
@@ -1712,16 +975,11 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setSlackDirectoryError('')
     setGitLabProjectsError('')
     setExportRoot(settings.exportRoot)
-    setExportReportTitle('Loupe QA Report')
-    setExportBuildVersion(buildVersion)
-    setExportPlatform(platform)
-    setExportProject(project)
-    setExportTester(tester)
-    setExportTestNote(testNote)
     setExportIncludeLogcat(request.bugs.some(b => Boolean(b.logcatRel)))
     setExportIncludeMicTrack(false)
     setExportIncludeOriginalFiles(false)
     setExportMergeOriginalAudio(false)
+    setExportQuality(normalizeExportQuality(settings.exportQuality))
     setShowOriginalFilesWarning(false)
     setRememberOriginalFilesWarning(false)
     setPublishSlack(false)
@@ -1849,6 +1107,79 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     }
   }
 
+  // Build republish overrides from the same publish state the modal uses, so
+  // the inline panel and confirmExport never diverge. Structured mention IDs
+  // have their `!`-prefixed tokens (special mentions such as @here/@channel)
+  // stripped, and manual Slack mentions from slackManualMentionInput are merged
+  // in — exactly as confirmExport does — so that @here/@channel pings entered
+  // manually are preserved on republish.
+  function buildRepublishOverrides(): RepublishOverrides {
+    const overrides: RepublishOverrides = {}
+    if (publishSlack && slackChannelId.trim()) {
+      overrides.slack = {
+        channelId: slackChannelId.trim(),
+        threadMode: slackThreadMode,
+        mentionUserIds: mergeSlackMentionIds(slackMentionIds, slackManualMentionInput),
+      }
+    }
+    if (publishGitLab && gitlabProjectId.trim()) {
+      overrides.gitlab = { projectId: gitlabProjectId.trim(), mode: gitlabMode }
+    }
+    return overrides
+  }
+
+  async function republish(folder: SessionExportInfo) {
+    const targets: Array<'slack' | 'gitlab' | 'google-drive'> = [
+      ...(publishSlack ? ['slack' as const] : []),
+      ...(publishGitLab ? ['gitlab' as const] : []),
+      ...(publishGoogleDrive ? ['google-drive' as const] : []),
+    ]
+    if (targets.length === 0) return
+    if (folder.status.status === 'stale' && !askConfirm(t('exports.staleConfirm', { count: folder.status.reasons.length }))) return
+    setRepublishStatus('')
+    setRepublishingFolder(folder.folderPath)
+    try {
+      const r = await api.export.republish({ folderPath: folder.folderPath, targets, overrides: buildRepublishOverrides() })
+      if (!r.ok && typeof window.alert === 'function') window.alert(t('exports.publishFailed', { error: r.error ?? '' }))
+    } finally {
+      setRepublishingFolder(null)
+      setRepublishStatus('')
+      reloadExports()
+    }
+  }
+
+  // Slack thread mode and GitLab issue mode are per-profile preferences, so
+  // persist them the instant they change (parity with the metadata fields'
+  // "save as you edit") rather than only when an export runs. We merge into a
+  // fresh profile snapshot so only the mode field changes. Local state is set
+  // optimistically up front; the seed-once guard in the settings effect then
+  // keeps the ensuing settings-updated event from reseeding (reverting) it.
+  //
+  // KNOWN LIMITATION — read-modify-write race (low probability, accepted): these
+  // read a snapshot then write the WHOLE slack/gitlab block, so a concurrent
+  // writer of a sibling field (an export mid-flight, or a rapid second toggle)
+  // landing inside the get()->set() window can clobber that field. confirmExport
+  // has the same read-modify-write shape. If you extend publish-settings
+  // persistence, fix it at the root: add a targeted main-process merge that sets
+  // only the changed field atomically, and convert confirmExport to use it too —
+  // don't paper over it with more whole-block writers here.
+  async function persistSlackThreadMode(mode: SlackThreadMode) {
+    setSlackThreadMode(mode)
+    try {
+      const current = await api.settings.get()
+      const active = activeProfileFrom(current, overrideProfile)
+      await api.settings.setSlack(targetProfileId(current, overrideProfile), { ...active.slack, threadMode: mode })
+    } catch { /* non-fatal: the choice stays in local state for this session */ }
+  }
+  async function persistGitLabMode(mode: GitLabPublishMode) {
+    setGitLabMode(mode)
+    try {
+      const current = await api.settings.get()
+      const active = activeProfileFrom(current, overrideProfile)
+      await api.settings.setGitLab(targetProfileId(current, overrideProfile), { ...active.gitlab, mode })
+    } catch { /* non-fatal: the choice stays in local state for this session */ }
+  }
+
   useImperativeHandle(ref, () => ({
     exportAll: () => { void exportAll() },
     exporting,
@@ -1903,32 +1234,25 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     setCancelingExport(false)
     try {
       await api.settings.setExportRoot(trimmedRoot)
-      await api.session.updateMetadata(sessionId, {
-        buildVersion: exportBuildVersion.trim(),
-        platform: exportPlatform.trim(),
-        project: exportProject.trim(),
-        tester: exportTester.trim(),
-        testNote: exportTestNote.trim(),
-      })
+      // Metadata is owned by Draft and already blur-saved; ensure the latest is
+      // persisted before the export IPC reads the session for the manifest.
+      await onCommitMetadata?.()
       let currentSettings = await api.settings.get()
       await api.settings.setCommonSession({
-        platforms: appendCommonValue(currentSettings.commonSession?.platforms ?? DEFAULT_COMMON_SESSION.platforms, exportPlatform),
-        testers: appendCommonValue(currentSettings.commonSession?.testers ?? DEFAULT_COMMON_SESSION.testers, exportTester),
-        lastPlatform: exportPlatform.trim(),
-        lastTester: exportTester.trim(),
+        platforms: appendCommonValue(currentSettings.commonSession?.platforms ?? DEFAULT_COMMON_SESSION.platforms, platform),
+        testers: appendCommonValue(currentSettings.commonSession?.testers ?? DEFAULT_COMMON_SESSION.testers, tester),
+        lastPlatform: platform.trim(),
+        lastTester: tester.trim(),
       }).then(settings => {
         currentSettings = settings
         setCommonSession(settings.commonSession ?? DEFAULT_COMMON_SESSION)
       }).catch(() => {})
       if (publishSlack && slackChannelId.trim()) {
-        const manualMentions = normalizeManualSlackMentions(slackManualMentionInput)
-        const nextMentionIds = Array.from(new Set([
-          ...slackMentionIds.filter(id => !id.startsWith('!')),
-          ...manualMentions,
-        ]))
+        const nextMentionIds = mergeSlackMentionIds(slackMentionIds, slackManualMentionInput)
         const nextSlack: SlackPublishSettings = {
           ...activeProfileFrom(currentSettings, overrideProfile).slack,
           channelId: slackChannelId.trim(),
+          threadMode: slackThreadMode,
           mentionUserIds: nextMentionIds,
           mentionAliases: slackAliases,
         }
@@ -1962,8 +1286,8 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
         gitlabMode,
       }
       const paths = exportRequest.bugIds.length === 1
-        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })].filter(Boolean) as string[])
-        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: exportReportTitle.trim() || 'Loupe QA Report', includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, publish })
+        ? ([await api.bug.exportClip({ sessionId, bugId: exportRequest.bugIds[0], exportId: nextExportId, reportTitle: normalizeReportTitle(reportTitle), includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, exportQuality, publish })].filter(Boolean) as string[])
+        : await api.bug.exportClips({ sessionId, bugIds: exportRequest.bugIds, exportId: nextExportId, reportTitle: normalizeReportTitle(reportTitle), includeLogcat: exportIncludeLogcat, includeMicTrack: exportIncludeMicTrack, includeOriginalFiles: exportIncludeOriginalFiles, mergeOriginalAudio: exportIncludeOriginalFiles && exportMergeOriginalAudio, exportQuality, publish })
       if (paths && paths.length > 0) {
         if (exportRequest.bugIds.length === 0) notifyFullRecordingExported(api, paths[0], t)
         else notifyExported(api, paths[0], paths.length, t)
@@ -1992,6 +1316,15 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     void confirmExport(true)
   }
 
+  const handleExportQualityChange = useCallback((value: ExportQuality) => {
+    const next = normalizeExportQuality(value)
+    setExportQuality(next)
+    // Quality is part of the dirty fingerprint, so changing it can flip a saved
+    // export stale/clean. Re-check after the new quality persists (listForSession
+    // reads it from settings on the main side).
+    void api.settings.setExportQuality(next).then(() => reloadExports())
+  }, [api, reloadExports])
+
   async function cancelExport() {
     if (!exporting || !exportId) {
       setExportRequest(null)
@@ -2009,12 +1342,99 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     if (settings) setExportRoot(settings.exportRoot)
   }
 
+
+  // Shared publish-target props — spread into BOTH the export modal and the inline
+  // republish panel so the two surfaces can never drift apart. Only `busy` differs
+  // (export vs republish), so it's passed per-caller.
+  const publishFormProps = {
+    profiles: allProfiles,
+    selectedProfileId: overrideProfile?.id ?? allProfiles.find(p => p.id === globalActiveProfileId)?.id ?? allProfiles[0]?.id ?? '',
+    onSelectedProfileIdChange: (id: string) => { void handleProfileDropdownChange(id) },
+    slackSettings,
+    slackConnected: isSlackConnected(slackSettings),
+    gitlabConnected: isGitLabConnected(gitlabSettings),
+    googleDriveConnected: isGoogleDriveConnected(googleSettings),
+    canPublishGoogleDrive: canPublishToGoogleDrive(googleSettings),
+    slackConnecting, gitlabConnecting, googleConnecting,
+    publishSlack, publishGitLab, publishGoogleDrive,
+    slackThreadMode, slackChannels, slackChannelId,
+    mentionOptions, slackMentionIds,
+    slackMentionAliases: slackAliases,
+    slackDirectoryRefreshing, slackDirectoryError,
+    gitlabMode, gitlabProjectId, gitlabProjects,
+    gitlabProjectsRefreshing, gitlabProjectsError,
+    onConnectSlack: () => { void connectSlackForExport() },
+    onConnectGoogle: () => { void connectGoogleForExport() },
+    onConnectGitLab: () => { void connectGitLabForExport() },
+    onPublishSlackChange: setPublishSlack,
+    onPublishGitLabChange: (value: boolean) => { if (value && !isGitLabConnected(gitlabSettings)) return; setPublishGitLab(value) },
+    onPublishGoogleDriveChange: (value: boolean) => { if (value && !canPublishToGoogleDrive(googleSettings)) return; setPublishGoogleDrive(value) },
+    onSlackThreadModeChange: (mode: SlackThreadMode) => { void persistSlackThreadMode(mode) },
+    onSlackChannelIdChange: setSlackChannelId,
+    onSlackMentionIdsChange: setSlackMentionIds,
+    onSlackManualMentionInputChange: setSlackManualMentionInput,
+    onRefreshSlackDirectory: () => { void refreshSlackDirectoryForExport() },
+    onGitLabModeChange: (mode: GitLabPublishMode) => { void persistGitLabMode(mode) },
+    onGitLabProjectIdChange: setGitLabProjectId,
+    onRefreshGitLabProjects: () => { void refreshGitLabProjectsForExport() },
+  }
+
   return (
     <div className="min-h-full">
       {markerToolbar && (
         <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2 backdrop-blur">
           {markerToolbar}
         </div>
+      )}
+      {allowExport && publishPanelOpen && createPortal(
+        <div
+          ref={publishPanelRef}
+          data-testid="publish-panel"
+          style={publishPanelStyle}
+          className="z-[60] flex flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800 shadow-2xl"
+        >
+          {exportFolders.length === 0 ? (
+            <p className="p-3 text-xs text-zinc-500">{t('exports.none')}</p>
+          ) : (
+            <>
+              <div className="shrink-0 border-b border-zinc-700 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-zinc-300">{newestExport?.createdAt.replace('T', ' ').slice(0, 16)}</span>
+                  <span className="text-zinc-500">{t('exports.markers', { count: newestExport?.markerCount ?? 0 })}</span>
+                </div>
+                <p className="mt-1.5 text-[11px] text-zinc-500">{t('exports.publishesSaved')}</p>
+                {exportsDirty && (
+                  <p className="mt-1.5 rounded border border-amber-800/60 bg-amber-950/30 px-2 py-1 text-[11px] leading-snug text-amber-200">{t('exports.staleWarn')}</p>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              <PublishTargetsForm {...publishFormProps} busy={republishingFolder !== null} />
+              </div>
+              <div className="shrink-0 border-t border-zinc-700 px-3 py-2.5">
+                  {republishingFolder !== null && (
+                    <div className="mb-2.5" data-testid="republish-progress">
+                      <div className="text-xs text-zinc-400">{republishStatus || t('exports.publishing')}</div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-950">
+                        <div className="loupe-indeterminate-bar h-full w-1/3 rounded-full bg-blue-500" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      data-testid="republish-button"
+                      disabled={republishingFolder !== null || !newestExport}
+                      onClick={() => { if (newestExport) void republish(newestExport) }}
+                      className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {republishingFolder ? t('exports.publishing') : t('exports.republish')}
+                    </button>
+                  </div>
+              </div>
+                </>
+              )}
+        </div>,
+        document.body,
       )}
       <ul className="space-y-1.5 p-2" data-testid="bug-list">
         {bugs.length === 0 && <li className="p-4 text-sm text-zinc-500">{t('bug.noMarkers')}</li>}
@@ -2056,85 +1476,42 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       </ul>
       {exportRequest && (
         <ExportConfirmDialog
+          {...publishFormProps}
+          busy={exporting}
           count={exportRequest.bugIds.length}
           outputRoot={exportRoot}
-          reportTitle={exportReportTitle}
-          buildVersion={exportBuildVersion}
-          platform={exportPlatform}
-          project={exportProject}
-          tester={exportTester}
-          testNote={exportTestNote}
+          reportTitle={reportTitle}
+          buildVersion={buildVersion}
+          platform={platform}
+          project={project}
+          tester={tester}
+          testNote={testNote}
           commonSession={commonSession}
-          profiles={allProfiles}
-          selectedProfileId={overrideProfile?.id ?? allProfiles.find(p => p.id === globalActiveProfileId)?.id ?? allProfiles[0]?.id ?? ''}
-          onSelectedProfileIdChange={(id) => { void handleProfileDropdownChange(id) }}
           includeLogcat={exportIncludeLogcat}
           includeMicTrack={exportIncludeMicTrack}
           includeOriginalFiles={exportIncludeOriginalFiles}
           mergeOriginalAudio={exportMergeOriginalAudio}
           hasSessionMicTrack={hasSessionMicTrack}
           hasMarkerAudioNotes={exportRequest.bugs.some(b => Boolean(b.audioRel))}
-          slackSettings={slackSettings}
-          slackConnected={isSlackConnected(slackSettings)}
-          gitlabConnected={isGitLabConnected(gitlabSettings)}
-          googleDriveConnected={isGoogleDriveConnected(googleSettings)}
-          canPublishGoogleDrive={canPublishToGoogleDrive(googleSettings)}
-          slackConnecting={slackConnecting}
-          gitlabConnecting={gitlabConnecting}
-          googleConnecting={googleConnecting}
-          publishSlack={publishSlack}
-          publishGitLab={publishGitLab}
-          publishGoogleDrive={publishGoogleDrive}
-          slackThreadMode={slackThreadMode}
-          slackChannels={slackChannels}
-          slackChannelId={slackChannelId}
-          mentionOptions={mentionOptions}
-          slackMentionIds={slackMentionIds}
-          slackMentionAliases={slackAliases}
-          slackManualMentionInput={slackManualMentionInput}
-          slackDirectoryRefreshing={slackDirectoryRefreshing}
-          slackDirectoryError={slackDirectoryError}
-          gitlabMode={gitlabMode}
-          gitlabProjectId={gitlabProjectId}
-          gitlabProjects={gitlabProjects}
-          gitlabProjectsRefreshing={gitlabProjectsRefreshing}
-          gitlabProjectsError={gitlabProjectsError}
-          busy={exporting}
           error={exportError}
           canceling={cancelingExport}
           progress={exportProgress}
           hasMissingNotes={exportRequest.bugs.some(b => !b.note.trim())}
+          hasChangesSinceExport={exportsDirty}
           onOutputRootChange={setExportRoot}
-          onReportTitleChange={setExportReportTitle}
-          onBuildVersionChange={setExportBuildVersion}
-          onPlatformChange={setExportPlatform}
-          onProjectChange={setExportProject}
-          onTesterChange={setExportTester}
-          onTestNoteChange={setExportTestNote}
+          onReportTitleChange={onReportTitleChange ?? noop}
+          onBuildVersionChange={onBuildVersionChange ?? noop}
+          onPlatformChange={onPlatformChange ?? noop}
+          onProjectChange={onProjectChange ?? noop}
+          onTesterChange={onTesterChange ?? noop}
+          onTestNoteChange={onTestNoteChange ?? noop}
+          onCommitMetadata={onCommitMetadata}
+          exportQuality={exportQuality}
+          onExportQualityChange={handleExportQualityChange}
           onIncludeLogcatChange={setExportIncludeLogcat}
           onIncludeMicTrackChange={setExportIncludeMicTrack}
           onIncludeOriginalFilesChange={setExportIncludeOriginalFiles}
           onMergeOriginalAudioChange={setExportMergeOriginalAudio}
-          onConnectSlack={() => { void connectSlackForExport() }}
-          onConnectGoogle={() => { void connectGoogleForExport() }}
-          onConnectGitLab={() => { void connectGitLabForExport() }}
-          onPublishSlackChange={setPublishSlack}
-          onPublishGitLabChange={(value) => {
-            if (value && !isGitLabConnected(gitlabSettings)) return
-            setPublishGitLab(value)
-          }}
-          onPublishGoogleDriveChange={(value) => {
-            if (value && !canPublishToGoogleDrive(googleSettings)) return
-            setPublishGoogleDrive(value)
-          }}
-          onSlackThreadModeChange={setSlackThreadMode}
-          onSlackChannelIdChange={setSlackChannelId}
-          onSlackMentionIdsChange={setSlackMentionIds}
-          onSlackManualMentionInputChange={setSlackManualMentionInput}
-          onRefreshSlackDirectory={() => { void refreshSlackDirectoryForExport() }}
-          onGitLabModeChange={setGitLabMode}
-          onGitLabProjectIdChange={setGitLabProjectId}
-          onRefreshGitLabProjects={() => { void refreshGitLabProjectsForExport() }}
           onBrowseOutputRoot={browseExportRoot}
           onCancel={cancelExport}
           onConfirm={confirmExport}

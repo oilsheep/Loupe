@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { GitLabProject } from '@shared/types'
 import { useI18n } from '@/lib/i18n'
 import { useClickOutside } from '@/lib/useClickOutside'
+import { ChevronDownIcon } from './ChevronDownIcon'
 
 interface GitLabProjectPickerProps {
   projects: GitLabProject[]
@@ -57,7 +58,7 @@ export function GitLabProjectPicker({ projects, value, disabled = false, loading
         className="flex w-full items-center justify-between gap-2 rounded bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-200 outline-none hover:bg-zinc-900 focus:ring-1 focus:ring-blue-600 disabled:opacity-50"
       >
         <span className="min-w-0 truncate">{selected ? selected.nameWithNamespace : (value || (loading ? t('picker.loadingProjects') : t('picker.selectProject')))}</span>
-        <span className="shrink-0 text-zinc-500">v</span>
+        <ChevronDownIcon className="shrink-0 text-zinc-500" />
       </button>
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded border border-zinc-700 bg-zinc-950 shadow-xl">

@@ -1,4 +1,4 @@
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, RepublishOverrides } from '@shared/types'
 import type { ExportManifest } from './export-manifest'
 import { publishManifestToGitLab, type GitLabPublishResult } from './gitlab-publisher'
 import { publishManifestToGoogleDrive, type GooglePublishResult } from './google-publisher'
@@ -28,6 +28,8 @@ export async function publishManifestToRemote(args: {
   manifest: ExportManifest
   manifestPaths: ManifestPaths
   settings: AppSettings
+  overrides?: RepublishOverrides
+  onProgress?: (target: 'slack' | 'gitlab' | 'google-drive') => void
 }): Promise<RemotePublishResult> {
   const targets = args.manifest.publish.targets?.length ? args.manifest.publish.targets : [args.manifest.publish.target]
   const remoteTargets = targets.filter((target): target is 'slack' | 'gitlab' | 'google-drive' => target === 'slack' || target === 'gitlab' || target === 'google-drive')
@@ -45,30 +47,48 @@ export async function publishManifestToRemote(args: {
     // fresh session before the profileId field existed). Silent fallback to active.
   }
 
+  // Mode overrides ride on the manifest the publishers read; clone so we never
+  // mutate the caller's object.
+  const ov = args.overrides
+  const manifest = ov
+    ? { ...args.manifest, publish: {
+        ...args.manifest.publish,
+        slackThreadMode: ov.slack?.threadMode ?? args.manifest.publish.slackThreadMode,
+        gitlabMode: ov.gitlab?.mode ?? args.manifest.publish.gitlabMode,
+      } }
+    : args.manifest
+
   const results: RemotePublishResult[] = []
   for (const target of remoteTargets) {
+    args.onProgress?.(target)
     try {
       if (target === 'slack') {
+        const settings = ov?.slack
+          ? { ...profile.slack, channelId: ov.slack.channelId, mentionUserIds: ov.slack.mentionUserIds }
+          : profile.slack
         const result = await publishManifestToSlack({
-          manifest: args.manifest,
+          manifest,
           manifestPaths: args.manifestPaths,
-          settings: profile.slack,
+          settings,
           mentionIdentities: args.settings.mentionIdentities,
           template: profile.publishTemplates?.slack,
         })
         results.push({ target: 'slack', ...result })
       } else if (target === 'gitlab') {
+        const settings = ov?.gitlab
+          ? { ...profile.gitlab, projectId: ov.gitlab.projectId }
+          : profile.gitlab
         const result = await publishManifestToGitLab({
-          manifest: args.manifest,
+          manifest,
           manifestPaths: args.manifestPaths,
-          settings: profile.gitlab,
+          settings,
           mentionIdentities: args.settings.mentionIdentities,
           template: profile.publishTemplates?.gitlab,
         })
         results.push({ target: 'gitlab', ...result })
       } else {
         const result = await publishManifestToGoogleDrive({
-          manifest: args.manifest,
+          manifest,
           manifestPaths: args.manifestPaths,
           settings: profile.google,
           mentionIdentities: args.settings.mentionIdentities,

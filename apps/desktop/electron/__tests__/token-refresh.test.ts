@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
 import { refreshAllExpiringTokens, type RefreshDeps } from '../token-refresh'
 import type { AppSettings } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 const MIN_DEFAULTS: AppSettings = {
   exportRoot: '/default',
+  exportQuality: DEFAULT_EXPORT_QUALITY,
   hotkeys: DEFAULT_HOTKEYS,
   locale: 'system',
   severities: DEFAULT_SEVERITIES,

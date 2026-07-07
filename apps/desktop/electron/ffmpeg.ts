@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import type { SpawnOptions } from 'node:child_process'
 import type { IProcessRunner } from './process-runner'
 import type { BugAnnotation } from '@shared/types'
+import { qualityEncodeParams } from '@shared/exportQuality'
 
 export interface ClipOptions {
   inputPath: string
@@ -30,6 +31,7 @@ export interface ClipOptions {
   clipEndMs?: number | null
   telemetryLine?: string | null
   logcatText?: string | null
+  quality?: { preset: string; crf: number } | null
 }
 
 export interface ClickPoint {
@@ -512,6 +514,7 @@ export function buildClipArgs(opts: ClipOptions): string[] {
   const narrationDurationMs = Math.max(0, opts.narrationDurationMs ?? 0)
   const outputDurationMs = opts.sessionMicPath ? durationMs : opts.narrationPath ? Math.max(durationMs, narrationDurationMs) : durationMs
   const freezeDurationMs = Math.max(0, outputDurationMs - durationMs)
+  const { preset, crf } = opts.quality ?? qualityEncodeParams(undefined)
   const filters: string[] = [
     ...clickOverlayFilters(opts.clicks, startMs, endMs),
     ...annotationOverlayFilters(opts.annotations, startMs, endMs, opts.severityColor ?? '#f59e0b'),
@@ -537,8 +540,8 @@ export function buildClipArgs(opts: ClipOptions): string[] {
       '-map', '[a]',
       '-t', ms(outputDurationMs),
       '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '20',
+      '-preset', preset,
+      '-crf', String(crf),
       '-r', '30',
       '-c:a', 'aac',
       '-b:a', '128k',
@@ -559,8 +562,8 @@ export function buildClipArgs(opts: ClipOptions): string[] {
     '-map', '0:a?',
     ...filterArgs,
     '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-crf', '20',
+    '-preset', preset,
+    '-crf', String(crf),
     '-r', '30',
     '-c:a', 'aac',
     '-b:a', '128k',
@@ -588,6 +591,7 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
   const fadeDurationSec = ms(introFadeMs)
   const canvasWidth = Math.max(2, Math.floor(opts.canvasWidth / 2) * 2)
   const canvasHeight = Math.max(2, Math.floor(opts.canvasHeight / 2) * 2)
+  const { preset, crf } = opts.quality ?? qualityEncodeParams(undefined)
   const clipFilters = [
     ...clickOverlayFilters(opts.clicks, startMs, endMs),
     ...annotationOverlayFilters(opts.annotations, startMs, endMs, opts.severityColor ?? '#f59e0b'),
@@ -630,8 +634,8 @@ export function buildIntroClipArgs(opts: IntroClipOptions): string[] {
     ...(hasSessionMic || sourceHasAudio ? ['-map', '[a]'] : []),
     '-t', ms(introDurationMs + durationMs),
     '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-crf', '20',
+    '-preset', preset,
+    '-crf', String(crf),
     ...(hasSessionMic || sourceHasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
     '-max_muxing_queue_size', '4096',
     '-avoid_negative_ts', 'make_zero',

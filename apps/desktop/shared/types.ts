@@ -1,3 +1,6 @@
+import type { ExportQuality } from './exportQuality'
+export type { ExportQuality }
+
 export interface Device {
   id: string                              // adb serial OR `ip:port` for wifi
   type: 'usb' | 'wifi'
@@ -44,6 +47,8 @@ export interface SlackPublishSettings {
   tokenExpiresAt?: number | null
   publishIdentity?: 'bot' | 'user'
   channelId: string
+  /** Remembered Slack layout: one thread for all markers, or one per marker. */
+  threadMode?: SlackThreadMode
   oauthClientId?: string
   oauthClientSecret?: string
   oauthRedirectUri?: string
@@ -220,6 +225,7 @@ export interface GoogleSheetTab {
 
 export interface AppSettings {
   exportRoot: string
+  exportQuality: ExportQuality
   hotkeys: HotkeySettings
   locale: AppLocale
   severities: SeveritySettings
@@ -239,6 +245,8 @@ export interface Session {
   /** Loupe profile (publish config bundle) active when this session was recorded. Null on legacy sessions until backfill matches. */
   profileId?: string | null
   testNote: string
+  /** Report title used for exports; persisted per session, defaults to 'Loupe QA Report'. */
+  reportTitle?: string
   tester: string
   deviceId: string
   deviceModel: string
@@ -330,7 +338,23 @@ export interface ExportedMarkerFile {
   previewPath: string
   /** High-res original/active marker screenshot (bug.screenshotRel resolved), if any. */
   screenshotPath: string | null
+  /** sha256 hex of the exported screenshot bytes, or null */
+  screenshotHash: string | null
   logcatPath: string | null
+}
+
+export interface SessionExportInfo {
+  folderPath: string
+  folderName: string
+  createdAt: string
+  markerCount: number
+  status: { status: 'clean' | 'stale'; reasons: unknown[] }
+  publishState: { version: 1; targets: Record<string, unknown[]> } | null
+}
+
+export interface RepublishOverrides {
+  slack?: { channelId: string; threadMode: SlackThreadMode; mentionUserIds: string[] }
+  gitlab?: { projectId: string; mode: GitLabPublishMode }
 }
 
 import type { ToolCheck } from '../electron/doctor'    // type-only import is fine across boundaries
@@ -376,7 +400,7 @@ export interface ToolInstallLog {
 
 export interface ExportProgress {
   exportId: string
-  phase: 'prepare' | 'video' | 'image' | 'complete' | 'error'
+  phase: 'prepare' | 'video' | 'image' | 'publish' | 'complete' | 'error'
   message: string
   detail?: string
   current: number
@@ -488,7 +512,7 @@ export interface DesktopApi {
     list():                                                        Promise<Session[]>
     get(id: string):                                               Promise<{ session: Session; bugs: Bug[] } | null>
     openProject():                                                 Promise<Session | null>
-    updateMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }): Promise<void>
+    updateMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string; reportTitle?: string }): Promise<void>
     updateMicAudioOffset(id: string, startOffsetMs: number):       Promise<Session>
     savePcRecording(args: { sessionId: string; base64: string; mimeType: string; durationMs: number }): Promise<string>
     appendPcRecordingChunk(args: { sessionId: string; chunk: Uint8Array }): Promise<void>
@@ -506,8 +530,8 @@ export interface DesktopApi {
     transcribeAudio(args: { sessionId: string; bugId: string; base64: string; durationMs: number; mimeType: string }): Promise<{ text: string }>
     delete(id: string):                                            Promise<void>
     /** Extracts a clip using the bug's preSec/postSec window. Returns saved path or null if cancelled. */
-    exportClip(args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string | null>
-    exportClips(args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null>
+    exportClip(args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; exportQuality?: ExportQuality; publish?: ExportPublishOptions }): Promise<string | null>
+    exportClips(args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; exportQuality?: ExportQuality; publish?: ExportPublishOptions }): Promise<string[] | null>
     cancelExport(exportId: string):                                Promise<void>
     recaptureScreenshot(bugId: string):                            Promise<void>
     resetScreenshot(bugId: string):                                Promise<void>
@@ -519,6 +543,7 @@ export interface DesktopApi {
   settings: {
     get():                                                         Promise<AppSettings>
     setExportRoot(path: string):                                   Promise<AppSettings>
+    setExportQuality(quality: ExportQuality):                      Promise<AppSettings>
     setHotkeys(hotkeys: HotkeySettings):                           Promise<AppSettings>
     setSlack(projectId: string, settings: SlackPublishSettings):    Promise<AppSettings>
     setGitLab(projectId: string, settings: GitLabPublishSettings):  Promise<AppSettings>
@@ -559,6 +584,10 @@ export interface DesktopApi {
   audioAnalysis: {
     analyzeSession(sessionId: string):                             Promise<AudioAnalysisResult>
     cancel(sessionId: string):                                     Promise<void>
+  }
+  export: {
+    listForSession(sessionId: string):                             Promise<SessionExportInfo[]>
+    republish(args: { folderPath: string; targets: Array<'slack' | 'gitlab' | 'google-drive'>; overrides?: RepublishOverrides }): Promise<{ ok: boolean; error?: string }>
   }
   /** Renderer subscribes to this to know when the global bug-mark hotkey fired in main. */
   onBugMarkRequested(cb: (severity: BugSeverity) => void):         () => void   // returns unsubscribe

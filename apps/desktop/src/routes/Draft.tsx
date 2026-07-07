@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, Bug, BugAnnotation, BugSeverity, Session, SessionLoadProgress, SeveritySettings } from '@shared/types'
 import { findProfileForSession } from '@shared/profileLookup'
+import { DEFAULT_REPORT_TITLE, normalizeReportTitle } from '@shared/reportTitle'
 import { api, assetUrl } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { VideoPlayer, type TranscriptSegment, type VideoPlayerHandle } from '@/components/VideoPlayer'
 import { BugList, type BugListHandle } from '@/components/BugList'
+import { CloseButton } from '@/components/CloseButton'
 import { PreferencesController } from '@/components/PreferencesController'
 import { useI18n } from '@/lib/i18n'
 
@@ -69,6 +72,21 @@ function nextCustomSeverityKey(severities: SeveritySettings): BugSeverity {
   return `custom${index}`
 }
 
+function IconSvg({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      {children}
+    </svg>
+  )
+}
+const ChevronLeftIcon = ({ className }: { className?: string }) => <IconSvg className={className}><path d="m15 18-6-6 6-6" /></IconSvg>
+const SettingsIcon = ({ className }: { className?: string }) => (
+  <IconSvg className={className}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </IconSvg>
+)
+
 export function Draft({ sessionId }: { sessionId: string }) {
   const { t } = useI18n()
   const goHome = useApp(s => s.goHome)
@@ -81,6 +99,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [project, setProject] = useState('')
   const [tester, setTester] = useState('')
   const [testNote, setTestNote] = useState('')
+  const [reportTitle, setReportTitle] = useState(DEFAULT_REPORT_TITLE)
   const [micOffsetSec, setMicOffsetSec] = useState('0')
   const [loadProgress, setLoadProgress] = useState<SessionLoadProgress | null>(null)
   const [analysisProgress, setAnalysisProgress] = useState<AudioAnalysisProgress | null>(null)
@@ -96,6 +115,12 @@ export function Draft({ sessionId }: { sessionId: string }) {
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const playerRef = useRef<VideoPlayerHandle>(null)
   const bugListRef = useRef<BugListHandle>(null)
+  const publishButtonRef = useRef<HTMLButtonElement>(null)
+  const [publishPanelOpen, setPublishPanelOpen] = useState(false)
+  const [exportsDirty, setExportsDirty] = useState(false)
+  const [hasExports, setHasExports] = useState(false)
+  const [metadataVersion, setMetadataVersion] = useState(0)
+  const closePublishPanel = useCallback(() => setPublishPanelOpen(false), [])
 
   const refresh = useCallback(async () => {
     const r = await api.session.get(sessionId)
@@ -121,6 +146,7 @@ export function Draft({ sessionId }: { sessionId: string }) {
     setProject(r.session.project ?? '')
     setTester(r.session.tester)
     setTestNote(r.session.testNote)
+    setReportTitle(normalizeReportTitle(r.session.reportTitle))
     setMicOffsetSec(String(Math.round((r.session.micAudioStartOffsetMs ?? 0) / 100) / 10))
   }, [sessionId, goHome])
 
@@ -425,16 +451,25 @@ export function Draft({ sessionId }: { sessionId: string }) {
     goHome()
   }
 
-  async function saveMetadata(next?: { buildVersion?: string; platform?: string; project?: string; testNote?: string; tester?: string }) {
+  async function saveMetadata(next?: { buildVersion?: string; platform?: string; project?: string; testNote?: string; tester?: string; reportTitle?: string }) {
     const patch = {
       buildVersion: next?.buildVersion ?? buildVersion,
       platform: next?.platform ?? platform,
       project: next?.project ?? project,
       testNote: next?.testNote ?? testNote,
       tester: next?.tester ?? tester,
+      reportTitle: next?.reportTitle ?? reportTitle,
     }
+    // Skip the persist + dirty re-check when nothing changed vs the saved session
+    // (e.g. blurring a field without editing it).
+    const s = data?.session
+    if (s && patch.buildVersion === s.buildVersion && patch.platform === (s.platform ?? '') && patch.project === (s.project ?? '')
+      && patch.testNote === s.testNote && patch.tester === s.tester && normalizeReportTitle(patch.reportTitle) === normalizeReportTitle(s.reportTitle)) return
     await api.session.updateMetadata(session.id, patch)
     setData(prev => prev ? { ...prev, session: { ...prev.session, ...patch } } : prev)
+    // Metadata is part of the export dirty fingerprint; bump so BugList re-checks
+    // once the change is persisted (not on every keystroke).
+    setMetadataVersion(v => v + 1)
   }
 
   async function saveAudioLanguage(language: string) {
@@ -468,24 +503,37 @@ export function Draft({ sessionId }: { sessionId: string }) {
       />
       <header className="col-span-2 flex items-center justify-between gap-3 border-b border-zinc-800 p-3 text-sm">
         <div>
-          <button onClick={goHome} className="text-zinc-400 hover:text-zinc-200">{t('draft.home')}</button>
+          <button onClick={goHome} aria-label={t('draft.home')} title={t('draft.home')} className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"><ChevronLeftIcon /></button>
           <span className="ml-4 font-medium">{session.deviceModel} · build {session.buildVersion}</span>
           <span className="ml-3 text-zinc-500">{bugs.length} markers · {Math.round(dur / 1000)}s</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={() => setPreferencesOpen(true)}
-            className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
-          >
-            {t('home.preferences')}
-          </button>
-          <button
             onClick={() => bugListRef.current?.exportAll()}
-            className="rounded bg-blue-700 px-3 py-1 text-xs text-white hover:bg-blue-600"
+            className="relative inline-flex items-center gap-2 rounded bg-blue-700 px-3 py-1 text-xs text-white hover:bg-blue-600"
           >
+            {exportsDirty && <span data-testid="export-dirty-dot" title={t('exports.status.stale')} className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_0_3px_rgba(252,211,77,0.25)]" />}
             {bugs.length === 0 ? t('bug.exportRecording') : t('bug.exportCount', { count: bugs.length })}
           </button>
-          <button onClick={closeSession} className="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700">{t('draft.close')}</button>
+          <button
+            ref={publishButtonRef}
+            type="button"
+            data-testid="publish-button"
+            onClick={() => setPublishPanelOpen(o => !o)}
+            aria-expanded={publishPanelOpen}
+            className={`rounded px-3 py-1 text-xs ${hasExports ? 'bg-blue-700 text-white hover:bg-blue-600' : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'}`}
+          >
+            {t('exports.publish')}
+          </button>
+          <button
+            onClick={() => setPreferencesOpen(true)}
+            aria-label={t('home.preferences')}
+            title={t('home.preferences')}
+            className="rounded bg-zinc-800 p-1.5 text-zinc-200 hover:bg-zinc-700"
+          >
+            <SettingsIcon />
+          </button>
+          <CloseButton onClick={closeSession} label={t('draft.close')} />
         </div>
       </header>
 
@@ -698,6 +746,11 @@ export function Draft({ sessionId }: { sessionId: string }) {
             ref={bugListRef}
             api={api}
             sessionId={session.id}
+            publishPanelOpen={publishPanelOpen}
+            onExportsDirtyChange={setExportsDirty}
+            onExportsAvailableChange={setHasExports}
+            publishAnchorRef={publishButtonRef}
+            onClosePublishPanel={closePublishPanel}
             bugs={bugs}
             selectedBugId={selectedBugId}
             selectedAnnotationId={selectedAnnotationId}
@@ -711,6 +764,15 @@ export function Draft({ sessionId }: { sessionId: string }) {
             project={project}
             tester={tester}
             testNote={testNote}
+            reportTitle={reportTitle}
+            onBuildVersionChange={setBuildVersion}
+            onPlatformChange={setPlatform}
+            onProjectChange={setProject}
+            onTesterChange={setTester}
+            onTestNoteChange={setTestNote}
+            onReportTitleChange={setReportTitle}
+            onCommitMetadata={() => saveMetadata()}
+            metadataVersion={metadataVersion}
             hasSessionMicTrack={Boolean(session.micAudioPath && session.micAudioSource !== 'video')}
             markerToolbar={markerToolbar}
             durationMs={dur}

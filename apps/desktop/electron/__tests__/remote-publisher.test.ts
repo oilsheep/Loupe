@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { buildExportManifest } from '../export-manifest'
 import { publishManifestToRemote } from '../remote-publisher'
 import type { AppSettings, Bug, ExportedMarkerFile, Session } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 function response(payload: unknown, ok = true): Response {
   return new Response(JSON.stringify(payload), { status: ok ? 200 : 400, headers: { 'Content-Type': 'application/json' } })
@@ -13,6 +14,7 @@ function response(payload: unknown, ok = true): Response {
 function settings(): AppSettings {
   return {
     exportRoot: '/exports',
+    exportQuality: DEFAULT_EXPORT_QUALITY,
     hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' },
     locale: 'en',
     severities: {
@@ -85,7 +87,7 @@ describe('remote publisher', () => {
     const manifest = buildExportManifest({
       session: session(),
       bugs: [bug()],
-      files: [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, logcatPath: null }],
+      files: [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, screenshotHash: null, logcatPath: null }],
       outDir: '/exports',
       publish: { target: 'local' },
     })
@@ -105,7 +107,7 @@ describe('remote publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       for (const file of [files[0].videoPath!, files[0].previewPath]) writeFileSync(file, 'x')
       const manifest = buildExportManifest({
@@ -146,7 +148,7 @@ describe('remote publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       writeFileSync(files[0].videoPath!, 'x')
       const manifest = buildExportManifest({
@@ -186,7 +188,7 @@ describe('remote publisher', () => {
         bugId: 'b1',
         videoPath: join(root, 'b1.mp4'),
         previewPath: join(root, 'b1.jpg'),
-        screenshotPath: null, logcatPath: null,
+        screenshotPath: null, screenshotHash: null, logcatPath: null,
       }]
       writeFileSync(files[0].videoPath!, 'x')
       writeFileSync(files[0].previewPath, 'x')
@@ -231,7 +233,7 @@ describe('remote publisher', () => {
     const manifest = buildExportManifest({
       session: session(),
       bugs: [bug()],
-      files: [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, logcatPath: null }],
+      files: [{ bugId: 'b1', videoPath: '/exports/b1.mp4', previewPath: '/exports/b1.jpg', screenshotPath: null, screenshotHash: null, logcatPath: null }],
       outDir: '/exports',
       publish: { target: 'google-drive' },
     })

@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore, findProfileByIdOrActive } from '../settings'
 import { DEFAULT_MARKER_FIELD_PRESETS } from '@shared/markerFieldPresets'
 import type { AppSettings } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 const FALLBACK_DEFAULTS: AppSettings = {
   exportRoot: '/default',
+  exportQuality: DEFAULT_EXPORT_QUALITY,
   hotkeys: DEFAULT_HOTKEYS,
   locale: 'system',
   severities: DEFAULT_SEVERITIES,
@@ -32,6 +34,7 @@ describe('SettingsStore', () => {
       writeFileSync(file, JSON.stringify({ exportRoot: '/exports', hotkeys: DEFAULT_HOTKEYS }))
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -57,6 +60,7 @@ describe('SettingsStore', () => {
       writeFileSync(file, JSON.stringify({ recordingPreferences: { recordMic: false } }))
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -81,6 +85,7 @@ describe('SettingsStore', () => {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -118,12 +123,42 @@ describe('SettingsStore', () => {
     }
   })
 
+  it('persists the Slack thread mode (parity with GitLab mode)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      writeFileSync(file, JSON.stringify({ exportRoot: '/exports', hotkeys: DEFAULT_HOTKEYS }))
+      const store = new SettingsStore(file, {
+        exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
+        hotkeys: DEFAULT_HOTKEYS,
+        locale: 'system',
+        severities: DEFAULT_SEVERITIES,
+        audioAnalysis: DEFAULT_AUDIO_ANALYSIS,
+        mentionIdentities: [],
+        profiles: FALLBACK_DEFAULTS.profiles,
+        activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
+      })
+      const projectId = store.get().profiles[0].id
+
+      // Default (no threadMode given) falls back to per-marker-thread.
+      expect(store.get().profiles[0].slack.threadMode).toBe('per-marker-thread')
+
+      // An explicit single-thread choice must survive the normalize + reload.
+      store.setProfile(projectId, { slack: { botToken: 'xoxb', channelId: 'C1', threadMode: 'single-thread' } })
+      expect(store.get().profiles[0].slack.threadMode).toBe('single-thread')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('saves GitLab publish settings without changing Slack settings', () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
     try {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -177,6 +212,7 @@ describe('SettingsStore', () => {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -217,6 +253,7 @@ describe('SettingsStore', () => {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -259,6 +296,7 @@ describe('SettingsStore', () => {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -308,6 +346,7 @@ describe('SettingsStore', () => {
       const file = join(root, 'settings.json')
       const store = new SettingsStore(file, {
         exportRoot: '/default',
+        exportQuality: DEFAULT_EXPORT_QUALITY,
         hotkeys: DEFAULT_HOTKEYS,
         locale: 'system',
         severities: DEFAULT_SEVERITIES,
@@ -692,6 +731,45 @@ describe('legacy projects[] migration to profiles[]', () => {
       expect(persisted.activeProjectId).toBeUndefined()
     } finally {
       rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('exportQuality persistence', () => {
+  function makeStore() {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    const store = new SettingsStore(join(root, 'settings.json'), FALLBACK_DEFAULTS)
+    return { store, cleanup: () => rmSync(root, { recursive: true, force: true }) }
+  }
+
+  it('defaults to balanced when unset', () => {
+    const { store, cleanup } = makeStore()
+    try {
+      expect(store.get().exportQuality).toEqual(DEFAULT_EXPORT_QUALITY)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('setExportQuality normalizes and round-trips', () => {
+    const { store, cleanup } = makeStore()
+    try {
+      const saved = store.setExportQuality({ tier: 'custom', preset: 'slower', crf: 999 } as any)
+      expect(saved.exportQuality).toEqual({ tier: 'custom', preset: 'slower', crf: 51 })
+      expect(store.get().exportQuality).toEqual({ tier: 'custom', preset: 'slower', crf: 51 })
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('a known tier is re-derived from the map on read', () => {
+    const { store, cleanup } = makeStore()
+    try {
+      store.setExportQuality({ tier: 'high', preset: 'x', crf: 0 } as any)
+      expect(store.get().exportQuality.preset).toBe('fast')
+      expect(store.get().exportQuality.crf).toBe(18)
+    } finally {
+      cleanup()
     }
   })
 })

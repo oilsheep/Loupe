@@ -48,6 +48,7 @@ import { _resetBundledInstancesCacheForTests, _setBundledInstancesRawForTests, f
 import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES, DEFAULT_SEVERITIES, SettingsStore } from '../settings'
 import { ipcMain } from 'electron'
 import type { AppSettings, PcCaptureSource } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
   it('detects ffmpeg builds that do not support gdigrab draw_mouse', () => {
@@ -179,6 +180,7 @@ describe('settings:renameProfile no longer cascades to db.renameSessionProject',
 
   const FALLBACK_DEFAULTS: AppSettings = {
     exportRoot: '/default',
+    exportQuality: DEFAULT_EXPORT_QUALITY,
     hotkeys: DEFAULT_HOTKEYS,
     locale: 'system',
     severities: DEFAULT_SEVERITIES,

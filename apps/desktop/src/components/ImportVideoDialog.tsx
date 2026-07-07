@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
+import { CloseButton } from './CloseButton'
 import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
 import type { AppSettings, AudioAnalysisProgress, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, Session } from '@shared/types'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS as SHARED_AUDIO_LANGUAGE_OPTIONS, triggerPreset as sharedTriggerPreset } from '@/lib/audioAnalysisPresets'
@@ -244,13 +245,7 @@ export function ImportVideoDialog({ api, open, onClose }: Props) {
               <h2 className="text-lg font-semibold text-zinc-100">{zh ? '分析已有影片' : t('importVideo.title')}</h2>
               <p className="mt-1 text-sm text-zinc-500">{zh ? '匯入已錄好的影片，填寫測試資訊後直接進入 review。' : t('importVideo.body')}</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded bg-zinc-800 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-700"
-            >
-              {t('common.close')}
-            </button>
+            <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
           <div className="space-y-4">

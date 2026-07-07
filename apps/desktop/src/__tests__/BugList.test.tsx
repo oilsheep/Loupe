@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BugList, type BugListHandle } from '@/components/BugList'
 import type { Bug, DesktopApi, MentionIdentity } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 const bug = (over: Partial<Bug> = {}): Bug => ({
   id: 'b1', sessionId: 's1', offsetMs: 5000, originalOffsetMs: 5000, severity: 'normal', note: 'note',
@@ -43,7 +44,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
   const slack = options.slack ?? { botToken: '', channelId: '' }
   const gitlabSettings = options.gitlab ?? gitlab
   const googleSettings = options.google ?? google
-  const settings = { exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities, activeProfileId: 'p1', profiles: [{ id: 'p1', name: 'Default', slack, gitlab, google, markerFieldPresets: [] }] }
+  const settings = { exportRoot: '/path', exportQuality: DEFAULT_EXPORT_QUALITY, hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities, activeProfileId: 'p1', profiles: [{ id: 'p1', name: 'Default', slack, gitlab, google, markerFieldPresets: [] }] }
   const settingsWithOptions = { ...settings, profiles: [{ id: 'p1', name: 'Default', slack, gitlab: gitlabSettings, google: googleSettings, markerFieldPresets: [] }] }
   return {
     doctor: vi.fn() as any,
@@ -83,6 +84,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
     settings: {
       get: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setExportRoot: vi.fn().mockResolvedValue(settingsWithOptions) as any,
+      setExportQuality: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setHotkeys: vi.fn() as any,
       setAudioAnalysis: vi.fn().mockResolvedValue(settingsWithOptions) as any,
       setCommonSession: vi.fn().mockResolvedValue(settingsWithOptions) as any,
@@ -121,6 +123,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       chooseExportRoot: vi.fn() as any,
     },
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
+    export: { listForSession: vi.fn().mockResolvedValue([]) as any, republish: vi.fn().mockResolvedValue({ ok: true }) as any },
     onBugMarkRequested: () => () => {},
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},
@@ -231,11 +234,33 @@ describe('BugList', () => {
     await waitFor(() => expect(ref.current).toBeTruthy())
     ref.current!.exportAll()
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClips).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
       bugIds: ['b1', 'b2'],
     })))
+  })
+
+  it('re-checks dirty status after the export quality changes (quality is in the fingerprint)', async () => {
+    const listForSession = vi.fn().mockResolvedValue([{
+      folderPath: '/out/f1', folderName: 'f1', createdAt: '2026-05-12T19:09:00',
+      markerCount: 1, status: { status: 'clean', reasons: [] }, publishState: null,
+    }])
+    const api = fakeApi()
+    api.export = { listForSession, republish: vi.fn().mockResolvedValue({ ok: true }) } as any
+    const ref = createRef<BugListHandle>()
+    render(<BugList ref={ref} api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+
+    await waitFor(() => expect(listForSession).toHaveBeenCalled())
+    const callsBefore = listForSession.mock.calls.length
+    ref.current!.exportAll()
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('quality-tier-quick'))
+
+    await waitFor(() => expect(api.settings.setExportQuality).toHaveBeenCalled())
+    // quality changed → dirty must be re-evaluated, so listForSession runs again
+    await waitFor(() => expect(listForSession.mock.calls.length).toBeGreaterThan(callsBefore))
   })
 
   it('shows export progress in the always-visible footer, not buried in the scrollable body', async () => {
@@ -258,6 +283,7 @@ describe('BugList', () => {
     await waitFor(() => expect(ref.current).toBeTruthy())
     ref.current!.exportAll()
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
 
     const progress = await screen.findByTestId('export-progress')
@@ -315,11 +341,13 @@ describe('BugList', () => {
     const api = fakeApi()
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} buildVersion="1.2.3" tester="Avery" testNote="smoke" />)
+    const onCommitMetadata = vi.fn()
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} buildVersion="1.2.3" tester="Avery" testNote="smoke" onCommitMetadata={onCommitMetadata} />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(false)
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
@@ -328,7 +356,8 @@ describe('BugList', () => {
       publish: expect.objectContaining({ target: 'local', slackThreadMode: 'per-marker-thread' }),
       exportId: expect.any(String),
     })))
-    expect(api.session.updateMetadata).toHaveBeenCalledWith('s1', { buildVersion: '1.2.3', platform: '', project: '', tester: 'Avery', testNote: 'smoke' })
+    // Metadata is owned by the parent now; the export flow commits it via onCommitMetadata.
+    await waitFor(() => expect(onCommitMetadata).toHaveBeenCalled())
     expect(alertSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })
@@ -342,6 +371,7 @@ describe('BugList', () => {
     const logcatToggle = screen.getByLabelText('Export marker logcat as sidecar text files') as HTMLInputElement
     expect(logcatToggle.checked).toBe(true)
     fireEvent.click(logcatToggle)
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
@@ -356,6 +386,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByText('Connect Slack'))
     await waitFor(() => expect(api.settings.startSlackUserOAuth).toHaveBeenCalled())
     expect(api.bug.exportClip).not.toHaveBeenCalled()
@@ -366,10 +397,11 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     expect(screen.getAllByText('Connect GitLab')).toHaveLength(1)
     expect(screen.getAllByText('Connect Google')).toHaveLength(1)
-    expect(screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
-    expect(screen.getByText('Google Drive').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'GitLab' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Google Drive' })).toBeNull()
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       publish: expect.objectContaining({ target: 'local', targets: ['local'] }),
@@ -381,9 +413,10 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    const publish = screen.getByLabelText('Publish') as HTMLInputElement
+    fireEvent.click(screen.getByTestId('export-next'))
+    const publish = screen.getByRole('switch', { name: 'Slack' })
     fireEvent.click(publish)
-    await waitFor(() => expect(publish.checked).toBe(true))
+    await waitFor(() => expect(publish.getAttribute('aria-checked')).toBe('true'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClip).toHaveBeenCalledWith(expect.objectContaining({
       publish: expect.objectContaining({ target: 'slack', slackThreadMode: 'per-marker-thread' }),
@@ -395,8 +428,9 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     expect(screen.getByText('Slack OAuth is selected, but no user token is connected.')).toBeTruthy()
-    expect(screen.getByText('Slack').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Slack' })).toBeNull()
   })
 
   it('does not treat a user token as connected while bot token mode is selected', async () => {
@@ -404,8 +438,9 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     expect(screen.getByText('Slack bot token mode is selected, but no bot token is saved.')).toBeTruthy()
-    expect(screen.getByText('Slack').closest('section')?.querySelector('input[type="checkbox"]')).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Slack' })).toBeNull()
   })
 
   it('saves the selected GitLab project before publishing', async () => {
@@ -413,7 +448,8 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    const gitlabToggle = screen.getByText('GitLab').closest('section')?.querySelector('input[type="checkbox"]') as HTMLInputElement
+    fireEvent.click(screen.getByTestId('export-next'))
+    const gitlabToggle = screen.getByRole('switch', { name: 'GitLab' })
     fireEvent.click(gitlabToggle)
     fireEvent.click(await screen.findByText('old/project'))
     const projectInput = await screen.findByPlaceholderText('Search or enter group/project')
@@ -431,6 +467,75 @@ describe('BugList', () => {
     }))
   })
 
+  it('persists the Slack thread mode immediately on change, without exporting', async () => {
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {}, threadMode: 'per-marker-thread' } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Slack' }))
+    fireEvent.click(await screen.findByText('All markers in one thread'))
+
+    // Saved to the profile the moment it changes — no confirm-export click.
+    await waitFor(() => expect(api.settings.setSlack).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ threadMode: 'single-thread' })))
+    expect(api.bug.exportClip).not.toHaveBeenCalled()
+  })
+
+  it('persists the GitLab issue mode immediately on change, without exporting', async () => {
+    const api = fakeApi({ gitlab: { ...gitlab, token: 'glpat-test', projectId: 'qa/app' } })
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
+    fireEvent.click(screen.getByRole('switch', { name: 'GitLab' }))
+    fireEvent.click(await screen.findByText('Issue per marker'))
+
+    await waitFor(() => expect(api.settings.setGitLab).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ mode: 'per-marker-issue' })))
+    expect(api.bug.exportClip).not.toHaveBeenCalled()
+  })
+
+  it('keeps an in-progress GitLab project when a mode change persists (seed-once guard)', async () => {
+    // The settings-updated event our on-change persist fires must NOT reseed
+    // (revert) fields the user is actively editing. Wire a real listener registry
+    // so setSlack emits, then prove an unsaved project survives a thread toggle.
+    // Without the seed-once guard, apply() would reset gitlabProjectId to the
+    // profile value and this test would fail.
+    const listeners = new Set<(s: any) => void>()
+    const api = fakeApi({
+      slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {}, threadMode: 'per-marker-thread' },
+      gitlab: { ...gitlab, token: 'glpat-test', projectId: 'old/project' },
+    })
+    api.onAppSettingsUpdated = ((cb: any) => { listeners.add(cb); return () => { listeners.delete(cb) } }) as any
+    const origSetSlack = api.settings.setSlack
+    api.settings.setSlack = vi.fn(async (id: string, s: any) => {
+      const r = await origSetSlack(id, s)
+      listeners.forEach(cb => cb(r))
+      return r
+    }) as any
+
+    render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+    fireEvent.click(screen.getByTestId('export-b1'))
+    await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
+
+    // Enable GitLab and pick an in-progress custom project (not yet persisted).
+    fireEvent.click(screen.getByRole('switch', { name: 'GitLab' }))
+    fireEvent.click(await screen.findByText('old/project'))
+    const projectInput = await screen.findByPlaceholderText('Search or enter group/project')
+    fireEvent.change(projectInput, { target: { value: 'my/wip-project' } })
+    fireEvent.keyDown(projectInput, { key: 'Enter' })
+    await screen.findByText('my/wip-project')
+
+    // Toggle Slack thread mode -> persist -> emits settings-updated -> apply().
+    fireEvent.click(screen.getByRole('switch', { name: 'Slack' }))
+    fireEvent.click(await screen.findByText('All markers in one thread'))
+    await waitFor(() => expect(api.settings.setSlack).toHaveBeenCalled())
+
+    // The guard held: the in-progress project was not reverted to 'old/project'.
+    expect(screen.getByText('my/wip-project')).toBeTruthy()
+    expect(screen.queryByText('old/project')).toBeNull()
+  })
+
   it('confirms large original attachments and passes merge audio options', async () => {
     localStorage.setItem('loupe.skipOriginalFilesWarning', '0')
     const api = fakeApi()
@@ -444,6 +549,7 @@ describe('BugList', () => {
     const mergeOriginalAudio = await screen.findByTestId('merge-original-audio') as HTMLInputElement
     fireEvent.click(mergeOriginalAudio)
     await waitFor(() => expect(mergeOriginalAudio.checked).toBe(true))
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
 
     await screen.findByTestId('original-files-warning')
@@ -463,9 +569,10 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
-    const publish = screen.getByLabelText('Publish') as HTMLInputElement
+    fireEvent.click(screen.getByTestId('export-next'))
+    const publish = screen.getByRole('switch', { name: 'Slack' })
     fireEvent.click(publish)
-    await waitFor(() => expect(publish.checked).toBe(true))
+    await waitFor(() => expect(publish.getAttribute('aria-checked')).toBe('true'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await screen.findByText('Slack channel ID is missing')
     expect(screen.getByTestId('export-dialog')).toBeTruthy()
@@ -477,6 +584,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.app.openPath).toHaveBeenCalledWith('/path'))
   })
@@ -491,6 +599,7 @@ describe('BugList', () => {
     ref.current!.exportAll()
     await screen.findByTestId('export-dialog')
     expect(screen.getByText('Export full recording')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('export-next'))
     fireEvent.click(screen.getByTestId('confirm-export'))
     await waitFor(() => expect(api.bug.exportClips).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 's1',
@@ -522,7 +631,7 @@ describe('BugList', () => {
     const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const settings = {
-      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      exportRoot: '/path', exportQuality: DEFAULT_EXPORT_QUALITY, hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
       activeProfileId: 'pA',
       profiles: [
         { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
@@ -534,6 +643,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
 
     const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
     expect(profileSelect.tagName).toBe('SELECT')
@@ -546,7 +656,7 @@ describe('BugList', () => {
     const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const settings = {
-      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      exportRoot: '/path', exportQuality: DEFAULT_EXPORT_QUALITY, hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
       activeProfileId: 'pA',
       profiles: [
         { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
@@ -558,6 +668,7 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
 
     const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
     fireEvent.change(profileSelect, { target: { value: 'pB' } })
@@ -569,7 +680,7 @@ describe('BugList', () => {
     const slackA = { publishIdentity: 'bot' as const, botToken: 'xoxb-A', userToken: '', channelId: 'C-A', channels: [{ id: 'C-A', name: 'team-a', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const slackB = { publishIdentity: 'bot' as const, botToken: 'xoxb-B', userToken: '', channelId: 'C-B', channels: [{ id: 'C-B', name: 'team-b', isArchived: false }], mentionUserIds: [], mentionAliases: {} }
     const settings = {
-      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      exportRoot: '/path', exportQuality: DEFAULT_EXPORT_QUALITY, hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
       activeProfileId: 'pA',
       profiles: [
         { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] },
@@ -589,16 +700,17 @@ describe('BugList', () => {
     render(<BugList api={api} sessionId="s1" bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
 
     const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
     fireEvent.change(profileSelect, { target: { value: 'pB' } })
 
     // Now toggle Slack on (pB has slackB connected) and publish
     await waitFor(() => {
-      const publishToggle = screen.queryByLabelText('Publish') as HTMLInputElement | null
+      const publishToggle = screen.queryByRole('switch', { name: 'Slack' })
       expect(publishToggle).toBeTruthy()
     })
-    const publishToggle = screen.getByLabelText('Publish') as HTMLInputElement
+    const publishToggle = screen.getByRole('switch', { name: 'Slack' })
     fireEvent.click(publishToggle)
     fireEvent.click(screen.getByTestId('confirm-export'))
 
@@ -613,7 +725,7 @@ describe('BugList', () => {
     const profileA = { id: 'pA', name: 'Cytus', slack: slackA, gitlab, google, markerFieldPresets: [] }
     const profileB = { id: 'pB', name: 'Deemo', slack: slackB, gitlab, google, markerFieldPresets: [] }
     const settings = {
-      exportRoot: '/path', hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
+      exportRoot: '/path', exportQuality: DEFAULT_EXPORT_QUALITY, hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' }, locale: 'en', severities, mentionIdentities,
       activeProfileId: 'pA',
       profiles: [profileA, profileB],
     }
@@ -633,6 +745,7 @@ describe('BugList', () => {
     )
     fireEvent.click(screen.getByTestId('export-b1'))
     await screen.findByTestId('export-dialog')
+    fireEvent.click(screen.getByTestId('export-next'))
 
     const profileSelect = await screen.findByLabelText(/profile/i) as HTMLSelectElement
     // User manually switches the dropdown from pA → pB.
@@ -657,6 +770,62 @@ describe('BugList', () => {
 
     // The user's pB choice must be preserved despite the new prop reference.
     expect(profileSelect.value).toBe('pB')
+  })
+
+  it('reports dirty status up and republishes with overrides when the panel is open', async () => {
+    const listForSession = vi.fn().mockResolvedValue([{
+      folderPath: '/out/f1', folderName: 'f1', createdAt: '2026-05-12T19:09:00',
+      markerCount: 1, status: { status: 'stale', reasons: ['clip-stale'] }, publishState: null,
+    }])
+    const republish = vi.fn().mockResolvedValue({ ok: true })
+    const onExportsDirtyChange = vi.fn()
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    api.export = { listForSession, republish } as any
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // The 輸出/發布 buttons + dirty dot live in the Draft header; BugList reports
+    // dirty status up via onExportsDirtyChange and renders the panel when
+    // publishPanelOpen is set (both controlled by the header).
+    render(<BugList api={api} sessionId="s1" publishPanelOpen onExportsDirtyChange={onExportsDirtyChange} bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+
+    // Newest export is stale → dirty reported up so the header dot can show:
+    await waitFor(() => expect(onExportsDirtyChange).toHaveBeenCalledWith(true))
+
+    // Panel is open (prop-controlled); enable Slack (channel C123 seeded from the profile), republish:
+    const slackToggle = await screen.findByRole('switch', { name: 'Slack' })
+    fireEvent.click(slackToggle)
+    await waitFor(() => expect(slackToggle.getAttribute('aria-checked')).toBe('true'))
+
+    fireEvent.click(screen.getByTestId('republish-button'))
+    await waitFor(() => expect(republish).toHaveBeenCalled())
+    const arg = republish.mock.calls[0][0]
+    expect(arg.folderPath).toBe('/out/f1')
+    expect(arg.targets).toContain('slack')
+    expect(arg.overrides.slack.channelId).toBe('C123')
+  })
+
+  it('shows an indeterminate progress bar while a republish is in flight', async () => {
+    const listForSession = vi.fn().mockResolvedValue([{
+      folderPath: '/out/f1', folderName: 'f1', createdAt: '2026-05-12T19:09:00',
+      markerCount: 1, status: { status: 'stale', reasons: ['clip-stale'] }, publishState: null,
+    }])
+    let resolveRepublish: (v: { ok: boolean }) => void = () => {}
+    const republish = vi.fn().mockReturnValue(new Promise(res => { resolveRepublish = res }))
+    const api = fakeApi({ slack: { publishIdentity: 'bot', botToken: 'xoxb-test', userToken: '', channelId: 'C123', channels: [{ id: 'C123', name: 'qa', isArchived: false }], mentionUserIds: [], mentionAliases: {} } })
+    api.export = { listForSession, republish } as any
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<BugList api={api} sessionId="s1" publishPanelOpen onExportsDirtyChange={vi.fn()} bugs={[bug()]} selectedBugId={null} onSelect={vi.fn()} onMutated={vi.fn()} tester="Avery" />)
+
+    const slackToggle = await screen.findByRole('switch', { name: 'Slack' })
+    fireEvent.click(slackToggle)
+    await waitFor(() => expect(slackToggle.getAttribute('aria-checked')).toBe('true'))
+
+    expect(screen.queryByTestId('republish-progress')).toBeNull()
+    fireEvent.click(screen.getByTestId('republish-button'))
+    // bar appears while the republish promise is pending...
+    expect(await screen.findByTestId('republish-progress')).toBeTruthy()
+    // ...and clears once it resolves.
+    resolveRepublish({ ok: true })
+    await waitFor(() => expect(screen.queryByTestId('republish-progress')).toBeNull())
   })
 
   it('renders a collapsible logcat preview when bug has logcatRel', async () => {

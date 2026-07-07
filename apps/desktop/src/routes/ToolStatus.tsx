@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { CloseButton } from '@/components/CloseButton'
 import { useI18n } from '@/lib/i18n'
 import type { ToolCheck, ToolInstallLog } from '@shared/types'
 
@@ -190,13 +191,7 @@ export function ToolStatus({ onClose, onChecksRefreshed }: ToolStatusProps = {})
             >
               {installingTools ? t('home.installingTools') : t('toolStatus.installMissing')}
             </button>
-            <button
-              type="button"
-              onClick={close}
-              className="rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700"
-            >
-              {t('common.close')}
-            </button>
+            <CloseButton onClick={close} label={t('common.close')} />
           </div>
         </div>
       </header>

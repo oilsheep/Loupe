@@ -197,7 +197,7 @@ describe('GitLab publisher', () => {
   it('creates one issue and marker notes in single-issue mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, screenshotHash: null, logcatPath: null }]
       writeFileSync(files[0].videoPath!, 'x')
       const reportPdfPath = join(root, 'report.pdf')
       const summaryTextPath = join(root, 'summary.txt')
@@ -248,7 +248,7 @@ describe('GitLab publisher', () => {
   it('uploads the screenshot (previewPath) when videoPath is null in single-issue mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, screenshotHash: null, logcatPath: null }]
       writeFileSync(files[0].previewPath, 'screenshot-data')
       const manifest = buildExportManifest({
         session: session(),
@@ -296,7 +296,7 @@ describe('GitLab publisher', () => {
   it('uploads the screenshot (previewPath) when videoPath is null in per-marker mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: null, previewPath: join(root, 'b1.jpg'), screenshotPath: null, screenshotHash: null, logcatPath: null }]
       writeFileSync(files[0].previewPath, 'screenshot-data')
       const manifest = buildExportManifest({
         session: session(),
@@ -331,7 +331,7 @@ describe('GitLab publisher', () => {
   it('creates one issue per marker in per-marker mode', async () => {
     const root = mkdtempSync(join(tmpdir(), 'loupe-gitlab-'))
     try {
-      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, logcatPath: null }]
+      const files: ExportedMarkerFile[] = [{ bugId: 'b1', videoPath: join(root, 'b1.mp4'), previewPath: join(root, 'b1.jpg'), screenshotPath: null, screenshotHash: null, logcatPath: null }]
       writeFileSync(files[0].videoPath!, 'x')
       const manifest = buildExportManifest({
         session: session(),

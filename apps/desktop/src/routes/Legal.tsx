@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useApp } from '@/lib/store'
 import { useI18n } from '@/lib/i18n'
+import { CloseButton } from '@/components/CloseButton'
 
 interface ThirdPartyItem {
   name: string
@@ -177,13 +178,7 @@ export function Legal({ onClose }: LegalProps = {}) {
               <div className="text-xs uppercase tracking-wide text-zinc-500">{t('legal.total')}</div>
               <div className="mt-1 font-mono text-2xl text-zinc-100">{totalItems}</div>
             </div>
-            <button
-              type="button"
-              onClick={close}
-              className="rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-700"
-            >
-              {t('common.close')}
-            </button>
+            <CloseButton onClick={close} label={t('common.close')} />
           </div>
         </div>
       </header>

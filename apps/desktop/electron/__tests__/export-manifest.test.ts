@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildExportManifest, manifestToCsv, renderPublishTemplate, slackSessionMessage, slackThreadPayload, writeExportManifests } from '../export-manifest'
-import type { Bug, ExportedMarkerFile, Session } from '@shared/types'
+import type { Bug, BugAnnotation, ExportedMarkerFile, Session } from '@shared/types'
+import { FINGERPRINT_ALGO_VERSION } from '../render-fingerprint'
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -53,7 +54,9 @@ function file(over: Partial<ExportedMarkerFile> = {}): ExportedMarkerFile {
     bugId: 'b1',
     videoPath: '/exports/b1.mp4',
     previewPath: '/exports/b1.jpg',
-    screenshotPath: null, logcatPath: '/exports/b1.logcat.txt',
+    screenshotPath: null,
+    screenshotHash: null,
+    logcatPath: '/exports/b1.logcat.txt',
     ...over,
   }
 }
@@ -202,5 +205,54 @@ describe('export manifest', () => {
       text: '[Critical] login crash',
       files: ['/exports/b1.mp4'],
     })
+  })
+})
+
+describe('export manifest v2', () => {
+  // Fixtures reuse the same factory functions defined above.
+  const sampleAnnotation: BugAnnotation = {
+    id: 'ann1',
+    bugId: 'b1',
+    kind: 'rect',
+    x: 0.1, y: 0.2, width: 0.3, height: 0.4,
+    startMs: 900, endMs: 1100,
+    createdAt: 1_700_000_001_000,
+  }
+
+  it('stamps version 2, top-level quality, and per-marker annotations + fingerprint', () => {
+    // FINGERPRINT_ALGO_VERSION imported to ensure the import resolves correctly.
+    void FINGERPRINT_ALGO_VERSION
+    const manifest = buildExportManifest({
+      session: session(),
+      bugs: [bug({ annotations: [sampleAnnotation] })],
+      files: [file({ screenshotHash: 'deadbeef' })],
+      outDir: '/tmp/x',
+      quality: { tier: 'high', preset: 'fast', crf: 18 },
+    })
+    expect(manifest.version).toBe(2)
+    expect(manifest.quality).toEqual({ tier: 'high', preset: 'fast', crf: 18 })
+    const m0 = manifest.markers[0]
+    expect(Array.isArray(m0.annotations)).toBe(true)
+    expect(m0.renderFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/)
+  })
+
+  it('fingerprint changes when quality differs, same marker', () => {
+    const a = buildExportManifest({ session: session(), bugs: [bug()], files: [file()], outDir: '/tmp/x', quality: { tier: 'quick', preset: 'ultrafast', crf: 26 } })
+    const b = buildExportManifest({ session: session(), bugs: [bug()], files: [file()], outDir: '/tmp/x', quality: { tier: 'max', preset: 'slow', crf: 16 } })
+    expect(a.markers[0].renderFingerprint).not.toBe(b.markers[0].renderFingerprint)
+  })
+
+  it('defaults quality to null when not supplied (still version 2)', () => {
+    const manifest = buildExportManifest({ session: session(), bugs: [bug()], files: [file()], outDir: '/tmp/x' })
+    expect(manifest.version).toBe(2)
+    expect(manifest.quality).toBeNull()
+  })
+
+  it('marker fingerprint changes when severity label/color differ', () => {
+    const severitiesA = { major: { label: 'Critical', color: '#ff4d4f' } }
+    const severitiesB = { major: { label: 'Blocker', color: '#cc0000' } }
+    const a = buildExportManifest({ session: session(), bugs: [bug()], files: [file()], outDir: '/tmp/x', severities: severitiesA as any })
+    const b = buildExportManifest({ session: session(), bugs: [bug()], files: [file()], outDir: '/tmp/x', severities: severitiesB as any })
+    expect(a.markers[0].renderFingerprint).not.toBe(b.markers[0].renderFingerprint)
   })
 })

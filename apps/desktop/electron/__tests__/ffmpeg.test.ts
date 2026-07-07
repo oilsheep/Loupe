@@ -480,6 +480,42 @@ describe('assertVideoInputReadable', () => {
   })
 })
 
+describe('export quality threading', () => {
+  const base = { inputPath: 'in.mp4', outputPath: 'out.mp4', startMs: 0, endMs: 2000 }
+
+  function pairAfter(args: string[], flag: string): string {
+    const i = args.indexOf(flag)
+    return i >= 0 ? args[i + 1] : ''
+  }
+
+  it('defaults to veryfast/20 when quality is absent (legacy behavior)', () => {
+    const args = buildClipArgs({ ...base })
+    expect(pairAfter(args, '-preset')).toBe('veryfast')
+    expect(pairAfter(args, '-crf')).toBe('20')
+  })
+
+  it('uses supplied quality in the no-audio clip path', () => {
+    const args = buildClipArgs({ ...base, quality: { preset: 'slow', crf: 16 } })
+    expect(pairAfter(args, '-preset')).toBe('slow')
+    expect(pairAfter(args, '-crf')).toBe('16')
+  })
+
+  it('uses supplied quality in the audio clip path', () => {
+    const args = buildClipArgs({ ...base, sessionMicPath: 'mic.webm', quality: { preset: 'fast', crf: 18 } })
+    expect(pairAfter(args, '-preset')).toBe('fast')
+    expect(pairAfter(args, '-crf')).toBe('18')
+  })
+
+  it('uses supplied quality in the intro-clip path', () => {
+    const args = buildIntroClipArgs({
+      ...base, introImagePath: 'intro.jpg', canvasWidth: 100, canvasHeight: 100,
+      quality: { preset: 'ultrafast', crf: 26 },
+    })
+    expect(pairAfter(args, '-preset')).toBe('ultrafast')
+    expect(pairAfter(args, '-crf')).toBe('26')
+  })
+})
+
 describe('resolveAsarUnpackedPath', () => {
   it('uses app.asar.unpacked when a packaged binary exists there', () => {
     const packed = String.raw`C:\Program Files\Loupe\resources\app.asar\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe`

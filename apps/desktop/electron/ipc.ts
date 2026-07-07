@@ -1,5 +1,5 @@
 import { app, ipcMain, BrowserWindow, clipboard, desktopCapturer, dialog, screen, shell } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createServer, request } from 'node:http'
@@ -18,14 +18,18 @@ import { doctor, installTools, resetFasterWhisperEnv } from './doctor'
 import { writeExportManifests } from './export-manifest'
 import { isImageOnly } from './export-image-only'
 export { isImageOnly }
+import { listSessionExports } from './export-discovery'
 import { fetchSlackChannels, fetchSlackMentionUsers, refreshSlackAccessToken, validateSlackConnection } from './slack-publisher'
 import { buildSlackUserOAuthUrl, createSlackPkce, exchangeSlackOAuthCode, parseSlackOAuthCallback } from './slack-oauth'
 import { publishManifestToRemote, type RemotePublishResult } from './remote-publisher'
+import { appendPublishState } from './publish-state'
 import { fetchGitLabMentionUsersWithEmailLookup, fetchGitLabProjects, refreshGitLabAccessToken, validateGitLabConnection } from './gitlab-publisher'
 import { createGoogleDriveFolder, ensureDefaultGoogleDriveFolder, listGoogleDriveFolders, listGoogleSheetTabs, listGoogleSpreadsheets, refreshGoogleAccessToken } from './google-publisher'
 import { readProjectFile, writeProjectFile } from './project-file'
 import { findActiveProfile, findProfileByIdOrActive, type SettingsStore } from './settings'
 import { findProfileForSession } from '@shared/profileLookup'
+import { resolveExportQuality, qualityEncodeParams, type ExportQuality } from '@shared/exportQuality'
+import { normalizeReportTitle } from '@shared/reportTitle'
 import { formatTelemetryLine, nearestTelemetrySample, readTelemetrySamples } from './telemetry'
 import { AudioAnalyzer } from './audio-analysis/analyzer'
 import { FasterWhisperEngine } from './audio-analysis/fasterWhisper'
@@ -98,6 +102,8 @@ export const CHANNEL = {
   bugExportClips:          'bug:exportClips',
   bugExportProgress:       'bug:exportProgress',
   bugExportCancel:         'bug:exportCancel',
+  exportListForSession:    'export:listForSession',
+  exportRepublish:         'export:republish',
   bugSaveAudio:            'bug:saveAudio',
   bugTranscribeAudio:      'bug:transcribeAudio',
   bugRecaptureScreenshot:  'bug:recaptureScreenshot',
@@ -107,6 +113,7 @@ export const CHANNEL = {
   hotkeySetEnabled:        'hotkey:setEnabled',
   settingsGet:             'settings:get',
   settingsSetExportRoot:   'settings:setExportRoot',
+  settingsSetExportQuality:'settings:setExportQuality',
   settingsSetHotkeys:      'settings:setHotkeys',
   settingsSetSlack:        'settings:setSlack',
   settingsSetGitLab:       'settings:setGitLab',
@@ -906,6 +913,16 @@ function resolveScreenshotAbsPath(paths: Paths, sessionId: string, screenshotRel
   return join(paths.sessionDir(sessionId), screenshotRel)
 }
 
+/** Return the SHA-256 hex digest of a file, or null if the path is absent or unreadable. */
+function hashFileSha256(absPath: string | null): string | null {
+  if (!absPath || !existsSync(absPath)) return null
+  try {
+    return createHash('sha256').update(readFileSync(absPath)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
 async function exportBugEvidence(args: {
   deps: IpcDeps
   session: Session
@@ -929,7 +946,8 @@ async function exportBugEvidence(args: {
     if (previewPath === imagePath) {
       await extractThumbnail(args.deps.runner, ffmpegPath, { inputPath, outputPath: imagePath, offsetMs: args.bug.offsetMs })
     }
-    return { bugId: args.bug.id, videoPath: null, previewPath, screenshotPath: exportScreenshotSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName), logcatPath }
+    // screenshotHash: null — exportBugEvidence is unused dead code; hashing wired only in the live export handlers
+    return { bugId: args.bug.id, videoPath: null, previewPath, screenshotPath: exportScreenshotSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName), screenshotHash: null, logcatPath }
   }
 
   const { startMs, endMs } = clampClipWindow({ ...args.bug, durationMs: args.session.durationMs })
@@ -960,11 +978,13 @@ async function exportBugEvidence(args: {
   }
   await extractClip(args.deps.runner, ffmpegPath, clipOptions)
   await extractContactSheet(args.deps.runner, ffmpegPath, { ...clipOptions, ...tileSize, outputPath: imagePath })
+  // screenshotHash: null — exportBugEvidence is unused dead code; hashing wired only in the live export handlers
   return {
     bugId: args.bug.id,
     videoPath: outputPath,
     previewPath: imagePath,
     screenshotPath: exportScreenshotSidecar(args.deps.paths, args.session, args.bug, args.outDir, args.baseName),
+    screenshotHash: null,
     logcatPath,
   }
 }
@@ -1148,10 +1168,6 @@ function groupReportEntries(entries: ReportEntry[]): Map<string, ReportEntry[]> 
   return groups
 }
 
-function normalizedReportTitle(reportTitle?: string | null): string {
-  return reportTitle?.trim() || 'Loupe QA Report'
-}
-
 function buildSlackSummaryText(session: Session, entries: ReportEntry[], pdfPath: string, reportTitle?: string | null): string {
   const groups = groupReportEntries(entries)
   const counts = [...groups.values()].map(items => `${items[0].severityLabel}: ${items.length}`).join(' / ')
@@ -1160,7 +1176,7 @@ function buildSlackSummaryText(session: Session, entries: ReportEntry[], pdfPath
   const os = session.androidVersion === 'Windows' ? 'Windows' : `Android ${session.androidVersion || '-'}`
   const meta = [session.project, session.buildVersion, session.platform, session.deviceModel, os].map(v => v?.trim()).filter(Boolean).join(' / ')
   const lines = [
-    `*${normalizedReportTitle(reportTitle)}*`,
+    `*${normalizeReportTitle(reportTitle)}*`,
     `Meta: ${meta || '-'}`,
     `Tester: ${session.tester || '-'} / ${formatReportDate(session.startedAt)}`,
     session.testNote ? `Test note: ${session.testNote}` : '',
@@ -1376,7 +1392,7 @@ function buildReportHtml(session: Session, entries: ReportEntry[], reportTitle?:
   <main class="page">
     <section class="cover">
       <div class="kicker">QA RESULT REPORT</div>
-      <h1>${escapeHtml(normalizedReportTitle(reportTitle))}</h1>
+      <h1>${escapeHtml(normalizeReportTitle(reportTitle))}</h1>
       <div class="subtitle">
         ${escapeHtml(reportMeta || '-')}
         <br />
@@ -1455,6 +1471,10 @@ function sessionLoadProgress(
   detail?: string,
 ): SessionLoadProgress {
   return { sessionId, phase, message, current: Math.max(0, Math.min(total, current)), total, detail }
+}
+
+function publishTargetLabel(target: 'slack' | 'gitlab' | 'google-drive'): string {
+  return target === 'slack' ? 'Slack' : target === 'gitlab' ? 'GitLab' : 'Google Drive'
 }
 
 function exportProgress(
@@ -2337,7 +2357,7 @@ export function registerIpc(deps: IpcDeps): void {
     emitSessionLoadProgress(event.sender, sessionLoadProgress(id, 'complete', 'Session ready', 4, 4))
     return result
   })
-  ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) => {
+  ipcMain.handle(CHANNEL.sessionUpdateMetadata, async (_e, id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string; reportTitle?: string }) => {
     deps.manager.updateSessionMetadata(id, patch)
   })
   ipcMain.handle(CHANNEL.sessionUpdateMicAudioOffset, async (_e, id: string, startOffsetMs: number): Promise<Session> => {
@@ -2446,6 +2466,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.hotkeySetEnabled, async (_e, enabled: boolean) => deps.setHotkeyEnabled(enabled))
   ipcMain.handle(CHANNEL.settingsGet, async () => deps.settings.get())
   ipcMain.handle(CHANNEL.settingsSetExportRoot, async (_e, path: string) => deps.settings.setExportRoot(path))
+  ipcMain.handle(CHANNEL.settingsSetExportQuality, async (_e, quality) => deps.settings.setExportQuality(quality))
   ipcMain.handle(CHANNEL.settingsSetHotkeys, async (_e, hotkeys: HotkeySettings) => {
     const settings = deps.settings.setHotkeys(hotkeys)
     deps.setHotkeys(settings.hotkeys)
@@ -2827,7 +2848,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(CHANNEL.bugExportCancel, async (_e, exportId: string): Promise<void> => {
     exportControllers.get(exportId)?.abort()
   })
-  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string | null> => {
+  ipcMain.handle(CHANNEL.bugExportClip, async (event, args: { sessionId: string; bugId: string; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; exportQuality?: ExportQuality; publish?: ExportPublishOptions }): Promise<string | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId)
     const bug = bugs.find(b => b.id === args.bugId)
@@ -2862,6 +2883,7 @@ export function registerIpc(deps: IpcDeps): void {
       let filePreviewPath: string
       let startMs: number
       let endMs: number
+      const exportQuality = resolveExportQuality(args.exportQuality, deps.settings.get().exportQuality)
 
       if (isImageOnly(bug)) {
         const screenshotAbs = resolveScreenshotAbsPath(deps.paths, session.id, bug.screenshotRel)
@@ -2905,6 +2927,7 @@ export function registerIpc(deps: IpcDeps): void {
           telemetryLine,
           clicks,
           annotations: bug.annotations ?? [],
+          quality: qualityEncodeParams(exportQuality),
         }
         emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Writing ${imagePath}`, 2, total, 1, 1))
         await extractContactSheet(deps.runner, ffmpegPath, {
@@ -2934,7 +2957,7 @@ export function registerIpc(deps: IpcDeps): void {
 
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating PDF report', `Writing PDF report for ${outputPath}`, 4, total, 1, 1))
-      const reportTitle = normalizedReportTitle(args.reportTitle)
+      const reportTitle = normalizeReportTitle(args.reportTitle)
       const pdfPath = await writeQaReportPdf(reportDir, outDir, session, [{
         index: 1,
         bug,
@@ -2960,23 +2983,27 @@ export function registerIpc(deps: IpcDeps): void {
         telemetryLine,
       }], pdfPath, reportTitle)
       const transcriptSubtitlePath = writeSessionTranscriptSubtitle(outDir, deps.paths, session)
+      const screenshotAbs = exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName)
       const file: ExportedMarkerFile = {
         bugId: bug.id,
         videoPath: fileVideoPath,
         previewPath: filePreviewPath,
-        screenshotPath: exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName),
+        screenshotPath: screenshotAbs,
+        screenshotHash: hashFileSha256(screenshotAbs),
         logcatPath,
       }
       if (args.includeOriginalFiles) {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', 5, total, 1, 1))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs: [bug], files: [file], outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets, quality: exportQuality })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
+        onProgress: (target) => emitExportProgress(event.sender, exportProgress(exportId, 'publish', `Publishing to ${publishTargetLabel(target)}`, undefined, total, total, 1, 1)),
       })
+      try { appendPublishState(outDir, remotePublishResult, new Date().toISOString()) } catch (err) { console.error('publish-state write failed:', err) }
       const remoteWarnings = remotePublishWarnings(remotePublishResult)
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [
         outputPath,
@@ -2996,7 +3023,7 @@ export function registerIpc(deps: IpcDeps): void {
     }
   })
 
-  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; publish?: ExportPublishOptions }): Promise<string[] | null> => {
+  ipcMain.handle(CHANNEL.bugExportClips, async (event, args: { sessionId: string; bugIds: string[]; exportId?: string; reportTitle?: string; includeLogcat?: boolean; includeMicTrack?: boolean; includeOriginalFiles?: boolean; mergeOriginalAudio?: boolean; exportQuality?: ExportQuality; publish?: ExportPublishOptions }): Promise<string[] | null> => {
     const session = deps.manager.getSession(args.sessionId)
     const bugs = deps.manager.listBugs(args.sessionId).filter(b => args.bugIds.includes(b.id))
     if (!session) throw new Error('session not found')
@@ -3028,6 +3055,7 @@ export function registerIpc(deps: IpcDeps): void {
       const clicks = readClickLog(deps.paths.clicksFile(session.id))
       const telemetrySamples = readTelemetrySamples(deps.paths.telemetryFile(session.id))
       const severities = deps.settings.get().severities
+      const exportQuality = resolveExportQuality(args.exportQuality, deps.settings.get().exportQuality)
       for (let i = 0; i < bugs.length; i++) {
         throwIfExportCancelled(exportId, controller.signal)
         const bug = bugs[i]
@@ -3090,6 +3118,7 @@ export function registerIpc(deps: IpcDeps): void {
             telemetryLine,
             clicks,
             annotations: bug.annotations ?? [],
+            quality: qualityEncodeParams(exportQuality),
           }
           emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating 3x2 intro card', `Marker ${clipIndex} of ${bugs.length}: ${imagePath}`, baseProgress + 1, total, clipIndex, bugs.length))
           await extractContactSheet(deps.runner, ffmpegPath, {
@@ -3118,11 +3147,13 @@ export function registerIpc(deps: IpcDeps): void {
           outputs.push(outputPath)
         }
 
+        const screenshotAbs = exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName)
         files.push({
           bugId: bug.id,
           videoPath: markerVideoPath,
           previewPath: markerPreviewPath,
-          screenshotPath: exportScreenshotSidecar(deps.paths, session, bug, recordsDir, baseName),
+          screenshotPath: screenshotAbs,
+          screenshotHash: hashFileSha256(screenshotAbs),
           logcatPath,
         })
         reportEntries.push({
@@ -3140,7 +3171,7 @@ export function registerIpc(deps: IpcDeps): void {
       }
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating PDF report', `Writing QA report for ${outputs.length} exported clip${outputs.length === 1 ? '' : 's'}.`, total - 2, total, bugs.length, bugs.length))
-      const reportTitle = normalizedReportTitle(args.reportTitle)
+      const reportTitle = normalizeReportTitle(args.reportTitle)
       const pdfPath = await writeQaReportPdf(reportDir, outDir, session, reportEntries, reportTitle, deps.getWindow())
       throwIfExportCancelled(exportId, controller.signal)
       emitExportProgress(event.sender, exportProgress(exportId, 'image', 'Creating summary text', 'Writing summary text.', total - 1, total, bugs.length, bugs.length))
@@ -3150,12 +3181,14 @@ export function registerIpc(deps: IpcDeps): void {
         emitExportProgress(event.sender, exportProgress(exportId, 'prepare', args.mergeOriginalAudio ? 'Merging original recordings' : 'Copying original recordings', args.mergeOriginalAudio ? 'Writing original video with MIC audio.' : 'Writing original video and audio files.', total - 1, total, bugs.length, bugs.length))
         await exportOriginalRecordingFiles({ outDir, session, paths: deps.paths, runner: deps.runner, mergeAudio: args.mergeOriginalAudio })
       }
-      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets })
+      const manifestFiles = writeExportManifests({ session, bugs, files, outDir, reportPdfPath: pdfPath, publish: args.publish, severities, markerFieldPresets: findProfileForSession(deps.settings.get(), session).profile.markerFieldPresets, quality: exportQuality })
       const remotePublishResult = await publishManifestToRemote({
         manifest: manifestFiles.manifest,
         manifestPaths: { jsonPath: manifestFiles.jsonPath, csvPath: manifestFiles.csvPath, reportPdfPath: pdfPath, summaryTextPath },
         settings: deps.settings.get(),
+        onProgress: (target) => emitExportProgress(event.sender, exportProgress(exportId, 'publish', `Publishing to ${publishTargetLabel(target)}`, undefined, total, total, bugs.length, bugs.length)),
       })
+      try { appendPublishState(outDir, remotePublishResult, new Date().toISOString()) } catch (err) { console.error('publish-state write failed:', err) }
       if (transcriptSubtitlePath) outputs.push(transcriptSubtitlePath)
       const remoteWarnings = remotePublishWarnings(remotePublishResult)
       emitExportProgress(event.sender, exportProgress(exportId, 'complete', 'Export complete', [
@@ -3172,6 +3205,60 @@ export function registerIpc(deps: IpcDeps): void {
       throw err
     } finally {
       exportControllers.delete(exportId)
+    }
+  })
+
+  ipcMain.handle(CHANNEL.exportListForSession, async (_e, sessionId: string): Promise<unknown> => {
+    const session = deps.manager.getSession(sessionId)
+    if (!session) return []
+    const bugs = deps.manager.listBugs(sessionId)
+    const settings = deps.settings.get()
+    const severities = settings.severities
+    return listSessionExports({
+      exportRoot: settings.exportRoot,
+      sessionDir: deps.paths.sessionDir(sessionId),
+      session, bugs, severities,
+      currentQuality: qualityEncodeParams(settings.exportQuality),
+      markerFieldPresets: findProfileForSession(settings, session).profile.markerFieldPresets,
+    })
+  })
+
+  ipcMain.handle(CHANNEL.exportRepublish, async (event, args: { folderPath: string; targets: Array<'slack' | 'gitlab' | 'google-drive'>; overrides?: import('@shared/types').RepublishOverrides }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const jsonPath = join(args.folderPath, 'export-manifest.json')
+      if (!existsSync(jsonPath)) return { ok: false, error: 'export-manifest.json not found' }
+      const manifest = JSON.parse(readFileSync(jsonPath, 'utf8')) as import('./export-manifest').ExportManifest
+      if (manifest.version !== 2) return { ok: false, error: `Unsupported manifest version ${(manifest as { version: unknown }).version}` }
+      manifest.exportDir = args.folderPath
+      manifest.publish = { ...manifest.publish, target: args.targets[0] ?? 'local', targets: args.targets }
+      const csvPath = join(args.folderPath, 'export-manifest.csv')
+      const summaryTextPath = join(args.folderPath, 'summery.txt')
+      const reportDir = join(args.folderPath, 'report')
+      const reportPdfPath = existsSync(reportDir)
+        ? (readdirSync(reportDir).filter(f => f.endsWith('.pdf')).map(f => join(reportDir, f))[0] ?? manifest.reportPdfPath ?? null)
+        : (manifest.reportPdfPath ?? null)
+      const result = await publishManifestToRemote({
+        manifest,
+        manifestPaths: { jsonPath, csvPath, reportPdfPath, summaryTextPath: existsSync(summaryTextPath) ? summaryTextPath : null },
+        settings: deps.settings.get(),
+        overrides: args.overrides,
+        onProgress: (target) => emitExportProgress(event.sender, exportProgress(args.folderPath, 'publish', `Publishing to ${publishTargetLabel(target)}`, undefined, 0, 1, 0, 0)),
+      })
+      try { appendPublishState(args.folderPath, result, new Date().toISOString()) } catch (err) { console.error('publish-state write failed:', err) }
+      // Flatten the result tree into leaf variants so we can inspect every leaf,
+      // including uploadErrors that publishers push without marking the target failed.
+      function flattenResult(r: RemotePublishResult): RemotePublishResult[] {
+        return r.target === 'multi' ? r.results.flatMap(flattenResult) : [r]
+      }
+      const republishErrors: string[] = []
+      for (const r of flattenResult(result)) {
+        if (r.target === 'local') continue
+        if ('failed' in r && r.failed) { republishErrors.push(`${r.target}: ${r.error}`); continue }
+        if ('uploadErrors' in r && r.uploadErrors.length) republishErrors.push(...r.uploadErrors.map((e: string) => `${r.target}: ${e}`))
+      }
+      return republishErrors.length ? { ok: false, error: republishErrors.join('; ') } : { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 }

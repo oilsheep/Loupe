@@ -568,7 +568,7 @@ export class SessionManager {
     this.persistProject(session.id)
     return bug
   }
-  updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string }) {
+  updateSessionMetadata(id: string, patch: { buildVersion: string; platform?: string; project?: string; testNote: string; tester: string; reportTitle?: string }) {
     const session = this.deps.db.getSession(id)
     if (!session) throw new Error('session not found')
     this.deps.db.updateSessionMetadata(id, {
@@ -577,6 +577,7 @@ export class SessionManager {
       project: patch.project?.trim() ?? '',
       testNote: patch.testNote.trim(),
       tester: patch.tester.trim(),
+      reportTitle: patch.reportTitle?.trim() || undefined,
     })
     this.persistProject(id)
   }

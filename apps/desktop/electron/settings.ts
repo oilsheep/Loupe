@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
-import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, ExportQuality, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY, normalizeExportQuality } from '@shared/exportQuality'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
 import { getBundledOAuthInstances } from './gitlab-oauth-config'
@@ -88,6 +89,7 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     if (label) mentionAliases[user.id] = label
   }
   const knownIds = new Set([...mentionUserIds, ...mentionUsers.map(user => user.id)])
+  const threadMode = raw?.threadMode === 'single-thread' ? 'single-thread' : 'per-marker-thread'
   const publishIdentity = raw?.publishIdentity === 'bot'
     ? 'bot'
     : raw?.publishIdentity === 'user'
@@ -101,6 +103,7 @@ function normalizeSlack(raw?: Partial<SlackPublishSettings>): SlackPublishSettin
     refreshToken: normalizeRefreshToken(raw?.refreshToken),
     tokenExpiresAt: normalizeTokenExpiresAt(raw?.tokenExpiresAt),
     publishIdentity,
+    threadMode,
     channelId: raw?.channelId || '',
     oauthClientId: raw?.oauthClientId || '',
     oauthClientSecret: raw?.oauthClientSecret || '',
@@ -717,6 +720,7 @@ export class SettingsStore {
       const { profiles, activeProfileId, needsWrite } = normalizeProfiles(raw)
       const next: AppSettings = {
         exportRoot: raw.exportRoot || this.defaults.exportRoot,
+        exportQuality: normalizeExportQuality(raw.exportQuality),
         hotkeys: normalizeHotkeys(raw.hotkeys),
         locale: normalizeLocale(raw.locale),
         severities: normalizeSeverities(raw.severities),
@@ -740,6 +744,12 @@ export class SettingsStore {
 
   setExportRoot(exportRoot: string): AppSettings {
     const next = { ...this.get(), exportRoot }
+    this.write(next)
+    return next
+  }
+
+  setExportQuality(quality: ExportQuality): AppSettings {
+    const next = { ...this.get(), exportQuality: normalizeExportQuality(quality) }
     this.write(next)
     return next
   }

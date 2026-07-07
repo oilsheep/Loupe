@@ -6,6 +6,7 @@ import { Draft } from '@/routes/Draft'
 const { fakeApi, settings } = vi.hoisted(() => {
   const settings: AppSettings = {
     exportRoot: '/exports',
+    exportQuality: { tier: 'balanced', preset: 'veryfast', crf: 20 },
     hotkeys: { improvement: 'F6', minor: 'F7', normal: 'F8', major: 'F9' },
     locale: 'en',
     severities: {
@@ -69,6 +70,7 @@ const { fakeApi, settings } = vi.hoisted(() => {
       getBundledGitLabOAuthInstances: vi.fn().mockResolvedValue([]),
     } as any,
     audioAnalysis: { analyzeSession: vi.fn(), cancel: vi.fn() } as any,
+    export: { listForSession: vi.fn().mockResolvedValue([]) as any, republish: vi.fn().mockResolvedValue({ ok: true }) as any },
     onBugMarkRequested: () => () => {},
     onSessionInterrupted: () => () => {},
     onBugExportProgress: () => () => {},

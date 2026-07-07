@@ -78,6 +78,7 @@ const api: DesktopApi = {
   settings: {
     get:              ()        => ipcRenderer.invoke(CHANNEL.settingsGet),
     setExportRoot:    (path)    => ipcRenderer.invoke(CHANNEL.settingsSetExportRoot, path),
+    setExportQuality: (quality) => ipcRenderer.invoke(CHANNEL.settingsSetExportQuality, quality),
     setHotkeys:        (hotkeys) => ipcRenderer.invoke(CHANNEL.settingsSetHotkeys, hotkeys),
     setSlack:          (projectId, settings) => ipcRenderer.invoke(CHANNEL.settingsSetSlack, projectId, settings),
     setGitLab:         (projectId, settings) => ipcRenderer.invoke(CHANNEL.settingsSetGitLab, projectId, settings),
@@ -118,6 +119,10 @@ const api: DesktopApi = {
   audioAnalysis: {
     analyzeSession: (sessionId) => ipcRenderer.invoke(CHANNEL.audioAnalysisAnalyzeSession, sessionId),
     cancel: (sessionId) => ipcRenderer.invoke(CHANNEL.audioAnalysisCancel, sessionId),
+  },
+  export: {
+    listForSession: (sessionId) => ipcRenderer.invoke(CHANNEL.exportListForSession, sessionId),
+    republish:      (args)      => ipcRenderer.invoke(CHANNEL.exportRepublish, args),
   },
   onBugMarkRequested: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, severity: any) => cb(severity)

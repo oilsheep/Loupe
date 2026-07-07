@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppLocale, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, GitLabMentionUser, GitLabProject, GitLabPublishSettings, GoogleDriveFolder, GooglePublishSettings, GoogleSheetTab, GoogleSpreadsheet, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, PublishTemplateTarget, SeveritySettings, SlackMentionUser, SlackPublishSettings } from '@shared/types'
 import { DEFAULT_PUBLISH_TEMPLATES } from '@shared/publishTemplates'
+import { CloseButton } from './CloseButton'
 import { useI18n } from '@/lib/i18n'
 import { gitlabConnectionLabel, googleDriveConnectionLabel, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
@@ -560,9 +561,7 @@ export function PreferencesDialog({
             <div className="text-sm font-medium text-zinc-100">{t('preferences.title')}</div>
             <div className="mt-1 text-xs text-zinc-500">{t('preferences.body')}</div>
           </div>
-          <button type="button" onClick={onClose} className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700">
-            {t('common.close')}
-          </button>
+          <CloseButton onClick={onClose} label={t('common.close')} />
         </div>
 
         <div role="tablist" className="flex shrink-0 border-b border-zinc-800 px-4">
@@ -1165,6 +1164,183 @@ export function PreferencesDialog({
               <details
                 className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
                 onToggle={(e) => {
+                  if ((e.currentTarget as HTMLDetailsElement).open && isGitLabConnected(gitlab) && !refreshingGitLabProjects) onLoadGitLabProjects()
+                }}
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
+                  <span>{t('preferences.gitlab')}</span>
+                  <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className={`text-[11px] ${isGitLabConnected(gitlab) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                      {gitlabConnectionLabel(gitlab, t)}
+                    </span>
+                    {!isGitLabConnected(gitlab) && (
+                      <ConnectButton onConnect={onConnectGitLabOAuth} connecting={connectingGitLabOAuth} label={t('publish.connectGitLab')} disabled={savingGitLab || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} />
+                    )}
+                    {isGitLabConnected(gitlab) && (
+                      <DisconnectButton onDisconnect={() => onDisconnect('gitlab')} disconnecting={disconnectingService === 'gitlab'} />
+                    )}
+                  </span>
+                </summary>
+                <PublishTemplateFields
+                  target="gitlab"
+                  zh={zh}
+                  templates={publishTemplates}
+                  saved={publishTemplatesSaved}
+                  onChange={updatePublishTemplate}
+                  onSave={onSavePublishTemplates}
+                  showTitle
+                />
+                {bundledGitLabOAuthInstances.length > 0 ? (
+                  <div className="mt-3">
+                    <label className="block min-w-0 text-xs text-zinc-500">
+                      {t('preferences.gitlabInstance')}
+                      <select
+                        value={bundledGitLabMatch ? bundledGitLabMatch.url : '__custom__'}
+                        onChange={(e) => {
+                          const next = e.target.value === '__custom__' ? '' : e.target.value
+                          onCommitGitLab({ ...gitlab, baseUrl: next })
+                        }}
+                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
+                      >
+                        {bundledGitLabOAuthInstances.map(inst => (
+                          <option key={inst.url} value={inst.url}>{inst.url}</option>
+                        ))}
+                        <option value="__custom__">{t('preferences.gitlabCustomInstance')}</option>
+                      </select>
+                    </label>
+                    {!bundledGitLabMatch && (
+                      <label className="mt-2 block min-w-0 text-xs text-zinc-500">
+                        {t('preferences.gitlabBaseUrl')}
+                        <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                      </label>
+                    )}
+                  </div>
+                ) : (
+                  <label className="mt-3 block min-w-0 text-xs text-zinc-500">
+                    {t('preferences.gitlabBaseUrl')}
+                    <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                  </label>
+                )}
+                <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
+                  <div className="min-w-0">
+                    {gitlab.authType !== 'oauth' && (
+                      <label className="min-w-0 text-xs text-zinc-500">
+                        {t('preferences.gitlabToken')}
+                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.gitlabTokenPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                      </label>
+                    )}
+                  </div>
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.gitlabAuth')}
+                    <select value={gitlab.authType ?? 'pat'} onChange={(e) => onCommitGitLab({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                      <option value="pat">{t('preferences.personalAccessToken')}</option>
+                      <option value="oauth">OAuth</option>
+                    </select>
+                  </label>
+                </div>
+                {gitlab.authType === 'oauth' && (
+                  <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                    {bundledGitLabMatch ? (
+                      <div className="flex items-start gap-2 text-xs text-emerald-300">
+                        <span aria-hidden>✓</span>
+                        <span>{t('preferences.gitlabBundledHint')}</span>
+                      </div>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
+                        <div className="min-w-0 text-xs text-zinc-500">
+                          {t('preferences.redirectUri')}
+                          <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      {gitlab.token.trim() && <span className="text-xs text-emerald-300">{t('common.connected')}</span>}
+                      <button type="button" onClick={onConnectGitLabOAuth} disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                        {connectingGitLabOAuth ? t('preferences.connecting') : t('preferences.connectOAuth')}
+                      </button>
+                      {connectingGitLabOAuth && <button type="button" onClick={onCancelGitLabOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('preferences.cancelOAuth')}</button>}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="min-w-0">
+                    <span className="text-xs text-zinc-500">{t('preferences.project')}</span>
+                    <GitLabProjectPicker
+                      projects={gitlabProjects}
+                      value={gitlab.projectId}
+                      loading={refreshingGitLabProjects}
+                      onOpen={() => { if (gitlabProjects.length === 0 && !refreshingGitLabProjects) onLoadGitLabProjects() }}
+                      onChange={onSelectGitLabProject}
+                    />
+                  </div>
+                  <button type="button" onClick={onLoadGitLabProjects} disabled={refreshingGitLabProjects || !gitlab.baseUrl.trim() || !gitlab.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                    {refreshingGitLabProjects ? t('preferences.refreshing') : t('preferences.refreshProjects')}
+                  </button>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.labels')}
+                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabLabelsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                  </label>
+                  <label className="min-w-0 text-xs text-zinc-500">
+                    {t('preferences.mentionUsernames')}
+                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabMentionsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
+                  </label>
+                </div>
+                <label className="mt-2 block text-xs text-zinc-500">
+                  {t('preferences.defaultGitLabMode')}
+                  <select value={gitlab.mode} onChange={(e) => onCommitGitLab({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                    <option value="single-issue">{t('preferences.singleIssue')}</option>
+                    <option value="per-marker-issue">{t('preferences.issuePerMarker')}</option>
+                  </select>
+                </label>
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
+                  <input type="checkbox" checked={Boolean(gitlab.confidential)} onChange={(e) => onCommitGitLab({ ...gitlab, confidential: e.target.checked })} className="h-4 w-4 accent-blue-600" />
+                  {t('preferences.gitlabConfidential')}
+                </label>
+                <label className="mt-2 block text-xs text-zinc-500">
+                  {t('preferences.gitlabEmailLookup')}
+                  <select value={gitlab.emailLookup ?? 'off'} onChange={(e) => onCommitGitLab({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
+                    <option value="off">{t('preferences.off')}</option>
+                    <option value="admin-users-api">{t('preferences.adminUsersApi')}</option>
+                  </select>
+                  <span className="mt-1 block text-[11px] leading-4 text-zinc-600">
+                    {t('preferences.gitlabEmailLookupHelp')}
+                  </span>
+                </label>
+                <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-zinc-300">{t('preferences.gitlabUsers')}</div>
+                      <div className="text-[11px] text-zinc-500">{gitlab.usersFetchedAt ? t('preferences.updatedAt', { date: new Date(gitlab.usersFetchedAt).toLocaleString() }) : t('preferences.notSyncedYet')}</div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <button type="button" onClick={() => onRefreshGitLabUsers(false)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
+                        {refreshingGitLabUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
+                      </button>
+                      <button type="button" onClick={() => onRefreshGitLabUsers(true)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-emerald-800 px-2.5 py-1.5 text-xs text-emerald-50 hover:bg-emerald-700 disabled:opacity-50">
+                        {t('preferences.fetchEmails')}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800 bg-zinc-950">
+                    {activeGitLabUsers.length === 0 ? <div className="px-2 py-3 text-xs text-zinc-500">{t('preferences.refreshGitLabUsersHelp')}</div> : activeGitLabUsers.map(user => (
+                      <div key={user.username} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
+                        <div className="truncate text-xs text-zinc-200">{user.name || user.username}</div>
+                        <div className="truncate text-[11px] text-zinc-600">@{user.username}{user.email ? ` / ${user.email}` : ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
+                {gitlab.lastUserSyncWarning && <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 px-2 py-1.5 text-xs text-yellow-200">{gitlab.lastUserSyncWarning}</div>}
+              </details>
+
+              <details
+                className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
+                onToggle={(e) => {
                   if ((e.currentTarget as HTMLDetailsElement).open && hasGoogleOAuthToken(google) && !refreshingGoogleFolders) onLoadGoogleFolders()
                 }}
               >
@@ -1360,183 +1536,6 @@ export function PreferencesDialog({
                 )}
                 {googleError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{googleError}</div>}
                 {googleStatus && <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 px-2 py-1.5 text-xs text-zinc-400">{googleStatus}</div>}
-              </details>
-
-              <details
-                className="min-w-0 overflow-hidden rounded border border-zinc-800 bg-zinc-950/50 p-3"
-                onToggle={(e) => {
-                  if ((e.currentTarget as HTMLDetailsElement).open && isGitLabConnected(gitlab) && !refreshingGitLabProjects) onLoadGitLabProjects()
-                }}
-              >
-                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 text-xs font-medium text-zinc-300">
-                  <span>{t('preferences.gitlab')}</span>
-                  <span className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <span className={`text-[11px] ${isGitLabConnected(gitlab) ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                      {gitlabConnectionLabel(gitlab, t)}
-                    </span>
-                    {!isGitLabConnected(gitlab) && (
-                      <ConnectButton onConnect={onConnectGitLabOAuth} connecting={connectingGitLabOAuth} label={t('publish.connectGitLab')} disabled={savingGitLab || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} />
-                    )}
-                    {isGitLabConnected(gitlab) && (
-                      <DisconnectButton onDisconnect={() => onDisconnect('gitlab')} disconnecting={disconnectingService === 'gitlab'} />
-                    )}
-                  </span>
-                </summary>
-                <PublishTemplateFields
-                  target="gitlab"
-                  zh={zh}
-                  templates={publishTemplates}
-                  saved={publishTemplatesSaved}
-                  onChange={updatePublishTemplate}
-                  onSave={onSavePublishTemplates}
-                  showTitle
-                />
-                {bundledGitLabOAuthInstances.length > 0 ? (
-                  <div className="mt-3">
-                    <label className="block min-w-0 text-xs text-zinc-500">
-                      {t('preferences.gitlabInstance')}
-                      <select
-                        value={bundledGitLabMatch ? bundledGitLabMatch.url : '__custom__'}
-                        onChange={(e) => {
-                          const next = e.target.value === '__custom__' ? '' : e.target.value
-                          onCommitGitLab({ ...gitlab, baseUrl: next })
-                        }}
-                        className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600"
-                      >
-                        {bundledGitLabOAuthInstances.map(inst => (
-                          <option key={inst.url} value={inst.url}>{inst.url}</option>
-                        ))}
-                        <option value="__custom__">{t('preferences.gitlabCustomInstance')}</option>
-                      </select>
-                    </label>
-                    {!bundledGitLabMatch && (
-                      <label className="mt-2 block min-w-0 text-xs text-zinc-500">
-                        {t('preferences.gitlabBaseUrl')}
-                        <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                      </label>
-                    )}
-                  </div>
-                ) : (
-                  <label className="mt-3 block min-w-0 text-xs text-zinc-500">
-                    {t('preferences.gitlabBaseUrl')}
-                    <input value={gitlab.baseUrl} onChange={(e) => onGitLabChange({ ...gitlab, baseUrl: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabBaseUrlPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                  </label>
-                )}
-                <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
-                  <div className="min-w-0">
-                    {gitlab.authType !== 'oauth' && (
-                      <label className="min-w-0 text-xs text-zinc-500">
-                        {t('preferences.gitlabToken')}
-                        <input value={gitlab.token} onChange={(e) => onGitLabChange({ ...gitlab, token: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.gitlabTokenPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                      </label>
-                    )}
-                  </div>
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.gitlabAuth')}
-                    <select value={gitlab.authType ?? 'pat'} onChange={(e) => onCommitGitLab({ ...gitlab, authType: e.target.value as GitLabPublishSettings['authType'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                      <option value="pat">{t('preferences.personalAccessToken')}</option>
-                      <option value="oauth">OAuth</option>
-                    </select>
-                  </label>
-                </div>
-                {gitlab.authType === 'oauth' && (
-                  <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                    {bundledGitLabMatch ? (
-                      <div className="flex items-start gap-2 text-xs text-emerald-300">
-                        <span aria-hidden>✓</span>
-                        <span>{t('preferences.gitlabBundledHint')}</span>
-                      </div>
-                    ) : (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientId')}<input value={gitlab.oauthClientId ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientId: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.applicationIdPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                        <label className="min-w-0 text-xs text-zinc-500">{t('preferences.oauthClientSecret')}<input value={gitlab.oauthClientSecret ?? ''} onChange={(e) => onGitLabChange({ ...gitlab, oauthClientSecret: e.target.value })} onBlur={() => onCommitGitLab(gitlab)} type="password" placeholder={t('preferences.optionalConfidentialPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" /></label>
-                        <div className="min-w-0 text-xs text-zinc-500">
-                          {t('preferences.redirectUri')}
-                          <div className="mt-1 break-all rounded bg-zinc-950 px-2 py-1.5 font-mono text-[11px] text-zinc-400">loupe://gitlab-oauth</div>
-                        </div>
-                      </div>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                      {gitlab.token.trim() && <span className="text-xs text-emerald-300">{t('common.connected')}</span>}
-                      <button type="button" onClick={onConnectGitLabOAuth} disabled={savingGitLab || connectingGitLabOAuth || !gitlab.baseUrl.trim() || (!gitlab.oauthClientId?.trim() && !bundledGitLabMatch)} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                        {connectingGitLabOAuth ? t('preferences.connecting') : t('preferences.connectOAuth')}
-                      </button>
-                      {connectingGitLabOAuth && <button type="button" onClick={onCancelGitLabOAuth} className="rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">{t('preferences.cancelOAuth')}</button>}
-                    </div>
-                  </div>
-                )}
-                <div className="mt-2 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <div className="min-w-0">
-                    <span className="text-xs text-zinc-500">{t('preferences.project')}</span>
-                    <GitLabProjectPicker
-                      projects={gitlabProjects}
-                      value={gitlab.projectId}
-                      loading={refreshingGitLabProjects}
-                      onOpen={() => { if (gitlabProjects.length === 0 && !refreshingGitLabProjects) onLoadGitLabProjects() }}
-                      onChange={onSelectGitLabProject}
-                    />
-                  </div>
-                  <button type="button" onClick={onLoadGitLabProjects} disabled={refreshingGitLabProjects || !gitlab.baseUrl.trim() || !gitlab.token.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                    {refreshingGitLabProjects ? t('preferences.refreshing') : t('preferences.refreshProjects')}
-                  </button>
-                </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.labels')}
-                    <input value={gitlabLabelsInput} onChange={(e) => onGitLabLabelsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabLabelsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                  </label>
-                  <label className="min-w-0 text-xs text-zinc-500">
-                    {t('preferences.mentionUsernames')}
-                    <input value={gitlabMentionsInput} onChange={(e) => onGitLabMentionsInputChange(e.target.value)} onBlur={() => onCommitGitLab(gitlab)} placeholder={t('preferences.gitlabMentionsPlaceholder')} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600" />
-                  </label>
-                </div>
-                <label className="mt-2 block text-xs text-zinc-500">
-                  {t('preferences.defaultGitLabMode')}
-                  <select value={gitlab.mode} onChange={(e) => onCommitGitLab({ ...gitlab, mode: e.target.value as GitLabPublishSettings['mode'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                    <option value="single-issue">{t('preferences.singleIssue')}</option>
-                    <option value="per-marker-issue">{t('preferences.issuePerMarker')}</option>
-                  </select>
-                </label>
-                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
-                  <input type="checkbox" checked={Boolean(gitlab.confidential)} onChange={(e) => onCommitGitLab({ ...gitlab, confidential: e.target.checked })} className="h-4 w-4 accent-blue-600" />
-                  {t('preferences.gitlabConfidential')}
-                </label>
-                <label className="mt-2 block text-xs text-zinc-500">
-                  {t('preferences.gitlabEmailLookup')}
-                  <select value={gitlab.emailLookup ?? 'off'} onChange={(e) => onCommitGitLab({ ...gitlab, emailLookup: e.target.value as GitLabPublishSettings['emailLookup'] })} className="mt-1 w-full rounded bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-blue-600">
-                    <option value="off">{t('preferences.off')}</option>
-                    <option value="admin-users-api">{t('preferences.adminUsersApi')}</option>
-                  </select>
-                  <span className="mt-1 block text-[11px] leading-4 text-zinc-600">
-                    {t('preferences.gitlabEmailLookupHelp')}
-                  </span>
-                </label>
-                <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-zinc-300">{t('preferences.gitlabUsers')}</div>
-                      <div className="text-[11px] text-zinc-500">{gitlab.usersFetchedAt ? t('preferences.updatedAt', { date: new Date(gitlab.usersFetchedAt).toLocaleString() }) : t('preferences.notSyncedYet')}</div>
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <button type="button" onClick={() => onRefreshGitLabUsers(false)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-50">
-                        {refreshingGitLabUsers ? t('preferences.refreshing') : t('preferences.refreshUsers')}
-                      </button>
-                      <button type="button" onClick={() => onRefreshGitLabUsers(true)} disabled={refreshingGitLabUsers || !gitlab.token.trim() || !gitlab.projectId.trim()} className="rounded bg-emerald-800 px-2.5 py-1.5 text-xs text-emerald-50 hover:bg-emerald-700 disabled:opacity-50">
-                        {t('preferences.fetchEmails')}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800 bg-zinc-950">
-                    {activeGitLabUsers.length === 0 ? <div className="px-2 py-3 text-xs text-zinc-500">{t('preferences.refreshGitLabUsersHelp')}</div> : activeGitLabUsers.map(user => (
-                      <div key={user.username} className="border-b border-zinc-900 px-2 py-1.5 last:border-b-0">
-                        <div className="truncate text-xs text-zinc-200">{user.name || user.username}</div>
-                        <div className="truncate text-[11px] text-zinc-600">@{user.username}{user.email ? ` / ${user.email}` : ''}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {gitlabError && <div className="mt-2 rounded border border-red-800 bg-red-950/40 px-2 py-1.5 text-xs text-red-200">{gitlabError}</div>}
-                {gitlab.lastUserSyncWarning && <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 px-2 py-1.5 text-xs text-yellow-200">{gitlab.lastUserSyncWarning}</div>}
               </details>
 
             </div>

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { DevicePicker } from '@/components/DevicePicker'
 import type { Device, DesktopApi, MdnsEntry } from '@shared/types'
+import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
 
 function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairImpl?: any, getUserNameImpl?: any): DesktopApi {
   return {
@@ -44,7 +45,8 @@ function fakeApi(devices: Device[], connectImpl?: any, mdnsScanImpl?: any, pairI
     session: { updateMetadata: vi.fn() as any } as any, bug: {} as any,
     hotkey: { setEnabled: vi.fn().mockResolvedValue(undefined) } as any,
     audioAnalysis: { analyzeSession: vi.fn() as any, cancel: vi.fn() as any },
-    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setGitLab: vi.fn() as any, connectGitLabOAuth: vi.fn() as any, cancelGitLabOAuth: vi.fn() as any, getBundledGitLabOAuthInstances: vi.fn() as any, listGitLabProjects: vi.fn() as any, setGoogle: vi.fn() as any, connectGoogleOAuth: vi.fn() as any, cancelGoogleOAuth: vi.fn() as any, listGoogleDriveFolders: vi.fn() as any, createGoogleDriveFolder: vi.fn() as any, listGoogleSpreadsheets: vi.fn() as any, listGoogleSheetTabs: vi.fn() as any, setMentionIdentities: vi.fn() as any, setMarkerFieldPresets: vi.fn() as any,
+    export: { listForSession: vi.fn().mockResolvedValue([]) as any, republish: vi.fn().mockResolvedValue({ ok: true }) as any },
+    settings: { get: vi.fn() as any, setExportRoot: vi.fn() as any, setExportQuality: vi.fn().mockResolvedValue(undefined) as any, setHotkeys: vi.fn() as any, setSlack: vi.fn() as any, setGitLab: vi.fn() as any, connectGitLabOAuth: vi.fn() as any, cancelGitLabOAuth: vi.fn() as any, getBundledGitLabOAuthInstances: vi.fn() as any, listGitLabProjects: vi.fn() as any, setGoogle: vi.fn() as any, connectGoogleOAuth: vi.fn() as any, cancelGoogleOAuth: vi.fn() as any, listGoogleDriveFolders: vi.fn() as any, createGoogleDriveFolder: vi.fn() as any, listGoogleSpreadsheets: vi.fn() as any, listGoogleSheetTabs: vi.fn() as any, setMentionIdentities: vi.fn() as any, setMarkerFieldPresets: vi.fn() as any,
       setPublishTemplates: vi.fn() as any, importMentionIdentities: vi.fn() as any, exportMentionIdentities: vi.fn() as any, refreshSlackUsers: vi.fn() as any, refreshSlackChannels: vi.fn() as any, startSlackUserOAuth: vi.fn() as any, disconnectService: vi.fn() as any, refreshGitLabUsers: vi.fn() as any, validateConnections: vi.fn() as any, setLocale: vi.fn() as any, setSeverities: vi.fn() as any, setAudioAnalysis: vi.fn() as any, setCommonSession: vi.fn() as any, setRecordingPreferences: vi.fn() as any, addProfile: vi.fn() as any, renameProfile: vi.fn() as any, deleteProfile: vi.fn() as any, setActiveProfile: vi.fn() as any, chooseWhisperModel: vi.fn() as any, chooseExportRoot: vi.fn() as any },
     onBugMarkRequested: () => () => {},
     onSessionInterrupted: () => () => {},
