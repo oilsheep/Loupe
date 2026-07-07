@@ -3,10 +3,11 @@ include:
   # .setup-gcp-adc (mints keyless ADC credentials as a dotenv+file artifact via
   # an OIDC token exchange) and .use-gcp-adc (refreshes the OIDC token in the
   # consuming job so any ADC-aware tool authenticates with no key on disk).
-  # Pinned to the feature branch until SRE merges sre/gitlab-ci!52.
-  # TODO(loupe): bump ref to the stable release branch once !52 lands.
+  # Pinned to the stable release branch (sre/gitlab-ci!52 merged; SRE confirmed
+  # release-2.0 in sre/issue#3815). Template is byte-identical to the prior
+  # feat/setup-gcp-adc pin, so this is a ref-only bump with no behavior change.
   - project: 'sre/gitlab-ci'
-    ref: feat/setup-gcp-adc
+    ref: release-2.0
     file: /GCP.gitlab-ci.yml
 
 default:
