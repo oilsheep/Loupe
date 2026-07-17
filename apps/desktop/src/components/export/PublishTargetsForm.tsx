@@ -100,7 +100,10 @@ export function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'a
   const selected = new Set(selectedIds)
   const optionMap = new Map(options.map(option => [option.id, option]))
   const slackOptionMap = new Map(options.flatMap(option => option.slackUserId ? [[option.slackUserId, option] as const] : []))
-  const labels = selectedIds.map(id => aliases[id] || optionMap.get(id)?.label || slackOptionMap.get(id)?.label || id)
+  const selectedEntries = selectedIds.map(id => {
+    const option = optionMap.get(id) || slackOptionMap.get(id)
+    return { id, label: aliases[id] || option?.label || id, option }
+  })
   const normalizedQuery = query.trim().toLowerCase()
   const filteredOptions = normalizedQuery
     ? options.filter(option => [
@@ -124,6 +127,16 @@ export function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'a
       if (option.slackUserId) next.delete(option.slackUserId)
     } else {
       next.add(option.id)
+    }
+    onChange([...next])
+  }
+
+  function removeSelected(id: string, option?: MentionOption) {
+    const next = new Set(selected)
+    next.delete(id)
+    if (option) {
+      next.delete(option.id)
+      if (option.slackUserId) next.delete(option.slackUserId)
     }
     onChange([...next])
   }
@@ -168,13 +181,46 @@ export function MentionPicker({ options, selectedIds, aliases, dropdownMode = 'a
 
   return (
     <div ref={rootRef} className="relative" data-row-click-ignore="true">
-      <button
-        type="button"
-        onClick={() => setOpen(value => !value)}
-        className="max-w-full rounded bg-zinc-700 px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-600"
-      >
-        {labels.length > 0 ? t('bug.mentionSelected', { people: labels.join(', ') }) : t('bug.mentionPeople')}
-      </button>
+      {selectedEntries.length > 0 ? (
+        <div className="flex max-w-full flex-wrap items-center gap-1">
+          {selectedEntries.map(({ id, label, option }, index) => (
+            <span key={`${id}-${index}`} className="inline-flex min-w-0 max-w-full items-stretch overflow-hidden rounded bg-zinc-700 text-[11px] text-zinc-300">
+              <button
+                type="button"
+                onClick={() => setOpen(value => !value)}
+                className="min-w-0 truncate px-2 py-1 text-left hover:bg-zinc-600"
+                title={label}
+              >
+                {label}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeSelected(id, option)}
+                aria-label={`${t('common.remove')} ${label}`}
+                className="border-l border-zinc-600 px-1.5 py-1 text-zinc-400 hover:bg-red-950 hover:text-red-100"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => setOpen(value => !value)}
+            aria-label={t('bug.mentionPeople')}
+            className="rounded bg-zinc-700 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-600"
+          >
+            +
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(value => !value)}
+          className="max-w-full rounded bg-zinc-700 px-2 py-1 text-left text-[11px] text-zinc-300 hover:bg-zinc-600"
+        >
+          {t('bug.mentionPeople')}
+        </button>
+      )}
       {open && (
         <div
           style={dropdownMode === 'fixed' ? fixedMenuStyle : undefined}

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { PublishTargetsForm, type PublishTargetsFormProps } from '../PublishTargetsForm'
+import { MentionPicker, PublishTargetsForm, type MentionOption, type PublishTargetsFormProps } from '../PublishTargetsForm'
 
 // useI18n() falls back to dictionaries.en when there is no I18nContext, so
 // no wrapper or window.api stub is needed for these pure-UI tests.
@@ -53,5 +53,45 @@ describe('PublishTargetsForm', () => {
     const props = renderForm({ publishGitLab: true })
     fireEvent.click(screen.getByText('Issue per marker'))
     expect(props.onGitLabModeChange).toHaveBeenCalledWith('per-marker-issue')
+  })
+})
+
+const mentionOptions: MentionOption[] = [
+  { id: 'alice', label: 'Alice', detail: 'alice@example.com', hasSlack: true, hasGitLab: true, hasGoogle: false, slackUserId: 'U_ALICE' },
+  { id: 'bob', label: 'Bob', detail: 'bob@example.com', hasSlack: true, hasGitLab: false, hasGoogle: false, slackUserId: 'U_BOB' },
+]
+
+describe('MentionPicker', () => {
+  it('removes one selected person without opening the picker', () => {
+    const onChange = vi.fn()
+    render(
+      <MentionPicker
+        options={mentionOptions}
+        selectedIds={['alice', 'bob']}
+        aliases={{}}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Alice' }))
+
+    expect(onChange).toHaveBeenCalledWith(['bob'])
+    expect(screen.queryByPlaceholderText('Search people')).toBeNull()
+  })
+
+  it('removes a selected Slack user ID through its mapped person chip', () => {
+    const onChange = vi.fn()
+    render(
+      <MentionPicker
+        options={mentionOptions}
+        selectedIds={['U_ALICE']}
+        aliases={{}}
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Alice' }))
+
+    expect(onChange).toHaveBeenCalledWith([])
   })
 })
