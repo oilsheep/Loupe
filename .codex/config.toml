@@ -1,0 +1,3 @@
+# Allow Codex to discover CLAUDE.local.md as this project's personal override,
+# sharing the same local instructions with Claude Code.
+project_doc_fallback_filenames = ["CLAUDE.local.md"]
