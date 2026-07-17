@@ -4,7 +4,7 @@ import type { Device, MdnsEntry } from '@shared/types'
 const IP_PORT = /^\d{1,3}(\.\d{1,3}){3}:\d+$/
 
 function connectFailureHint(port: number): string | null {
-  if (port === 5555) return 'Make sure the phone and this Mac are on the same network and that Wireless debugging is enabled on the device.'
+  if (port === 5555) return 'Make sure the phone and this computer are on the same network and that Wireless debugging is enabled on the device.'
   return 'This port may be the pairing port shown by Android Wireless debugging. Pair first, then connect to the ready/connect port from the Scan Wi-Fi devices list.'
 }
 

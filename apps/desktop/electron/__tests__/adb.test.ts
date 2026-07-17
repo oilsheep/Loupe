@@ -66,7 +66,8 @@ describe('Adb', () => {
     const r = await adb.connect('1.2.3.4')
     expect(r.ok).toBe(false)
     expect(r.message).toContain('unable')
-    expect(r.message).toContain('same network')
+    expect(r.message).toContain('Make sure the phone and this computer are on the same network')
+    expect(r.message).not.toContain('this Mac')
   })
 
   it('connect adds pairing-port guidance for non-default ports', async () => {
