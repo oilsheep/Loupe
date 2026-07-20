@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { friendlySlackRefreshMessage } from '@/lib/connection'
 import { useI18n } from '@/lib/i18n'
+import { showConfirm } from '@/lib/nativeDialog'
 import {
   DEFAULT_HOTKEYS,
   DEFAULT_SEVERITIES,
@@ -294,7 +295,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
   }
 
   async function resetDefaultLabels() {
-    if (!window.confirm('Reset labels and hotkeys to defaults? Custom labels will be removed.')) return
+    if (!showConfirm('Reset labels and hotkeys to defaults? Custom labels will be removed.')) return
     const settings = await api.settings.setHotkeys(DEFAULT_HOTKEYS)
     const severitySettings = await api.settings.setSeverities(DEFAULT_SEVERITIES)
     setHotkeys(settings.hotkeys)
@@ -475,7 +476,7 @@ export function PreferencesController({ open, onClose }: PreferencesControllerPr
     const message = nextEmailLookup === 'admin-users-api'
       ? 'Refresh GitLab users and fetch missing emails through /users/:id? This may require a self-managed admin token.'
       : 'Refresh GitLab users may update the mention identity table. Continue?'
-    if (!window.confirm(message)) return
+    if (!showConfirm(message)) return
     setRefreshingGitLabUsers(true)
     setGitLabError('')
     try {

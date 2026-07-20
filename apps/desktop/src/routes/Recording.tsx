@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store'
 import { BugList } from '@/components/BugList'
 import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
 import { useI18n } from '@/lib/i18n'
+import { showConfirm } from '@/lib/nativeDialog'
 
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -488,7 +489,7 @@ export function Recording({ session }: { session: Session }) {
   }
 
   async function resetDefaultLabels() {
-    if (!window.confirm('Reset labels and hotkeys to defaults? Custom labels will be removed.')) return
+    if (!showConfirm('Reset labels and hotkeys to defaults? Custom labels will be removed.')) return
     const settings = await api.settings.setHotkeys(DEFAULT_HOTKEYS)
     const severitySettings = await api.settings.setSeverities(DEFAULT_SEVERITIES)
     setHotkeys(settings.hotkeys)
@@ -599,7 +600,7 @@ export function Recording({ session }: { session: Session }) {
 
   async function abandonPostAnalysis() {
     if (!postAnalysisPrompt) return
-    const ok = window.confirm('Cancel audio analysis and enter review? Existing session data will be kept.')
+    const ok = showConfirm('Cancel audio analysis and enter review? Existing session data will be kept.')
     if (!ok) return
     await api.audioAnalysis.cancel(postAnalysisPrompt.sessionId).catch(() => {})
     sessionStorage.removeItem(`${BACKGROUND_ANALYSIS_KEY_PREFIX}${postAnalysisPrompt.sessionId}`)

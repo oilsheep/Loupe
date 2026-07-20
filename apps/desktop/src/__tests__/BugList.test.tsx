@@ -53,6 +53,7 @@ function fakeApi(options: { slack?: any; gitlab?: any; google?: any } = {}): Des
       openPath: vi.fn().mockResolvedValue(undefined),
       getPlatform: vi.fn().mockResolvedValue('darwin'),
       getVersion: vi.fn().mockResolvedValue('0.5.0'),
+      recoverFocusAfterNativeDialog: vi.fn().mockResolvedValue(undefined),
       checkForUpdates: vi.fn().mockResolvedValue({ currentVersion: '0.5.0', updateAvailable: false, releaseUrl: 'https://github.com/oilsheep/Loupe/releases/latest' }),
       openUpdateDownload: vi.fn().mockResolvedValue(undefined),
       downloadUpdate: vi.fn().mockResolvedValue(undefined),

@@ -5,6 +5,7 @@ import { CloseButton } from './CloseButton'
 import { useI18n } from '@/lib/i18n'
 import { gitlabConnectionLabel, googleDriveConnectionLabel, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel } from '@/lib/connection'
 import { AUDIO_ANALYSIS_LANGUAGE_OPTIONS, CHINESE_SCRIPT_OPTIONS, triggerPreset } from '@/lib/audioAnalysisPresets'
+import { showAlert, showConfirm, showPrompt } from '@/lib/nativeDialog'
 import { THIRD_PARTY_SECTIONS } from '@/routes/Legal'
 import { AddProfileDialog } from './AddProfileDialog'
 import { ConnectButton } from './ConnectButton'
@@ -601,7 +602,7 @@ export function PreferencesDialog({
                     try {
                       await onSwitchProfile(e.target.value)
                     } catch (err: any) {
-                      window.alert(err?.message ?? String(err))
+                      showAlert(err?.message ?? String(err))
                     }
                   })()
                 }
@@ -615,12 +616,12 @@ export function PreferencesDialog({
             <button
               type="button"
               onClick={async () => {
-                const newName = window.prompt(t('preferences.renamePromptTitle'), selectedProfile.name)
+                const newName = showPrompt(t('preferences.renamePromptTitle'), selectedProfile.name)
                 if (!newName?.trim()) return
                 try {
                   await onRenameProfile(selectedProfile.id, newName.trim())
                 } catch (err: any) {
-                  window.alert(err?.message ?? String(err))
+                  showAlert(err?.message ?? String(err))
                 }
               }}
               className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
@@ -631,12 +632,12 @@ export function PreferencesDialog({
               type="button"
               onClick={async () => {
                 if (profiles.length <= 1) return
-                const ok = window.confirm(t('preferences.confirmDeleteProfile').replace('{name}', selectedProfile.name))
+                const ok = showConfirm(t('preferences.confirmDeleteProfile').replace('{name}', selectedProfile.name))
                 if (!ok) return
                 try {
                   await onDeleteProfile(selectedProfile.id)
                 } catch (err: any) {
-                  window.alert(err?.message ?? String(err))
+                  showAlert(err?.message ?? String(err))
                 }
               }}
               disabled={profiles.length <= 1}

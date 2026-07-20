@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@shared/types'
 import { api, assetUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+import { showConfirm } from '@/lib/nativeDialog'
 
 interface RecentSessionsProps {
   onOpenSession(id: string): void
@@ -220,7 +221,7 @@ export function RecentSessions({ onOpenSession }: RecentSessionsProps) {
   }
 
   async function deleteSession(session: Session) {
-    if (!window.confirm(t('home.deleteSessionConfirm', { name: sessionTitle(session) }))) return
+    if (!showConfirm(t('home.deleteSessionConfirm', { name: sessionTitle(session) }))) return
     setOpening(true)
     try {
       await api.session.discard(session.id)

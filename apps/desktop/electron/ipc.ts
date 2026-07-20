@@ -39,6 +39,7 @@ import { MacSystemAudioCapture } from './macos-system-audio'
 import { checkForAppUpdates } from './app-updates'
 import { configureElectronUpdater, downloadElectronUpdate, installElectronUpdate } from './electron-updates'
 import { findBundledOAuthInstance, getBundledOAuthInstances } from './gitlab-oauth-config'
+import { recoverWindowsNativeDialogFocus } from './windows-native-dialog-focus'
 
 export const CHANNEL = {
   doctor:                  'app:doctor',
@@ -50,6 +51,7 @@ export const CHANNEL = {
   appOpenUpdateDownload:   'app:openUpdateDownload',
   appDownloadUpdate:       'app:downloadUpdate',
   appInstallUpdate:        'app:installUpdate',
+  appRecoverFocusAfterNativeDialog: 'app:recoverFocusAfterNativeDialog',
   appUpdateEvent:          'app:updateEvent',
   appSettingsUpdated:      'app:settingsUpdated',
   appOpenIphoneMirroring:  'app:openIphoneMirroring',
@@ -2160,6 +2162,10 @@ export function registerIpc(deps: IpcDeps): void {
   })
   ipcMain.handle(CHANNEL.appGetPlatform, async () => process.platform)
   ipcMain.handle(CHANNEL.appGetVersion, async () => app.getVersion())
+  ipcMain.handle(CHANNEL.appRecoverFocusAfterNativeDialog, event => {
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+    if (sourceWindow) recoverWindowsNativeDialogFocus(sourceWindow)
+  })
   ipcMain.handle(CHANNEL.appCheckForUpdates, async (): Promise<AppUpdateCheckResult> => checkForAppUpdates())
   ipcMain.handle(CHANNEL.appOpenUpdateDownload, async (_e, url: string) => {
     if (!/^https:\/\/github\.com\/oilsheep\/Loupe\/releases\//i.test(url)) {

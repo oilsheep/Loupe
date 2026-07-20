@@ -7,6 +7,7 @@ import { DEFAULT_REPORT_TITLE, normalizeReportTitle } from '@shared/reportTitle'
 import { localFileUrl } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { canPublishToGoogleDrive, friendlySlackRefreshMessage, hasGoogleOAuthToken, isGitLabConnected, isGoogleDriveConnected, isSlackConnected, slackConnectionLabel, slackPublishToken } from '@/lib/connection'
+import { showAlert, showConfirm } from '@/lib/nativeDialog'
 import { useClickOutside } from '@/lib/useClickOutside'
 import { ChevronDownIcon } from './ChevronDownIcon'
 import { ExportConfirmDialog, MentionOption, MentionPicker, formatManualSlackMentions } from './export/ExportConfirmDialog'
@@ -350,20 +351,16 @@ function notifyExported(api: DesktopApi, firstPath: string, count: number, t: (k
   const message = count === 1
     ? t('export.done.one', { path: firstPath })
     : t('export.done.many', { count })
-  if (askConfirm(message)) {
+  if (showConfirm(message)) {
     void api.app.openPath(exportRootFromOutputPath(firstPath))
   }
 }
 
 function notifyFullRecordingExported(api: DesktopApi, firstPath: string, t: (key: string, params?: Record<string, string | number>) => string): void {
   const recordsPath = containingFolderFromOutputPath(firstPath)
-  if (askConfirm(t('export.done.noMarkers', { path: recordsPath }))) {
+  if (showConfirm(t('export.done.noMarkers', { path: recordsPath }))) {
     void api.app.openPath(recordsPath)
   }
-}
-
-function askConfirm(message: string): boolean {
-  return typeof window.confirm === 'function' ? window.confirm(message) : true
 }
 
 function containingFolderFromOutputPath(filePath: string): string {
@@ -969,7 +966,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setExportError(message || 'Could not open export dialog')
-      if (typeof window.alert === 'function') window.alert(message)
+      showAlert(message)
       return
     }
     setSlackDirectoryError('')
@@ -1135,12 +1132,12 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       ...(publishGoogleDrive ? ['google-drive' as const] : []),
     ]
     if (targets.length === 0) return
-    if (folder.status.status === 'stale' && !askConfirm(t('exports.staleConfirm', { count: folder.status.reasons.length }))) return
+    if (folder.status.status === 'stale' && !showConfirm(t('exports.staleConfirm', { count: folder.status.reasons.length }))) return
     setRepublishStatus('')
     setRepublishingFolder(folder.folderPath)
     try {
       const r = await api.export.republish({ folderPath: folder.folderPath, targets, overrides: buildRepublishOverrides() })
-      if (!r.ok && typeof window.alert === 'function') window.alert(t('exports.publishFailed', { error: r.error ?? '' }))
+      if (!r.ok) showAlert(t('exports.publishFailed', { error: r.error ?? '' }))
     } finally {
       setRepublishingFolder(null)
       setRepublishStatus('')
@@ -1303,7 +1300,7 @@ export const BugList = forwardRef<BugListHandle, Props>(function BugList({ api, 
       setExportProgress(prev => prev
         ? { ...prev, phase: 'error', message: t('export.progressFailed'), detail: message }
         : null)
-      if (typeof window.alert === 'function') window.alert(message)
+      showAlert(message)
     } finally {
       setExporting(false)
       setCancelingExport(false)
@@ -1960,7 +1957,7 @@ function BugRow({ bug, api, sessionId, isSelected, thumbnailUrl, logcatPreview, 
   }
 
   async function del() {
-    if (!confirm(t('bug.deleteConfirm'))) return
+    if (!showConfirm(t('bug.deleteConfirm'))) return
     await api.bug.delete(bug.id)
     onMutated()
   }

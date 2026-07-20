@@ -3,10 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const { fromWebContents, recoverWindowsNativeDialogFocus } = vi.hoisted(() => ({
+  fromWebContents: vi.fn(),
+  recoverWindowsNativeDialogFocus: vi.fn(),
+}))
+
 vi.mock('electron', () => ({
   app: { getVersion: vi.fn(() => '0.5.0'), isPackaged: false },
   ipcMain: { handle: vi.fn() },
-  BrowserWindow: vi.fn(),
+  BrowserWindow: Object.assign(vi.fn(), { fromWebContents }),
   desktopCapturer: { getSources: vi.fn() },
   dialog: {},
   screen: {
@@ -20,6 +25,8 @@ vi.mock('electron', () => ({
     showItemInFolder: vi.fn(),
   },
 }))
+
+vi.mock('../windows-native-dialog-focus', () => ({ recoverWindowsNativeDialogFocus }))
 
 vi.mock('electron-updater', () => ({
   autoUpdater: {
@@ -49,6 +56,59 @@ import { DEFAULT_AUDIO_ANALYSIS, DEFAULT_HOTKEYS, DEFAULT_RECORDING_PREFERENCES,
 import { ipcMain } from 'electron'
 import type { AppSettings, PcCaptureSource } from '@shared/types'
 import { DEFAULT_EXPORT_QUALITY } from '@shared/exportQuality'
+
+function registerTestIpcHandlers() {
+  const handlers = new Map<string, (event: any, ...args: any[]) => unknown>()
+  const handleSpy = vi.spyOn(ipcMain, 'handle').mockImplementation(((channel, handler) => {
+    handlers.set(channel, handler)
+  }) as typeof ipcMain.handle)
+  registerIpc({
+    adb: {} as never,
+    manager: {} as never,
+    paths: {} as never,
+    runner: {} as never,
+    db: {} as never,
+    settings: {} as never,
+    getWindow: () => null,
+    setHotkeyEnabled: () => {},
+    setHotkeys: () => {},
+  })
+  return { handlers, restore: () => handleSpy.mockRestore() }
+}
+
+describe('native dialog focus recovery IPC', () => {
+  it('routes recovery to the sender window', async () => {
+    const { handlers, restore } = registerTestIpcHandlers()
+
+    try {
+      const sender = {}
+      const sourceWindow = {}
+      fromWebContents.mockReturnValue(sourceWindow)
+
+      await handlers.get(CHANNEL.appRecoverFocusAfterNativeDialog)?.({ sender })
+
+      expect(fromWebContents).toHaveBeenCalledWith(sender)
+      expect(recoverWindowsNativeDialogFocus).toHaveBeenCalledWith(sourceWindow)
+    } finally {
+      restore()
+    }
+  })
+
+  it('ignores recovery when the sender window no longer exists', async () => {
+    const { handlers, restore } = registerTestIpcHandlers()
+
+    try {
+      fromWebContents.mockReturnValue(null)
+      recoverWindowsNativeDialogFocus.mockClear()
+
+      await handlers.get(CHANNEL.appRecoverFocusAfterNativeDialog)?.({ sender: {} })
+
+      expect(recoverWindowsNativeDialogFocus).not.toHaveBeenCalled()
+    } finally {
+      restore()
+    }
+  })
+})
 
 describe('isUnsupportedGdigrabDrawMouseError', () => {
   it('detects ffmpeg builds that do not support gdigrab draw_mouse', () => {

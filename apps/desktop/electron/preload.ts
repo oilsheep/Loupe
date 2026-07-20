@@ -9,6 +9,7 @@ const api: DesktopApi = {
     openPath:         (path) => ipcRenderer.invoke(CHANNEL.openPath, path),
     getPlatform:      () => ipcRenderer.invoke(CHANNEL.appGetPlatform),
     getVersion:       () => ipcRenderer.invoke(CHANNEL.appGetVersion),
+    recoverFocusAfterNativeDialog: () => ipcRenderer.invoke(CHANNEL.appRecoverFocusAfterNativeDialog),
     checkForUpdates:  () => ipcRenderer.invoke(CHANNEL.appCheckForUpdates),
     openUpdateDownload: (url) => ipcRenderer.invoke(CHANNEL.appOpenUpdateDownload, url),
     downloadUpdate:   () => ipcRenderer.invoke(CHANNEL.appDownloadUpdate),

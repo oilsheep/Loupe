@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { CloseButton } from '@/components/CloseButton'
 import { useI18n } from '@/lib/i18n'
+import { showConfirm } from '@/lib/nativeDialog'
 import type { ToolCheck, ToolInstallLog } from '@shared/types'
 
 interface ToolInstallProgress {
@@ -69,7 +70,7 @@ export function ToolStatus({ onClose, onChecksRefreshed }: ToolStatusProps = {})
   async function installMissingTools() {
     if (installingTools || missing.length === 0) return
     const names = missing.map(check => check.name)
-    const ok = window.confirm(`${t('toolStatus.installConfirm')}\n\n${names.join(', ')}`)
+    const ok = showConfirm(`${t('toolStatus.installConfirm')}\n\n${names.join(', ')}`)
     if (!ok) return
     setInstallingTools(true)
     setToolInstallMessage(null)
@@ -113,7 +114,7 @@ export function ToolStatus({ onClose, onChecksRefreshed }: ToolStatusProps = {})
 
   async function resetFasterWhisper() {
     if (installingTools) return
-    const ok = window.confirm(t('toolStatus.resetFasterWhisperConfirm'))
+    const ok = showConfirm(t('toolStatus.resetFasterWhisperConfirm'))
     if (!ok) return
     setInstallingTools(true)
     setToolInstallMessage(null)

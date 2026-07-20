@@ -468,6 +468,7 @@ export interface DesktopApi {
     openPath(path: string):                                        Promise<void>
     getPlatform():                                                 Promise<string>
     getVersion():                                                  Promise<string>
+    recoverFocusAfterNativeDialog():                               Promise<void>
     checkForUpdates():                                             Promise<AppUpdateCheckResult>
     openUpdateDownload(url: string):                               Promise<void>
     downloadUpdate():                                              Promise<void>
