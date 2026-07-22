@@ -75,15 +75,16 @@ describe('SessionManager', () => {
 
   it('start creates session row, starts scrcpy + logcat, ensures dirs', async () => {
     const s = await mgr.start({
-      deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: 'note',
+      deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: 'note', recordingMaxSize: 1080,
     })
     expect(s.id).toBe('sess-1')
     expect(s.deviceModel).toBe('Pixel 7')
     expect(s.ramTotalGb).toBe(8)
     expect(s.graphicsDevice).toBe('Qualcomm Adreno 740')
     expect(s.status).toBe('recording')
+    expect(s.recordingMaxSize).toBe(1080)
     expect(stubs.scrcpy.start).toHaveBeenCalledWith(expect.objectContaining({
-      deviceId: 'ABC', recordPath: paths.videoFile('sess-1'),
+      deviceId: 'ABC', recordPath: paths.videoFile('sess-1'), maxSize: 1080,
     }))
     expect(stubs.logcat.start).toHaveBeenCalled()
     expect(stubs.clickRecorder.start).toHaveBeenCalledWith({
@@ -99,6 +100,15 @@ describe('SessionManager', () => {
     expect(existsSync(paths.screenshotsDir('sess-1'))).toBe(true)
     expect(existsSync(paths.projectFile('sess-1'))).toBe(true)
     expect(JSON.parse(readFileSync(paths.projectFile('sess-1'), 'utf8')).session.videoPath).toBe(paths.videoFile('sess-1'))
+  })
+
+  it('falls back to 1280 when the runtime start value is unsupported', async () => {
+    const session = await mgr.start({
+      deviceId: 'ABC', connectionMode: 'usb', buildVersion: '1.0', testNote: '', recordingMaxSize: 999 as any,
+    })
+
+    expect(session.recordingMaxSize).toBe(1280)
+    expect(stubs.scrcpy.start).toHaveBeenCalledWith(expect.objectContaining({ maxSize: 1280 }))
   })
 
   it('persists profileId on session insert', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '@/lib/store'
-import type { AppSettings, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo, RecordingPreferences } from '@shared/types'
+import type { AppSettings, AudioAnalysisSettings, CommonSessionSettings, DesktopApi, IosAppInfo, RecordingMaxSize, RecordingPreferences } from '@shared/types'
+import { DEFAULT_RECORDING_MAX_SIZE, RECORDING_MAX_SIZES } from '@shared/recordingResolution'
 import { useI18n } from '@/lib/i18n'
 import type { RecordingConnectionMode } from '@/lib/recordingSource'
 import {
@@ -102,10 +103,12 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   const [recordPcScreen, setRecordPcScreen] = useState(isPcLikeSource)
   const [recordMic, setRecordMic] = useState(true)
   const [recordSystemAudio, setRecordSystemAudio] = useState(false)
+  const [recordingMaxSize, setRecordingMaxSize] = useState<RecordingMaxSize>(DEFAULT_RECORDING_MAX_SIZE)
   const [recordingPreferences, setRecordingPreferences] = useState<RecordingPreferences>({
     recordMic: true,
     iosLaunchApp: true,
     recordSystemAudio: false,
+    recordingMaxSize: DEFAULT_RECORDING_MAX_SIZE,
   })
   const [audioSettings, setAudioSettings] = useState<AudioAnalysisSettings | null>(null)
   const [audioLanguage, setAudioLanguage] = useState('auto')
@@ -143,6 +146,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         setRecordMic(loaded.recordingPreferences.recordMic)
         setIosLaunchApp(loaded.recordingPreferences.iosLaunchApp)
         setRecordSystemAudio(canRecordSystemAudio ? loaded.recordingPreferences.recordSystemAudio ?? false : false)
+        setRecordingMaxSize(loaded.recordingPreferences.recordingMaxSize ?? DEFAULT_RECORDING_MAX_SIZE)
       }
       if (loaded.commonSession) {
         setCommonSession(loaded.commonSession)
@@ -238,6 +242,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
         recordPcScreen,
         recordMic,
         recordSystemAudio: canRecordSystemAudio ? recordSystemAudio : false,
+        recordingMaxSize,
         pcCaptureSourceName: sourceName,
         iosLogCapture: connectionMode === 'ios',
         iosLogBundleId: connectionMode === 'ios' ? iosBundleId.trim() : undefined,
@@ -277,6 +282,7 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
       recordMic,
       iosLaunchApp,
       recordSystemAudio: canRecordSystemAudio ? recordSystemAudio : recordingPreferences.recordSystemAudio,
+      recordingMaxSize,
       ...overrides,
     }
     const saved = await api.settings.setRecordingPreferences(next)
@@ -296,6 +302,11 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
   function changeRecordSystemAudio(next: boolean) {
     setRecordSystemAudio(next)
     void saveRecordingPreferencesLast({ recordSystemAudio: next })
+  }
+
+  function changeRecordingMaxSize(next: RecordingMaxSize) {
+    setRecordingMaxSize(next)
+    void saveRecordingPreferencesLast({ recordingMaxSize: next })
   }
 
   async function addCommonValue(kind: 'platforms' | 'testers', value: string) {
@@ -396,6 +407,23 @@ export function NewSessionForm({ api, deviceId, connectionMode, sourceName }: Pr
           </span>
         </label>
       )}
+
+      <label className="block rounded border border-zinc-800 bg-zinc-950/50 p-3 text-sm text-zinc-200">
+        <span className="block font-medium">{t('new.recordingMaxSize')}</span>
+        <select
+          aria-label={t('new.recordingMaxSize')}
+          value={recordingMaxSize}
+          onChange={e => changeRecordingMaxSize(e.target.value === 'original' ? 'original' : Number(e.target.value) as RecordingMaxSize)}
+          className="mt-2 w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-blue-600"
+        >
+          {RECORDING_MAX_SIZES.map(size => (
+            <option key={size} value={size}>
+              {size === 'original' ? t('new.recordingMaxSizeOriginal') : `${size} px`}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-xs leading-5 text-zinc-500">{t('new.recordingMaxSizeHelp')}</span>
+      </label>
 
       {recordMic && (
         <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3">

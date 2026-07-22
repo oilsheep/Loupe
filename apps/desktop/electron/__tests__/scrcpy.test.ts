@@ -39,6 +39,25 @@ describe('Scrcpy', () => {
     expect(proc.pid).toBe(999)
   })
 
+  it('uses the selected longest-edge limit', () => {
+    const { runner } = makeMock()
+    const s = new Scrcpy(runner)
+    s.start({ deviceId: 'ABC', recordPath: 'C:/tmp/v.mp4', maxSize: 720 })
+
+    const args = (runner.spawn as any).mock.calls[0][1] as string[]
+    expect(args).toContain('--max-size=720')
+    expect(args).not.toContain('--max-size=1280')
+  })
+
+  it('omits the longest-edge limit for original-size recording', () => {
+    const { runner } = makeMock()
+    const s = new Scrcpy(runner)
+    s.start({ deviceId: 'ABC', recordPath: 'C:/tmp/v.mp4', maxSize: 'original' })
+
+    const args = (runner.spawn as any).mock.calls[0][1] as string[]
+    expect(args.some(arg => arg.startsWith('--max-size='))).toBe(false)
+  })
+
   it('throws when start called twice', () => {
     const { runner } = makeMock()
     const s = new Scrcpy(runner)

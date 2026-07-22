@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import type { AppLocale, AppSettings, AudioAnalysisSettings, BugSeverity, CommonSessionSettings, ExportQuality, GitLabMentionUser, GitLabPublishSettings, GooglePublishSettings, HotkeySettings, MarkerFieldPreset, MentionIdentity, ProfileSettings, PublishService, PublishTemplateSettings, RecordingPreferences, RefreshError, SeveritySettings, SlackChannel, SlackMentionUser, SlackPublishSettings } from '@shared/types'
+import { DEFAULT_RECORDING_MAX_SIZE, normalizeRecordingMaxSize } from '@shared/recordingResolution'
 import { DEFAULT_EXPORT_QUALITY, normalizeExportQuality } from '@shared/exportQuality'
 import { normalizeMentionAliases, normalizeSlackMentionIds } from './mention-format'
 import { GOOGLE_OAUTH_CONFIG } from './google-oauth-config'
@@ -49,6 +50,7 @@ export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
   recordMic: true,
   iosLaunchApp: true,
   recordSystemAudio: false,
+  recordingMaxSize: DEFAULT_RECORDING_MAX_SIZE,
 }
 
 const REQUIRED_SEVERITY_KEYS = ['note', 'major', 'normal', 'minor', 'improvement'] as const
@@ -434,6 +436,7 @@ function normalizeRecordingPreferences(raw?: Partial<RecordingPreferences>): Rec
     recordMic: typeof raw?.recordMic === 'boolean' ? raw.recordMic : DEFAULT_RECORDING_PREFERENCES.recordMic,
     iosLaunchApp: typeof raw?.iosLaunchApp === 'boolean' ? raw.iosLaunchApp : DEFAULT_RECORDING_PREFERENCES.iosLaunchApp,
     recordSystemAudio: typeof raw?.recordSystemAudio === 'boolean' ? raw.recordSystemAudio : DEFAULT_RECORDING_PREFERENCES.recordSystemAudio,
+    recordingMaxSize: normalizeRecordingMaxSize(raw?.recordingMaxSize),
   }
 }
 

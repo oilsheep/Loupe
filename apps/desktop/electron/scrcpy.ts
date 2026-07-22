@@ -1,8 +1,11 @@
 import type { IProcessRunner, SpawnedProcess } from './process-runner'
+import type { RecordingMaxSize } from '@shared/types'
+import { DEFAULT_RECORDING_MAX_SIZE } from '@shared/recordingResolution'
 
 export interface ScrcpyOptions {
   deviceId: string
   recordPath: string
+  maxSize?: RecordingMaxSize
   windowTitle?: string
   onUnexpectedExit?: (code: number | null) => void
 }
@@ -29,7 +32,7 @@ export class Scrcpy {
       // Compression tuned for QA review — file size matters more than cinematic quality.
       '--max-fps=30',           // QA bug repro doesn't need 60fps
       '--video-bit-rate=4M',    // half of scrcpy's 8M default; still very legible
-      '--max-size=1280',        // cap longest dimension at 720p-class
+      ...(opts.maxSize === 'original' ? [] : [`--max-size=${opts.maxSize ?? DEFAULT_RECORDING_MAX_SIZE}`]),
       // Audio: forward + record so QA can hear sound bugs (music, voice, SFX).
       // Requires Android 11+; on older devices scrcpy auto-falls back to video-only.
       '--audio-codec=aac',      // AAC plays in any MP4 player + HTML5 <video>

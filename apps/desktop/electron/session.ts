@@ -8,7 +8,8 @@ import { IosSyslogBuffer, type IosSyslogStartOptions } from './ios-syslog'
 import type { IProcessRunner } from './process-runner'
 import type { Db } from './db'
 import type { Paths } from './paths'
-import type { Session, Bug, BugAnnotation, BugSeverity, MarkerCustomField } from '@shared/types'
+import type { Session, Bug, BugAnnotation, BugSeverity, MarkerCustomField, RecordingMaxSize } from '@shared/types'
+import { normalizeRecordingMaxSize } from '@shared/recordingResolution'
 import { captureScreenshot as defaultCapture } from './screenshot'
 import { assertVideoInputReadable, extractAudioTrack, extractThumbnail, probeMediaDurationMs, remuxForHtml5Playback, resolveBundledFfmpegPath } from './ffmpeg'
 import { writeProjectFile } from './project-file'
@@ -167,6 +168,7 @@ export interface StartArgs {
   recordMic?: boolean
   recordSystemAudio?: boolean
   recordPcScreen?: boolean
+  recordingMaxSize?: RecordingMaxSize
   pcCaptureSourceName?: string
   logcatPackageName?: string
   logcatTagFilter?: string
@@ -247,6 +249,7 @@ export class SessionManager {
       : await adb.getDeviceInfo(args.deviceId)
     const startedAt = this.now()
     const id = this.makeSessionId(args.buildVersion, startedAt)
+    const recordingMaxSize = normalizeRecordingMaxSize(args.recordingMaxSize)
     this.activeLogcatLineCount = sanitizeLogcatLineCount(args.logcatLineCount)
     paths.ensureSessionDirs(id)
     const sess: Session = {
@@ -268,6 +271,7 @@ export class SessionManager {
       micAudioStartOffsetMs: null,
       micRecordingRequested: Boolean(args.recordMic),
       systemAudioRecordingRequested: Boolean(args.recordSystemAudio),
+      recordingMaxSize,
     }
     db.insertSession(sess)
     this.persistProject(sess.id)
@@ -278,6 +282,7 @@ export class SessionManager {
       scrcpy.start({
         deviceId: args.deviceId,
         recordPath: paths.videoFile(id),
+        maxSize: recordingMaxSize,
         windowTitle,
         onUnexpectedExit: (code) => {
           void this.finishActiveSession({

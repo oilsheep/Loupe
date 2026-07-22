@@ -6,6 +6,8 @@ import { BugList } from '@/components/BugList'
 import { AudioAnalysisWaitDialog } from '@/components/AudioAnalysisWaitDialog'
 import { useI18n } from '@/lib/i18n'
 import { showConfirm } from '@/lib/nativeDialog'
+import { buildDesktopVideoConstraints } from '@/lib/recordingResolution'
+import { DEFAULT_RECORDING_MAX_SIZE } from '@shared/recordingResolution'
 
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -317,14 +319,7 @@ export function Recording({ session }: { session: Session }) {
     async function startRendererPcRecording() {
       const requestedNativeSystemAudio = Boolean(session.systemAudioRecordingRequested) && usesNativeMacSystemAudioCapture()
       const requestedSystemAudio = Boolean(session.systemAudioRecordingRequested) && supportsRendererSystemAudioCapture()
-      const videoConstraints = {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: session.deviceId,
-          minFrameRate: 30,
-          maxFrameRate: 30,
-        },
-      }
+      const videoConstraints = buildDesktopVideoConstraints(session.deviceId, session.recordingMaxSize ?? DEFAULT_RECORDING_MAX_SIZE)
       const audioConstraints = requestedSystemAudio
         ? {
             mandatory: {

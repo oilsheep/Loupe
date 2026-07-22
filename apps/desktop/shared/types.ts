@@ -200,10 +200,13 @@ export interface ProfileSettings {
   markerFieldPresets?: MarkerFieldPreset[]
 }
 
+export type RecordingMaxSize = 1280 | 1080 | 720 | 'original'
+
 export interface RecordingPreferences {
   recordMic: boolean
   iosLaunchApp: boolean
   recordSystemAudio: boolean
+  recordingMaxSize: RecordingMaxSize
 }
 
 export interface GoogleDriveFolder {
@@ -270,6 +273,8 @@ export interface Session {
   micRecordingRequested?: boolean
   /** Transient recording preference for PC/window sessions. System audio is muxed into the PC recording when available. */
   systemAudioRecordingRequested?: boolean
+  /** Transient longest-edge capture limit for the active session. Older/saved sessions may omit it. */
+  recordingMaxSize?: RecordingMaxSize
 }
 
 export interface Bug {
@@ -502,7 +507,7 @@ export interface DesktopApi {
   session: {
     start(args: {
       deviceId: string; connectionMode: 'usb' | 'wifi' | 'pc';
-      buildVersion: string; platform?: string; project?: string; profileId?: string | null; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; recordSystemAudio?: boolean; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
+      buildVersion: string; platform?: string; project?: string; profileId?: string | null; testNote: string; tester?: string; recordPcScreen?: boolean; recordMic?: boolean; recordSystemAudio?: boolean; recordingMaxSize?: RecordingMaxSize; pcCaptureSourceName?: string; iosLogCapture?: boolean; iosLogBundleId?: string; iosLogAppName?: string; iosLogLaunchApp?: boolean; iosLogFilter?: string; iosLogMinLevel?: string; logcatPackageName?: string; logcatTagFilter?: string; logcatMinPriority?: string; logcatLineCount?: number;
     }):                                                            Promise<Session>
     chooseVideoFile():                                             Promise<string | null>
     chooseAudioFile():                                             Promise<string | null>

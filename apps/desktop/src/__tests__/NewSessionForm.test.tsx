@@ -32,6 +32,7 @@ const { fakeApi, settings, goRecording, pushRecentBuild } = vi.hoisted(() => {
       recordMic: true,
       iosLaunchApp: true,
       recordSystemAudio: false,
+      recordingMaxSize: 1280,
     },
     mentionIdentities: [],
     profiles: [
@@ -169,7 +170,7 @@ describe('NewSessionForm audio trigger settings', () => {
   it('loads and persists the microphone recording preference', async () => {
     fakeApi.settings.get = vi.fn().mockResolvedValue({
       ...settings,
-      recordingPreferences: { recordMic: false, iosLaunchApp: true, recordSystemAudio: false },
+      recordingPreferences: { recordMic: false, iosLaunchApp: true, recordSystemAudio: false, recordingMaxSize: 1280 },
     })
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
@@ -182,6 +183,7 @@ describe('NewSessionForm audio trigger settings', () => {
         recordMic: true,
         iosLaunchApp: true,
         recordSystemAudio: false,
+        recordingMaxSize: 1280,
       })
     })
   })
@@ -190,7 +192,7 @@ describe('NewSessionForm audio trigger settings', () => {
     Object.defineProperty(window.navigator, 'platform', { configurable: true, value: 'Win32' })
     fakeApi.settings.get = vi.fn().mockResolvedValue({
       ...settings,
-      recordingPreferences: { recordMic: true, iosLaunchApp: true, recordSystemAudio: true },
+      recordingPreferences: { recordMic: true, iosLaunchApp: true, recordSystemAudio: true, recordingMaxSize: 1280 },
     })
     render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
 
@@ -203,7 +205,46 @@ describe('NewSessionForm audio trigger settings', () => {
         recordMic: true,
         iosLaunchApp: true,
         recordSystemAudio: false,
+        recordingMaxSize: 1280,
       })
+    })
+  })
+
+  it('loads, persists, and submits the recording longest-edge limit', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue({
+      ...settings,
+      recordingPreferences: { ...settings.recordingPreferences!, recordingMaxSize: 1080 },
+    })
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const limit = await screen.findByLabelText('Recording longest-edge limit') as HTMLSelectElement
+    await waitFor(() => expect(limit.value).toBe('1080'))
+
+    fireEvent.change(limit, { target: { value: '720' } })
+    await waitFor(() => {
+      expect(fakeApi.settings.setRecordingPreferences).toHaveBeenCalledWith(expect.objectContaining({ recordingMaxSize: 720 }))
+    })
+
+    fireEvent.click(screen.getByTestId('start-session'))
+    await waitFor(() => {
+      expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ recordingMaxSize: 720 }))
+    })
+  })
+
+  it('persists and submits original recording size', async () => {
+    fakeApi.settings.get = vi.fn().mockResolvedValue(settings)
+    render(<NewSessionForm api={fakeApi} deviceId="screen:1" connectionMode="pc" sourceName="Screen 1" />)
+
+    const limit = await screen.findByLabelText('Recording longest-edge limit') as HTMLSelectElement
+    fireEvent.change(limit, { target: { value: 'original' } })
+
+    await waitFor(() => {
+      expect(fakeApi.settings.setRecordingPreferences).toHaveBeenCalledWith(expect.objectContaining({ recordingMaxSize: 'original' }))
+    })
+
+    fireEvent.click(screen.getByTestId('start-session'))
+    await waitFor(() => {
+      expect(fakeApi.session.start).toHaveBeenCalledWith(expect.objectContaining({ recordingMaxSize: 'original' }))
     })
   })
 })

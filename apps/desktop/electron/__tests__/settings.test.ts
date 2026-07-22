@@ -71,9 +71,39 @@ describe('SettingsStore', () => {
         activeProfileId: FALLBACK_DEFAULTS.activeProfileId,
       })
 
-      expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true, recordSystemAudio: false })
-      expect(store.setRecordingPreferences({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true }).recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true })
-      expect(store.get().recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true })
+      expect(store.get().recordingPreferences).toEqual({ recordMic: false, iosLaunchApp: true, recordSystemAudio: false, recordingMaxSize: 1280 })
+      expect(store.setRecordingPreferences({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true, recordingMaxSize: 720 }).recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true, recordingMaxSize: 720 })
+      expect(store.get().recordingPreferences).toEqual({ recordMic: true, iosLaunchApp: false, recordSystemAudio: true, recordingMaxSize: 720 })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([1280, 1080, 720, 'original'] as const)('persists the supported recording size %s', (recordingMaxSize) => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      const store = new SettingsStore(file, FALLBACK_DEFAULTS)
+
+      store.setRecordingPreferences({
+        ...DEFAULT_RECORDING_PREFERENCES,
+        recordingMaxSize,
+      })
+
+      expect(new SettingsStore(file, FALLBACK_DEFAULTS).get().recordingPreferences?.recordingMaxSize).toBe(recordingMaxSize)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the default recording size for an unsupported persisted value', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loupe-settings-'))
+    try {
+      const file = join(root, 'settings.json')
+      writeFileSync(file, JSON.stringify({ recordingPreferences: { recordingMaxSize: 999 } }))
+      const store = new SettingsStore(file, FALLBACK_DEFAULTS)
+
+      expect(store.get().recordingPreferences?.recordingMaxSize).toBe(1280)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
